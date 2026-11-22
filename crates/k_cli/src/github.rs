@@ -1,11 +1,13 @@
-//! Kobra's releases on GitHub, which are private
-//! (`docs/design/48-releases-and-versioning.md`, "Private distribution"):
-//! `k toolchain install` and `k self update` read them through GitHub's
-//! REST API with the user's token.
+//! Kobra's releases on GitHub, in the public repository
+//! `slavkobojanic/kobra` (`docs/design/48-releases-and-versioning.md`,
+//! "Public distribution"): `k toolchain install` and `k self update` read
+//! them through GitHub's REST API, which needs no token for a public
+//! repository; one that is found is sent, which lifts the API's limit for
+//! requests without one (60 an hour).
 //!
-//! * **The token** is `GH_TOKEN`, else `GITHUB_TOKEN`, else what `gh auth
-//!   token` prints when the GitHub CLI is on the `PATH`, asked only when a
-//!   request to the API needs it.
+//! * **The token**, optional, is `GH_TOKEN`, else `GITHUB_TOKEN`, else what
+//!   `gh auth token` prints when the GitHub CLI is on the `PATH`, asked
+//!   only when a request to the API is made.
 //! * **It goes to the API's origin only** (`https://api.github.com`, or
 //!   `K_GITHUB_API`, which the tests point at a loopback fake): never to
 //!   an index or archive on another host, and never to the storage host an
@@ -15,8 +17,8 @@
 //!   and nightly attaches the whole index as it was when it was published.
 //! * **An archive URL** of the form
 //!   `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>`,
-//!   the URL the index lists and the one a public repository serves, is
-//!   fetched as that release's asset through the API.
+//!   the URL the index lists, is fetched as that release's asset through
+//!   the API, with or without a token.
 
 use std::sync::OnceLock;
 
@@ -35,9 +37,9 @@ const JSON: &str = "application/vnd.github+json";
 /// The API's media type for an asset's bytes.
 pub(crate) const OCTET_STREAM: &str = "application/octet-stream";
 
-/// What to do without access: the sentence every access failure ends with.
-pub(crate) const SIGN_IN: &str = "sign in with the GitHub CLI (`gh auth login`), \
-     or set GH_TOKEN to a token that can read slavkobojanic/kobra";
+/// How to lift the API's limit: the sentence a refusal ends with.
+pub(crate) const TOKEN_HINT: &str = "GitHub's API allows 60 requests an hour without a token: \
+     set GH_TOKEN to a GitHub token, or sign in with the GitHub CLI (`gh auth login`)";
 
 /// The API and the token for it.
 pub(crate) struct Github {
@@ -115,14 +117,6 @@ impl Github {
     pub(crate) fn url(&self, path: &str) -> String {
         format!("{}/{}", self.api, path.trim_start_matches('/'))
     }
-
-    /// The failure when no token was found.
-    pub(crate) fn no_token() -> String {
-        format!(
-            "Kobra's releases are in the private repository {REPO}, and no GitHub token was found \
-             (GH_TOKEN, GITHUB_TOKEN or `gh auth token`): {SIGN_IN}"
-        )
-    }
 }
 
 /// `scheme://host[:port]` of `url`, in lower case.
@@ -194,14 +188,19 @@ pub(crate) fn newest_with(releases: &serde_json::Value, name: &str) -> Option<(S
         .map(|(_, tag, url)| (tag, url))
 }
 
-/// `message` (a failed download of an API URL) with what to do about it
-/// when GitHub refused: 404 is what GitHub answers for a private
-/// repository the token can't read, 401 for a bad token.
+/// `message` (a failed download of an API URL) with what to do about it:
+/// 404 is a release or file the repository doesn't have, 403 and 429 the
+/// API's rate limit, 401 a token GitHub refused.
 pub(crate) fn explain(message: String) -> String {
-    if message.contains("answered 404") || message.contains("answered 403") {
-        format!("{message}: you may not have access to {REPO}; {SIGN_IN}")
+    if message.contains("answered 404") {
+        format!("{message}: {REPO} has no such release or file")
+    } else if message.contains("answered 403") || message.contains("answered 429") {
+        format!("{message}: GitHub refused the request, probably for its rate limit; {TOKEN_HINT}")
     } else if message.contains("answered 401") {
-        format!("{message}: GitHub refused the token; {SIGN_IN}")
+        format!(
+            "{message}: GitHub refused the token (GH_TOKEN, GITHUB_TOKEN or `gh auth token`); \
+             fix or unset it, since the releases need none"
+        )
     } else {
         message
     }
@@ -282,5 +281,18 @@ mod tests {
             Some(("v2".to_owned(), "u2".to_owned()))
         );
         assert_eq!(newest_with(&serde_json::json!([]), "index.json"), None);
+    }
+
+    #[test]
+    fn refusals_say_what_to_do() {
+        let e = explain("`u` answered 404".to_owned());
+        assert!(e.contains("slavkobojanic/kobra has no such release"), "{e}");
+        for code in ["403", "429"] {
+            let e = explain(format!("`u` answered {code}"));
+            assert!(e.contains("rate limit") && e.contains("GH_TOKEN"), "{e}");
+        }
+        let e = explain("`u` answered 401".to_owned());
+        assert!(e.contains("refused the token"), "{e}");
+        assert_eq!(explain("timed out".to_owned()), "timed out");
     }
 }

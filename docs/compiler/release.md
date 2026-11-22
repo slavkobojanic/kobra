@@ -19,11 +19,14 @@ procedure.
 > workflow creates its own tag. Sections
 > marked *(planned)* describe files and commands not built yet. The name (Kobra), the namespace
 > (`slavkobojanic/kobra` on GitHub and GHCR) and the licence (MIT OR Apache-2.0) are decided
-> ([design 48](../design/48-releases-and-versioning.md#owner-decisions)), and so is **private
-> distribution**: the repository stays private, collaborators install from its GitHub releases with the
-> GitHub CLI, there is no docs site (each release attaches its book, opened with `k docs`), and no CI job
-> runs on macOS (the macOS archive is attached from the owner's Mac, §6)
-> ([design 48, "Private distribution"](../design/48-releases-and-versioning.md#private-distribution-decided-2026-11-23)).
+> ([design 48](../design/48-releases-and-versioning.md#owner-decisions)), and so is **public
+> distribution**: the repository is public, anyone installs from its GitHub releases with
+> `curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh` (no sign-in, no token), the docs site
+> is GitHub Pages with the install scripts and `index.json` at its root (each release also attaches its
+> book, opened offline with `k docs`), and no CI job runs on macOS (the macOS archive is attached from the
+> owner's Mac, §6) ([design 48, "Public distribution"](../design/48-releases-and-versioning.md#public-distribution-decided-2026-11-23); it supersedes the
+> [private distribution](../design/48-releases-and-versioning.md#private-distribution-decided-2026-11-23)
+> decided earlier that day).
 > Publishing waits only for the owner to switch it on ([step 15](#12-implementation-plan)'s list), and
 > every step up to publishing can be run locally.
 
@@ -73,7 +76,7 @@ Contents:
 | `.github/actions/setup/`, `.github/actions/site/` | the workflows' shared steps: Rust, mdBook and the caches; assembling the whole docs site | exist |
 | `scripts/ci/` | the few steps that need `gh`, `git` or `cosign`: `release-index.sh`, `tag.sh` (the release tag), `publish-release.sh`, `sign.sh`, `verify.sh`, `nightly-issue.sh` | exist |
 | `docker/toolchain.Dockerfile` | the toolchain image, from a Linux release archive's `k` | exists (built only by the workflows) |
-| `scripts/install.sh`, `scripts/install.ps1` | installers for collaborators, piped from the private repository: `gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' \| sh` (`gh api repos/slavkobojanic/kobra/contents/scripts/install.ps1 -H 'Accept: application/vnd.github.raw' \| Out-String \| iex` on Windows); they download with `gh release download` (or curl and `GH_TOKEN`) and install the toolchain and its book; tested by `crates/k_cli/tests/install_script.rs` with a fake `gh` and a fake GitHub API | exist |
+| `scripts/install.sh`, `scripts/install.ps1` | the installers, served at the docs site's root by the Pages deploy: `curl -fsSL https://slavkobojanic.github.io/kobra/install.sh \| sh` (`irm https://slavkobojanic.github.io/kobra/install.ps1 \| iex` on Windows); they download the public release files with no token, check `SHA256SUMS` and install the toolchain and its book; tested by `crates/k_cli/tests/install_script.rs` against a fake release, docs site and GitHub API on loopback | exist |
 | `Cargo.toml` `[workspace.metadata.project]` | **the** name and namespace: `Kobra`, the repository, the docs site (for the day the repository is public), the image, the extension id; read by `release prepare` and `release attach-local`, checked against the rest by `version.rs` | exists |
 | `LICENSE-MIT`, `LICENSE-APACHE` | the licence (MIT OR Apache-2.0), packed into every archive | exist |
 | `tests/compat/locks/`, `tests/compat/wire/` | golden lockfiles per format and recorded traffic per minor; checked by `crates/k_server/tests/compat/` | exists (format 1 of every lockfile; the 0.1 transcripts) |
@@ -260,8 +263,8 @@ release made from main (the first ones, before release branches are cut) leaves 
    named exactly), the extension `.vsix`, the JetBrains plugin `kobra-intellij-0.6.0-rc.1.zip`, the
    image tag `0.6.0-rc.1-<arch>` (with `K_PUBLISH_ENABLED`). `-f draft=false` publishes it at once instead, before the macOS archive is
    there; leave it a draft unless there is no Mac to attach from.
-9. **Attach the macOS archive** from the owner's Mac (no CI job runs on macOS: the repository is
-   private, where a macOS minute is billed at ten Linux minutes), in a clean checkout of the tag, signed
+9. **Attach the macOS archive** from the owner's Mac (no CI job runs on macOS: decided while the repository was
+   private, where a macOS minute is billed at ten Linux minutes, and kept since), in a clean checkout of the tag, signed
    in with `gh auth login` as an account that can write releases:
    ```sh
    git fetch origin tag v0.6.0-rc.1
@@ -394,8 +397,8 @@ variables → Actions → Variables) for parts that cost something or can't run 
 
 | Variable | Turns on |
 |---|---|
-| `K_PAGES_ENABLED` = `true` | the Pages deploys (`pages` in `ci.yml` and `publish.yml`); first set Settings → Pages → Source to "GitHub Actions". **Leave it unset while the repository is private** (GitHub's Free plan has no Pages for a private repository); it is for the day the repository goes public (design 48, "Private distribution") |
-| `K_PUBLISH_ENABLED` = `true` | pushing the toolchain images to GHCR (`image` in `release.yml`, `publish-image` in `publish.yml`): a private repository's packages count against the plan's storage, so the images are built and checked on every release but pushed only with it. Releases and nightlies are published by being started, without it |
+| `K_PAGES_ENABLED` = `true` | the Pages deploys (`pages` in `ci.yml` and `publish.yml`); first set Settings → Pages → Source to "GitHub Actions". **Set (2026-11-23)**, with Pages' source set, since the repository went public (design 48, "Public distribution") |
+| `K_PUBLISH_ENABLED` = `true` | pushing the toolchain images to GHCR (`image` in `release.yml`, `publish-image` in `publish.yml`): the images are built and checked on every release but pushed only with it (a switch made while a private repository's packages counted against the plan's storage, kept as the owner's choice). Releases and nightlies are published by being started, without it |
 | `K_PERF_RUNNER` = a runner label | the performance budgets (`perf`, `gate-perf`) on that self-hosted runner; unset, they are skipped |
 
 Removing a variable (or setting it to anything but `true`) switches its jobs off again. With no
@@ -418,12 +421,12 @@ gate isn't run where its columns say.
 | `book` | Linux x86_64 | `cargo xtask docs build --version next` (the book, any mdBook warning or error fails), the link check (`book_links::`; the other freshness checks are inside `cargo test`); when `docs/book/` or `crates/xtask/` changed since the `base` input (`cargo xtask ci changed`), the built site uploaded as an artifact (the change's preview until the owner picks a host with previews) |
 | `fragments` | Linux x86_64 | `cargo test -p xtask`; `cargo xtask docs-gate <base>` (a fragment when `crates/`, `editors/` or `docs/book/` changed since the base, and its pages in the diff; nothing to check on main itself) |
 | `intellij` | Linux x86_64, Java 25 | `./gradlew test buildPlugin verifyPlugin` in `editors/intellij`: the JetBrains plugin's tests in a headless IDE, the plugin verifier, and the zip uploaded as an artifact |
-| `install-scripts` | Linux x86_64; only when `scripts/install.*` or their tests changed since the base | `install_script::`: each installer against a fake release, with a fake `gh` and a fake GitHub API on loopback |
-| `pages` | Linux x86_64; a run of main, after the jobs above; needs `K_PAGES_ENABLED` (unset while the repository is private) | the whole site (the newest release from its tag, `/next/` from main, the index) deployed to GitHub Pages |
+| `install-scripts` | Linux x86_64; only when `scripts/install.*` or their tests changed since the base | `install_script::`: each installer against a fake release, docs site and GitHub API on loopback |
+| `pages` | Linux x86_64; a run of main, after the jobs above; needs `K_PAGES_ENABLED` (set) | the whole site (the newest release from its tag, `/next/` from main, `install.sh`, `install.ps1` and the index at its root) deployed to GitHub Pages |
 
 The `base` input (default `origin/main`) is what a pull request's base was: the commit the change is
-compared with. **Linux only.** The repository is private, where GitHub bills a macOS minute at ten
-Linux minutes and a Windows minute at two: `ci.yml` runs on Linux, Windows is tested by the release's
+compared with. **Linux only**, as decided while the repository was private, where GitHub bills a macOS minute at
+ten Linux minutes and a Windows minute at two, and kept since it is public: `ci.yml` runs on Linux, Windows is tested by the release's
 and the nightly's gate, and macOS on the owner's Mac before each release (§6). `workflows.rs` fails
 when a workflow names a macOS runner or target.
 
@@ -548,12 +551,12 @@ environment that requires a maintainer's approval.
 
 ## 10. After publishing
 
-1. **Install as a collaborator would**, on a machine without Kobra, signed in with `gh auth login`:
-   `gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | sh`, then `k --version`, `k docs --path`, `k new hello && cd hello && k dev`.
+1. **Install as a user would**, on a machine without Kobra and without `gh` or a token:
+   `curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh`, then `k --version`, `k docs --path`, `k new hello && cd hello && k dev`.
 2. **Upgrade as a user would:** on a project pinned to the previous minor, `k toolchain install`,
    `k upgrade`, `k check`. Note anything `k upgrade` couldn't fix that the upgrade guide doesn't cover,
    and fix the guide on the release branch.
-3. **Check the docs:** `k docs` opens the new release's book. Once the repository is public: `/` lands on
+3. **Check the docs:** `k docs` opens the new release's book. On the site, `/` lands on
    the new minor, the version switcher lists it, `/next/` still builds from main, an old minor's URL
    redirects (before 1.0).
 4. **Close the release checklist issue** with the performance numbers and links to the artifacts.
@@ -640,7 +643,8 @@ in round 5.
    "Commands: decided while implementing": the index format, the `$K_HOME` layout (`bin/k` is a copy
    of the default, recorded in `$K_HOME/default`), a built-in index URL only in release builds (the
    workflows set `K_DEFAULT_TOOLCHAIN_INDEX` to the site's `index.json`; replaced on 2026-11-23 by
-   the private repository's releases, read with the user's token),
+   the repository's releases, read through GitHub's API: with the user's token while it was
+   private, without one since it is public),
    yanked notes from the last fetched index, and `k upgrade` still never downloading.
 5. **Lockfile format versions.** Golden files under `tests/compat/locks/` for today's format 1 of every
    lockfile; tests that a missing `format` reads as 1, a `format` newer than known is the new
@@ -774,6 +778,15 @@ in round 5.
     `support/release.rs`'s fake release laid out as the API serves it, with a fake `gh`
     (`release::fake_gh`: signed in, signed out, no access) first on the `PATH`, and for curl a
     loopback API whose asset URLs redirect to a second host, which must never see the token.
+    *Since the public distribution (2026-11-23):* `K_RELEASES` and `K_TOOLCHAIN_INDEX` are back, as
+    test overrides of the defaults the scripts name (`https://github.com/slavkobojanic/kobra/releases`,
+    `https://slavkobojanic.github.io/kobra/index.json`). The scripts download with plain curl or wget
+    (`Invoke-WebRequest`), with no token: `latest/download/SHA256SUMS`, then that release's
+    `download/v<version>/…`; with no stable release, the site's `index.json`, else the newest
+    release's found through the API (`K_GITHUB_API`), the one request that carries a token when one is
+    found (`GH_TOKEN`, `GITHUB_TOKEN`, `gh auth token`; `K_INSTALL_GH=none` skips `gh`). The access
+    check is gone. Tests: a fake release, docs site, API and storage host on loopback; every install
+    needs neither `gh` nor a token, and no host but the API ever sees one.
 12. **Docs version substitution and the docs build.** Tests: `{{k_version}}` is replaced in every page;
     `versions.json` is generated from the tags and branch; the site layout (`/0.N/`, `/next/`, redirects
     for `/` and `/latest/`) is produced by `cargo xtask docs build --version 0.1 --out …` into a
@@ -905,15 +918,23 @@ in round 5.
     attaches the macOS archive from the owner's Mac (§6; tests `dist::attach_local_*` with a fake
     `gh`); the docs site, `K_DEFAULT_TOOLCHAIN_INDEX` and the docs build's `--releases`/`--index` are
     gone, the Pages jobs kept behind `K_PAGES_ENABLED` for the day the repository is public.
+    Then, later the same day, **public distribution** (design 48, "Public distribution"): the
+    repository is public, Pages is enabled and `K_PAGES_ENABLED=true`; the one-liners are
+    `curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh` and
+    `irm https://slavkobojanic.github.io/kobra/install.ps1 | iex`, served at the site's root by the
+    Pages deploys of `ci.yml` (a run of main) and `publish.yml`; the scripts and `k toolchain` download
+    without a token (one, if found, still goes to the API only; tests `install_script::`,
+    `toolchain::commands::`); `k docs` stays and, without the book, names the site
+    (`docs_command::`). CI stays `workflow_dispatch` only, with no macOS runners.
 
     **What only the owner can do** before a real `0.1.0-rc.1`
     ([design 48, "Owner decisions"](../design/48-releases-and-versioning.md#owner-decisions)): rename
-    the GitHub repository to `slavkobojanic/kobra` (GitHub redirects the old name), keep it private and
-    push `main`; decide on image pushes (`K_PUBLISH_ENABLED`; not `K_PAGES_ENABLED`, which waits for
-    the repository to go public); choose the required checks and the performance runner
+    the GitHub repository to `slavkobojanic/kobra` (GitHub redirects the old name) and push `main`
+    (done; it is public, with Pages and `K_PAGES_ENABLED` on); decide on image pushes
+    (`K_PUBLISH_ENABLED`); choose the required checks and the performance runner
     (`K_PERF_RUNNER`); check that the Sigstore identity `verify.sh` expects is the repository's;
     prepare `0.1.0-rc.1` and push it (§6 steps 3–6), then `gh workflow run release.yml -f
     version=0.1.0-rc.1` (add `--ref release/0.1` if the branch is cut), the first real pipeline run,
     expected to need fixes since no workflow has run on GitHub yet; then attach the macOS archive
     (`cargo xtask release attach-local v0.1.0-rc.1`, §6 step 9) and publish
-    (`gh workflow run publish.yml -f version=0.1.0-rc.1`). Until a release is published, `gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | sh` has nothing to install; it says so.
+    (`gh workflow run publish.yml -f version=0.1.0-rc.1`). Until a release is published and Pages deployed, `curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh` has nothing to install (start `ci.yml` on main, or `publish.yml`, to deploy the site); the script says so once it runs.

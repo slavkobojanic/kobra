@@ -2,9 +2,10 @@
 # Assembles the toolchain index (index.json) from every published release's
 # index-entry.json (written by `cargo xtask dist index` in release.yml and
 # nightly.yml), plus the entries given (the release being made, which isn't
-# published yet). Every release and nightly attaches the result: `k
-# toolchain` and the install scripts read the newest release's index.json
-# (docs/design/48-releases-and-versioning.md, "Private distribution";
+# published yet). Every release and nightly attaches the result, which `k
+# toolchain` reads (and the install scripts, when the docs site has none),
+# and the Pages deploy puts it at the site's root for the install scripts
+# (docs/design/48-releases-and-versioning.md, "Public distribution";
 # docs/compiler/release.md §9). Run with GH_TOKEN set; needs `gh`.
 #
 #   scripts/ci/release-index.sh target/dist/index.json [target/dist/index-entry.json ...]

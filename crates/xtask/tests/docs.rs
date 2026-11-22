@@ -195,25 +195,40 @@ fn the_site_layout() {
 }
 
 #[test]
-fn the_install_scripts_need_nothing_filled_in() {
-    // The repository is private (design 48, "Private distribution"): the
-    // scripts download from its GitHub releases with the user's token, and
-    // the book's installation page pipes them from the repository with `gh`.
+fn the_install_scripts_at_the_sites_root_download_from_the_public_releases() {
+    // The repository is public (design 48, "Public distribution"): the
+    // site's root serves the scripts as the repository has them, which
+    // download from its GitHub Releases without a token and read the
+    // site's index, and the book's installation page pipes them from the
+    // site.
+    let project = xtask::project::Project::read(&repo());
     for script in ["install.sh", "install.ps1"] {
         let text = fs::read_to_string(repo().join("scripts").join(script)).unwrap();
-        assert!(text.contains("slavkobojanic/kobra"), "{script}");
+        assert!(
+            text.contains(&format!("{}/releases", project.repository)),
+            "{script}"
+        );
+        assert!(
+            text.contains(&format!("{}index.json", project.site)),
+            "{script}"
+        );
         assert!(!text.contains("@K_"), "{script}: a placeholder is left");
     }
     let page =
         fs::read_to_string(repo().join("docs/book/src/getting-started/installation.md")).unwrap();
-    for script in ["install.sh", "install.ps1"] {
+    for line in [
+        format!("curl -fsSL {}install.sh | sh", project.site),
+        format!("irm {}install.ps1 | iex", project.site),
+    ] {
         assert!(
-            page.contains(&format!(
-                "gh api repos/slavkobojanic/kobra/contents/scripts/{script} -H 'Accept: application/vnd.github.raw'"
-            )),
-            "the installation page pipes {script} from the repository"
+            page.contains(&line),
+            "the installation page has no `{line}`"
         );
     }
+    assert!(
+        !page.contains("gh api repos/"),
+        "a private one-liner is left"
+    );
 }
 
 #[test]

@@ -10,8 +10,8 @@
 //!   gives the same archive.
 //! * [`docs_archive`]: `docs-<version>.tar.gz`, the release's built book
 //!   below `docs-<version>/`, which the install scripts and `k toolchain
-//!   install` unpack into `~/.k/docs/<version>/` for `k docs` (the
-//!   repository is private, so there is no public docs site).
+//!   install` unpack into `~/.k/docs/<version>/` for `k docs` (the docs
+//!   site's copy, offline).
 //! * [`checksums`]: `SHA256SUMS`, one `<sha256>  <file>` line per archive
 //!   and book, the format the install scripts and `sha256sum -c` read.
 //! * [`add_release`]: the release's entry in `index.json`, the toolchain

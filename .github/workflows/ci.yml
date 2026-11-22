@@ -4,15 +4,14 @@
 #   gh workflow run ci.yml --ref <branch>             # against origin/main
 #   gh workflow run ci.yml --ref <branch> -f base=origin/release/0.6
 #
-# Nothing runs on a pull request or a push: the repository is private, where
-# every minute is billed, and the owner starts each run. Each step is a
-# command that also runs locally. The Pages deploy also needs
-# K_PAGES_ENABLED (for the day the repository is public).
+# Nothing runs on a pull request or a push: the owner starts each run. Each
+# step is a command that also runs locally. The Pages deploy also needs
+# K_PAGES_ENABLED (set since the repository went public; design 48, "Public
+# distribution").
 #
-# Linux only: a macOS minute is billed at ten Linux minutes and a Windows
-# minute at two (design 48, "Private distribution"). macOS is tested on the
-# owner's Mac before each release (release.md §6), and Windows by the
-# release's gate.
+# Linux only (design 48, "Private distribution", kept when the repository
+# went public): macOS is tested on the owner's Mac before each release
+# (release.md §6), and Windows by the release's gate.
 name: ci
 
 on:
@@ -152,18 +151,18 @@ jobs:
         run: cargo xtask ci changed --base "$BASE" scripts/install. crates/k_cli/tests/install_script.rs crates/k_cli/tests/support/release.rs
         env:
           BASE: ${{ inputs.base }}
-      # Each installer against a fake release with a fake `gh` and a fake
-      # GitHub API on loopback; the PowerShell one where pwsh is (the
-      # release's Windows gate).
+      # Each installer against a fake release, docs site and GitHub API on
+      # loopback; the PowerShell one where pwsh is (the release's Windows
+      # gate).
       - if: steps.changed.outputs.changed == 'true'
         shell: bash
         run: "cargo test -p k_cli --test it -- install_script::"
 
-  # /next/ (and the newest release, the redirects, versions.json, the
-  # install scripts and the index) on GitHub Pages when the run is of main:
-  # only for the day the repository is public (GitHub's Free plan has no
-  # Pages for a private one), behind K_PAGES_ENABLED (design 48, "Private
-  # distribution").
+  # The docs site on GitHub Pages when the run is of main: /next/, the
+  # newest release, the redirects, versions.json, and at its root the
+  # install scripts the one-liners pipe (`curl -fsSL <site>install.sh | sh`)
+  # and the toolchain index they read; behind K_PAGES_ENABLED (design 48,
+  # "Public distribution").
   pages:
     if: vars.K_PAGES_ENABLED == 'true' && github.ref == 'refs/heads/main'
     needs: [lint, test-linux, book]

@@ -16,9 +16,10 @@
 //! `k` is the shell script the test gives; [`FakeRelease::docs`] adds a
 //! release's book, `docs-<version>.tar.gz`.
 //!
-//! The repository is private (design 48, "Private distribution"), so the
-//! real releases are reached through GitHub's REST API with a token.
-//! [`FakeRelease::github`] lays the same release out as that API serves it,
+//! `k toolchain` reaches the public repository's releases through GitHub's
+//! REST API (design 48, "Public distribution"), with a token when one is
+//! found, and the install scripts fall back to it when the docs site has no
+//! index. [`FakeRelease::github`] lays the same release out as that API serves it,
 //! for `support/static_host.rs` to serve on loopback (`K_GITHUB_API`), and
 //! [`fake_gh`] writes a `gh` that answers from it:
 //!
@@ -394,7 +395,7 @@ impl FakeRelease {
         fs::create_dir_all(releases_dir.join("assets")).unwrap();
         fs::write(
             repo_dir.join("_index.json"),
-            serde_json::json!({ "full_name": REPO, "private": true }).to_string(),
+            serde_json::json!({ "full_name": REPO, "private": false }).to_string(),
         )
         .unwrap();
         let mut next_id = 1000u64;

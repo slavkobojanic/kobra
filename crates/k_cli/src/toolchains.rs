@@ -15,9 +15,10 @@
 //!
 //! These are the only commands that reach the network, and only the index
 //! and the archives (and books) it lists. The index is `K_TOOLCHAIN_INDEX`
-//! when set, else the newest release's `index.json` in the private
-//! repository `slavkobojanic/kobra`, read through GitHub's API with the
-//! user's token (`crate::github`, which sends it to the API only). An
+//! when set, else the newest release's `index.json` in the public
+//! repository `slavkobojanic/kobra`, read through GitHub's API without a
+//! token, or with the user's when one is found (`crate::github`, which
+//! sends it to the API only). An
 //! install downloads into `tmp/`, checks the size and SHA-256 the index
 //! gives, unpacks there and then renames the directory into `toolchains/`,
 //! so an interrupted or failed install leaves no toolchain behind; what it
@@ -179,17 +180,15 @@ fn get_text(gh: &Github, url: &str, accept: &str, max: u64) -> Result<String, St
 
 /// Downloads a file the index lists: a release download URL of GitHub
 /// (`https://github.com/<repo>/releases/download/<tag>/<file>`) as that
-/// release's asset through the API when there is a token, anything else
-/// as it is (the token goes to the API's origin only).
+/// release's asset through the API (with the token when there is one),
+/// anything else as it is (the token goes to the API's origin only).
 fn download_file(
     gh: &Github,
     url: &str,
     out: &mut dyn Write,
     max: u64,
 ) -> Result<(u64, String), String> {
-    if let Some((repo, tag, name)) = github::release_download(url)
-        && gh.token().is_some()
-    {
+    if let Some((repo, tag, name)) = github::release_download(url) {
         let release_url = gh.url(&format!("repos/{repo}/releases/tags/{tag}"));
         let text = get_text(
             gh,
@@ -222,9 +221,6 @@ fn fetch_index(home: &Path, gh: &Github) -> Result<Index, Failure> {
             (text, url)
         }
         None => {
-            if gh.token().is_none() {
-                return Err((Github::no_token(), 1));
-            }
             let list_url = gh.url(&format!("repos/{REPO}/releases?per_page=100"));
             let list = get_text(
                 gh,

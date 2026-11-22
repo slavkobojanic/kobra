@@ -122,8 +122,8 @@ A lock that the requirement no longer allows (the requirement was raised by hand
 | `K_TOOLCHAIN=<version>` | run this one command with that installed toolchain, whatever the project asks for, project or not: for bisecting, or for trying a release candidate (`K_TOOLCHAIN=0.2.0-rc.1 k check`) |
 | `K_HOME` | where toolchains are installed: `$K_HOME/toolchains/<version>/k`, with the default's copy in `$K_HOME/bin`; `~/.k` by default |
 | `K_TOOLCHAIN_DELEGATED` | set by a `k` for the toolchain it runs in its place; a `k` started with it never passes the command on again |
-| `K_TOOLCHAIN_INDEX` | the URL of the toolchain index (`index.json`) that `k toolchain install` and `k self update` read, instead of the newest release's own in the private repository `slavkobojanic/kobra`; these are the only commands that download anything |
-| `GH_TOKEN`, `GITHUB_TOKEN` | the GitHub token `k toolchain install` and `k self update` download the private releases with; without either, `k` asks `gh auth token` (sign in with `gh auth login`). The token is sent to GitHub's API only, never to another host |
+| `K_TOOLCHAIN_INDEX` | the URL of the toolchain index (`index.json`) that `k toolchain install` and `k self update` read, instead of the newest release's own in the repository `slavkobojanic/kobra`; these are the only commands that download anything |
+| `GH_TOKEN`, `GITHUB_TOKEN` | optional: a GitHub token `k toolchain install` and `k self update` send to GitHub's API, which allows 60 requests an hour without one; without either, `k` asks `gh auth token` when the GitHub CLI is installed, and else sends none. The releases are public, so none is needed. The token is sent to GitHub's API only, never to another host |
 
 | Command | Purpose |
 |---|---|
@@ -132,7 +132,7 @@ A lock that the requirement no longer allows (the requirement was raised by hand
 | `k toolchain remove <version>` | remove an installed toolchain (not the default) |
 | `k toolchain default <version>` | make an installed toolchain the `k` on the `PATH`: it is copied to `$K_HOME/bin` |
 | `k self update` | install the newest stable release (the newest nightly, when this `k` is a nightly) and make it the default |
-| `k docs` | open this toolchain's book, which the install script and `k toolchain install` put in `$K_HOME/docs/<version>/`, in the browser (`$BROWSER`, else the system's); `--path` prints its first page's path instead. Without it, it says so: in a checkout, `mdbook serve docs/book` serves the book |
+| `k docs` | open this toolchain's book, which the install script and `k toolchain install` put in `$K_HOME/docs/<version>/`, in the browser (`$BROWSER`, else the system's); `--path` prints its first page's path instead. Without it, it says so and names the docs site's copy (`https://slavkobojanic.github.io/kobra/<minor>/`); in a checkout, `mdbook serve docs/book` serves the book |
 | `k upgrade [project]` | move a project to the running toolchain: lockfiles to its format, `k` and `k.lock` to it, the migration fixes applied, then what remains printed; refuses uncommitted changes; see [Upgrading Kobra](../apps/upgrading.md) |
 | `k upgrade --to <version>` | move it to that installed toolchain instead (`0.3.1`, or `0.3` for its newest installed release), through each minor in between |
 | `k upgrade --allow-dirty` | upgrade with uncommitted changes, or outside git |

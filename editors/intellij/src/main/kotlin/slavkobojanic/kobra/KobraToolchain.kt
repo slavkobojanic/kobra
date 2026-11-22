@@ -9,13 +9,11 @@ import java.nio.file.Path
 
 /** Finding the `k` executable that runs the language server. */
 object KobraToolchain {
-    /** The install one-liner of the book's Installation page (the private repository, through the GitHub CLI). */
-    const val INSTALL_SH =
-        "gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | sh"
+    /** The install one-liner of the book's Installation page (the script on the docs site). */
+    const val INSTALL_SH = "curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh"
 
     /** The same for Windows PowerShell. */
-    const val INSTALL_PS1 =
-        "gh api repos/slavkobojanic/kobra/contents/scripts/install.ps1 -H 'Accept: application/vnd.github.raw' | Out-String | iex"
+    const val INSTALL_PS1 = "irm https://slavkobojanic.github.io/kobra/install.ps1 | iex"
 
     /** Where a toolchain installation lives, and the environment that moves it. */
     data class Environment(

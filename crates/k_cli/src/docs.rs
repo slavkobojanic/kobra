@@ -1,18 +1,23 @@
 //! `k docs`: the running toolchain's book
-//! (`docs/design/48-releases-and-versioning.md`, "Private distribution").
+//! (`docs/design/48-releases-and-versioning.md`, "Public distribution").
 //!
-//! Kobra's repository is private, so there is no public docs site: each
-//! release attaches its built book (`docs-<version>.tar.gz`), and the
+//! Each release attaches its built book (`docs-<version>.tar.gz`), and the
 //! install scripts and `k toolchain install` unpack it into
-//! `$K_HOME/docs/<version>/`. `k docs` opens that book's `index.html` with
-//! `$BROWSER` when set, else the system's opener (`open`, `xdg-open`,
-//! `start`); `k docs --path` prints the page's path. Nothing is fetched.
+//! `$K_HOME/docs/<version>/`, so it reads offline and matches this `k`.
+//! `k docs` opens that book's `index.html` with `$BROWSER` when set, else
+//! the system's opener (`open`, `xdg-open`, `start`); `k docs --path`
+//! prints the page's path. Nothing is fetched. Without the book it names
+//! the docs site's copy (`<site><minor>/`, or `<site>next/` for a nightly).
 
 use std::path::Path;
 use std::process::ExitCode;
 
 use crate::cli::DocsArgs;
-use crate::toolchain;
+use crate::{index, toolchain};
+
+/// The docs site (`[workspace.metadata.project] site`;
+/// `crates/k_cli/tests/version.rs` checks they agree).
+pub(crate) const SITE: &str = "https://slavkobojanic.github.io/kobra/";
 
 /// Runs `k docs`.
 #[must_use]
@@ -24,10 +29,16 @@ pub fn run(args: &DocsArgs) -> ExitCode {
     };
     let page = dir.join("index.html");
     if !page.is_file() {
+        let online = if index::is_nightly(&version) {
+            format!("{SITE}next/")
+        } else {
+            format!("{SITE}{}.{}/", version.major, version.minor)
+        };
         eprintln!(
-            "error: the book of k {version} isn't installed (in {}): the install script installs \
-             it with the toolchain, as does `k toolchain install {version}` from a release that \
-             has it; in a checkout of Kobra, read it with `mdbook serve docs/book`",
+            "error: the book of k {version} isn't installed (in {}): read it online at {online}; \
+             the install script installs it with the toolchain, as does `k toolchain install \
+             {version}` from a release that has it; in a checkout of Kobra, read it with \
+             `mdbook serve docs/book`",
             dir.display()
         );
         return ExitCode::from(1);

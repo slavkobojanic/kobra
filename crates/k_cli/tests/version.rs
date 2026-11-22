@@ -567,8 +567,8 @@ fn the_project_namespace_is_used_everywhere() {
     }
 
     // The workflows push the project's image. (Release builds have no
-    // built-in index: `k toolchain` reads the private repository's
-    // releases, design 48, "Private distribution".)
+    // built-in index: `k toolchain` reads the newest release's through
+    // GitHub's API, design 48, "Public distribution".)
     for workflow in ["release.yml", "nightly.yml"] {
         let text = fs::read_to_string(repo().join(".github/workflows").join(workflow)).unwrap();
         let expected = format!("K_IMAGE: {image}\n");
@@ -594,6 +594,23 @@ fn the_project_namespace_is_used_everywhere() {
             ));
         }
     }
+    // The install scripts download from the repository's releases and read
+    // the site's index; `k docs` names the site.
+    for file in ["scripts/install.sh", "scripts/install.ps1"] {
+        let text = fs::read_to_string(repo().join(file)).unwrap();
+        for expected in [
+            format!("{repository}/releases"),
+            format!("{site}index.json"),
+        ] {
+            if !text.contains(&expected) {
+                problems.push(format!("{file}: doesn't name `{expected}`"));
+            }
+        }
+    }
+    let docs = fs::read_to_string(repo().join("crates/k_cli/src/docs.rs")).unwrap();
+    if !docs.contains(&format!("SITE: &str = \"{site}\"")) {
+        problems.push(format!("crates/k_cli/src/docs.rs: `SITE` isn't {site}"));
+    }
     let dockerfile = fs::read_to_string(repo().join("docker/toolchain.Dockerfile")).unwrap();
     if !dockerfile.contains(&format!("org.opencontainers.image.source=\"{repository}\"")) {
         problems.push(
@@ -601,15 +618,11 @@ fn the_project_namespace_is_used_everywhere() {
         );
     }
 
-    // The install one-liners collaborators are told to run: the scripts
-    // from the private repository, through the GitHub CLI.
-    let raw = |script: &str| {
-        format!(
-            "gh api repos/{owner}/{repo_name}/contents/scripts/{script} -H 'Accept: application/vnd.github.raw'"
-        )
-    };
-    let sh = format!("{} | sh", raw("install.sh"));
-    let ps1 = format!("{} | Out-String | iex", raw("install.ps1"));
+    // The install one-liners: the scripts at the docs site's root, which
+    // download from the public releases.
+    let raw = |script: &str| format!("{site}{script}");
+    let sh = format!("curl -fsSL {} | sh", raw("install.sh"));
+    let ps1 = format!("irm {} | iex", raw("install.ps1"));
     for page in [
         "README.md",
         "docs/book/src/getting-started/installation.md",
@@ -620,6 +633,10 @@ fn the_project_namespace_is_used_everywhere() {
             if !text.contains(line.as_str()) {
                 problems.push(format!("{page}: no `{line}`"));
             }
+        }
+        // The private repository's one-liners are gone.
+        if text.contains("gh api repos/") {
+            problems.push(format!("{page}: still pipes a script through `gh api`"));
         }
     }
 
@@ -669,8 +686,8 @@ fn the_project_namespace_is_used_everywhere() {
             format!("<vendor url=\"{repository}\">Slavko Bojanic</vendor>"),
         ),
         ("plugin.xml", &plugin_xml, licence.to_owned()),
-        ("KobraToolchain.kt", &toolchain, raw("install.sh")),
-        ("KobraToolchain.kt", &toolchain, raw("install.ps1")),
+        ("KobraToolchain.kt", &toolchain, sh.clone()),
+        ("KobraToolchain.kt", &toolchain, ps1.clone()),
     ] {
         if !text.contains(&expected) {
             problems.push(format!("editors/intellij/{file}: no `{expected}`"));

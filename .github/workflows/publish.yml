@@ -8,8 +8,8 @@
 # It publishes the draft (refusing one without the macOS archive unless
 # `-f macos=false`), rebuilds that release's index.json from every
 # published release's index-entry.json, tags the multi-arch toolchain image
-# (with K_PUBLISH_ENABLED) and, once the repository is public, deploys the
-# docs site (with K_PAGES_ENABLED). Each job is idempotent, so a failed one
+# (with K_PUBLISH_ENABLED) and deploys the docs site with the install
+# scripts and index.json at its root (with K_PAGES_ENABLED). Each job is idempotent, so a failed one
 # is re-run on its own, and so is the whole workflow.
 name: publish
 
@@ -107,9 +107,8 @@ jobs:
   # The docs site: the newest release at /0.N/ with `/` and `/latest/`
   # pointing at it, /next/ from main, versions.json, the install scripts and
   # the index with this release's entry (a candidate's too; its docs aren't
-  # deployed, since `latest` is the newest stable release). Only for the
-  # day the repository is public: GitHub's Free plan has no Pages for a
-  # private one (design 48, "Private distribution").
+  # deployed, since `latest` is the newest stable release), behind
+  # K_PAGES_ENABLED (design 48, "Public distribution").
   pages:
     if: vars.K_PAGES_ENABLED == 'true'
     needs: [check, publish]

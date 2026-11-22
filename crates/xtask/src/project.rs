@@ -24,8 +24,8 @@ pub struct Project {
     /// The source repository (`https://github.com/<owner>/<repo>`); its
     /// Releases host the archives.
     pub repository: String,
-    /// The docs site, ending in `/`, for the day the repository is public
-    /// (design 48, "Private distribution"); nothing is deployed there yet.
+    /// The docs site, ending in `/` (GitHub Pages): the book, the install
+    /// scripts and `index.json` (design 48, "Public distribution").
     pub site: String,
     /// The toolchain image without a tag (`ghcr.io/<owner>/<name>`).
     pub image: String,

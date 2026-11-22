@@ -1,44 +1,52 @@
 #!/bin/sh
-# Installs the Kobra toolchain, the `k` command, for collaborators on the
-# private repository slavkobojanic/kobra
-# (docs/design/48-releases-and-versioning.md, "Private distribution";
-# docs/compiler/release.md §2).
+# Installs the Kobra toolchain, the `k` command
+# (docs/design/48-releases-and-versioning.md, "Public distribution";
+# docs/compiler/release.md §2). The docs site serves this file:
 #
-#   gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | sh
-#   gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | sh -s -- --version 0.1.0
+#   curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh
+#   curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh -s -- --version 0.1.0
 #
-# The releases are private, so every download is authenticated: with the
-# GitHub CLI (`gh`, signed in with `gh auth login`), else with curl and the
-# token in GH_TOKEN or GITHUB_TOKEN. It picks the archive for this machine
-# (`uname`), downloads it and the release's SHA256SUMS from the GitHub
-# release, checks the digest, unpacks the toolchain into
+# It picks the archive for this machine (`uname`), downloads it and the
+# release's SHA256SUMS from the public GitHub Releases of
+# slavkobojanic/kobra, checks the digest, unpacks the toolchain into
 # $K_HOME/toolchains/<version>/, makes it the default ($K_HOME/bin/k, the
 # version in $K_HOME/default; the layout `k toolchain` uses), unpacks the
 # release's book into $K_HOME/docs/<version>/ (read it with `k docs`) and
 # prints the line that puts $K_HOME/bin on the PATH. Running it again
 # changes nothing. While no stable release exists, it installs the newest
-# release candidate (else the newest nightly) from the newest release's
-# index.json and says so.
+# release candidate (else the newest nightly) from the docs site's
+# index.json (else the newest release's) and says so.
+#
+# No sign-in is needed. Only the fallback for a site without index.json
+# asks GitHub's API (which allows 60 requests an hour without a token):
+# there a token is sent when one is found, in GH_TOKEN, GITHUB_TOKEN or
+# `gh auth token`, and only to the API.
 #
 # Variables:
 #   K_VERSION          a version to install instead of the newest stable
 #                      (also --version <version>)
 #   K_HOME             where toolchains go; ~/.k by default
-#   GH_TOKEN           a token that can read the repository, for curl when
-#                      gh isn't installed (GITHUB_TOKEN also works)
-#   K_INSTALL_GH       the gh command to use (`gh`); `none` to use curl
+#   GH_TOKEN           optional: a token for GitHub's API (GITHUB_TOKEN
+#                      also works; else `gh auth token` when gh is installed)
+#   K_RELEASES         the releases' download URLs, for tests:
+#                      https://github.com/slavkobojanic/kobra/releases,
+#                      with latest/download/<file> and download/v<version>/<file>
+#   K_TOOLCHAIN_INDEX  the toolchain index, for tests:
+#                      https://slavkobojanic.github.io/kobra/index.json
 #   K_GITHUB_API       GitHub's API (https://api.github.com), for tests
+#   K_INSTALL_GH       the gh command to ask for a token (`gh`); `none` for none
 #
-# Needs: sh, uname, gh (or curl and a token), sha256sum or shasum, tar,
-# mktemp, awk.
+# Needs: sh, uname, curl or wget, sha256sum or shasum, tar, mktemp, awk.
 
 set -eu
 
 REPO="slavkobojanic/kobra"
+RELEASES="${K_RELEASES:-https://github.com/slavkobojanic/kobra/releases}"
+RELEASES="${RELEASES%/}"
+INDEX="${K_TOOLCHAIN_INDEX:-https://slavkobojanic.github.io/kobra/index.json}"
 API="${K_GITHUB_API:-https://api.github.com}"
 API="${API%/}"
 GH="${K_INSTALL_GH-gh}"
-TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 VERSION="${K_VERSION:-}"
 K_HOME="${K_HOME:-${HOME:?HOME is not set}/.k}"
 
@@ -47,8 +55,6 @@ fail() {
     printf 'error: %s\n' "$*" >&2
     exit 1
 }
-
-SIGN_IN="sign in with the GitHub CLI (https://cli.github.com): \`gh auth login\`, or set GH_TOKEN to a token that can read $REPO"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -62,9 +68,9 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         -h | --help)
-            say "install.sh: installs Kobra's \`k\` from the private repository $REPO"
+            say "install.sh: installs Kobra's \`k\` from the GitHub Releases of $REPO"
             say "usage: sh install.sh [--version <version>]"
-            say "needs gh (signed in with \`gh auth login\`), or curl with GH_TOKEN set"
+            say "variables: K_VERSION, K_HOME; GH_TOKEN (optional, for GitHub's API)"
             exit 0
             ;;
         *) fail "unknown argument \`$1\`; see --help" ;;
@@ -100,16 +106,6 @@ target() {
         *) fail "Kobra releases no toolchain for $os; build k from source" ;;
     esac
 }
-
-# How to reach the private releases: `gh`, else curl with the token.
-if [ -n "$GH" ] && [ "$GH" != none ] && command -v "$GH" >/dev/null 2>&1; then
-    MODE=gh
-elif [ -n "$TOKEN" ]; then
-    command -v curl >/dev/null 2>&1 || fail "with GH_TOKEN and without gh, the install needs curl"
-    MODE=curl
-else
-    fail "Kobra's repository $REPO is private, and neither gh nor a token was found: install the GitHub CLI (https://cli.github.com) and run \`gh auth login\`, or set GH_TOKEN (or GITHUB_TOKEN) to a token that can read $REPO"
-fi
 
 # sha256 <file>
 sha256() {
@@ -166,57 +162,51 @@ flat() {
     }' "$1"
 }
 
-# api <path> <file>: GET an API path (`repos/<repo>/releases/latest`) into
-# <file>; on failure, the error is in $WORK/err.
-api() {
-    if [ "$MODE" = gh ]; then
-        "$GH" api -H 'Accept: application/vnd.github+json' "$1" >"$2" 2>"$WORK/err"
+# fetch <url> <file>: a plain download (no token: the files are public);
+# non-zero when it fails.
+fetch() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --retry 2 -o "$2" "$1" 2>/dev/null
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$2" "$1"
     else
-        code="$(curl -sS -L -o "$2" -w '%{http_code}' \
-            -H "Authorization: Bearer $TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "$API/$1" 2>"$WORK/err")" || code=000
-        [ "$code" = 200 ] && return 0
-        printf 'GitHub answered HTTP %s for %s\n' "$code" "$API/$1" >>"$WORK/err"
-        return 1
+        fail "neither curl nor wget is installed"
     fi
 }
 
-# api_failed: stops with what $WORK/err says, explained.
-api_failed() {
-    err="$(cat "$WORK/err" 2>/dev/null || true)"
-    case "$err" in
-        *404* | *"Not Found"*) fail "GitHub answered 404: you may not have access to $REPO; $SIGN_IN" ;;
-        *401* | *"auth login"* | *"authentication"* | *"Bad credentials"*) fail "GitHub refused the request: you are not signed in; $SIGN_IN" ;;
-        *) fail "cannot reach GitHub: $err" ;;
-    esac
+# token: the optional token for GitHub's API, from GH_TOKEN, GITHUB_TOKEN
+# or `gh auth token`; empty without one.
+token() {
+    if [ -n "${GH_TOKEN:-}" ]; then
+        printf '%s' "$GH_TOKEN"
+    elif [ -n "${GITHUB_TOKEN:-}" ]; then
+        printf '%s' "$GITHUB_TOKEN"
+    elif [ -n "$GH" ] && [ "$GH" != none ] && command -v "$GH" >/dev/null 2>&1; then
+        "$GH" auth token 2>/dev/null || true
+    fi
 }
 
-# asset <tag> <name> <file>: downloads a release's asset; non-zero when the
-# release or the asset isn't there.
-asset() {
-    if [ "$MODE" = gh ]; then
-        "$GH" release download "$1" -R "$REPO" -p "$2" -O "$3" --clobber >/dev/null 2>"$WORK/err"
-        return
+# api <path> <file>: GET an API path into <file>, with the token when there
+# is one (sent to the API only); non-zero when it fails.
+api() {
+    tok="$(token)"
+    if command -v curl >/dev/null 2>&1; then
+        if [ -n "$tok" ]; then
+            curl -fsSL -o "$2" -H "Authorization: Bearer $tok" \
+                -H 'Accept: application/vnd.github+json' "$API/$1" 2>/dev/null
+        else
+            curl -fsSL -o "$2" -H 'Accept: application/vnd.github+json' "$API/$1" 2>/dev/null
+        fi
+    elif command -v wget >/dev/null 2>&1; then
+        if [ -n "$tok" ]; then
+            wget -q -O "$2" --header "Authorization: Bearer $tok" \
+                --header 'Accept: application/vnd.github+json' "$API/$1"
+        else
+            wget -q -O "$2" --header 'Accept: application/vnd.github+json' "$API/$1"
+        fi
+    else
+        fail "neither curl nor wget is installed"
     fi
-    if [ ! -f "$WORK/release-$1.json" ]; then
-        api "repos/$REPO/releases/tags/$1" "$WORK/release-$1.json" || {
-            rm -f "$WORK/release-$1.json"
-            return 1
-        }
-    fi
-    url="$(flat "$WORK/release-$1.json" | awk -F '\t' -v want="$2" '
-        $1 ~ /^\.assets\.[0-9]+\.name$/ && $2 == want { split($1, p, "."); n = p[3] }
-        $1 ~ /^\.assets\.[0-9]+\.url$/ { split($1, p, "."); url[p[3]] = $2 }
-        END { if (n != "") print url[n] }')"
-    [ -n "$url" ] || return 1
-    # curl sends the token to the API only: an asset's API URL redirects to
-    # a signed storage URL on another host, which doesn't get it.
-    curl -fsSL -o "$3" \
-        -H "Authorization: Bearer $TOKEN" \
-        -H 'Accept: application/octet-stream' \
-        "$url" 2>"$WORK/err"
 }
 
 # newest <index.json> <target>: the newest release in the toolchain index
@@ -251,30 +241,30 @@ mkdir -p "$K_HOME/tmp"
 WORK="$(mktemp -d "$K_HOME/tmp/install-sh.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
-# Access first, so a missing permission isn't mistaken for a missing release.
-api "repos/$REPO" "$WORK/repo.json" || api_failed
-
 if [ -n "$VERSION" ]; then
     TAG="v${VERSION#v}"
-elif api "repos/$REPO/releases/latest" "$WORK/latest.json"; then
-    TAG="$(flat "$WORK/latest.json" | awk -F '\t' '$1 == ".tag_name" { print $2; exit }')"
-else
+    fetch "$RELEASES/download/$TAG/SHA256SUMS" "$WORK/SHA256SUMS" ||
+        fail "cannot download SHA256SUMS of the release $TAG from $RELEASES (is it a released version?)"
+elif ! fetch "$RELEASES/latest/download/SHA256SUMS" "$WORK/SHA256SUMS"; then
     # GitHub's `latest` skips pre-releases: with only release candidates
-    # (or nightlies) published there is none, and the newest release's
-    # index names them.
+    # (or nightlies) published there is none, and the toolchain index
+    # names them: the docs site's, else the newest release's.
     NO_STABLE="there is no stable release of Kobra yet; install a pre-release by name with --version <version>"
-    api "repos/$REPO/releases?per_page=100" "$WORK/releases.json" || api_failed
-    INDEX_TAG="$(flat "$WORK/releases.json" | awk -F '\t' '
-        $1 ~ /^\.[0-9]+\.tag_name$/ { split($1, p, "."); tag[p[2]] = $2 }
-        $1 ~ /^\.[0-9]+\.draft$/ { split($1, p, "."); draft[p[2]] = $2 }
-        $1 ~ /^\.[0-9]+\.published_at$/ { split($1, p, "."); at[p[2]] = $2 }
-        $1 ~ /^\.[0-9]+\.assets\.[0-9]+\.name$/ && $2 == "index.json" { split($1, p, "."); has[p[2]] = 1 }
-        END {
-            for (r in tag) if (has[r] && draft[r] != "true" && at[r] != "null" && at[r] > best) { best = at[r]; chosen = tag[r] }
-            if (chosen != "") print chosen
-        }')"
-    [ -n "$INDEX_TAG" ] || fail "$NO_STABLE"
-    asset "$INDEX_TAG" index.json "$WORK/index.json" || fail "$NO_STABLE"
+    if ! fetch "$INDEX" "$WORK/index.json"; then
+        api "repos/$REPO/releases?per_page=100" "$WORK/releases.json" ||
+            fail "$NO_STABLE (GitHub's API didn't answer; set GH_TOKEN if it limited the requests)"
+        INDEX_TAG="$(flat "$WORK/releases.json" | awk -F '\t' '
+            $1 ~ /^\.[0-9]+\.tag_name$/ { split($1, p, "."); tag[p[2]] = $2 }
+            $1 ~ /^\.[0-9]+\.draft$/ { split($1, p, "."); draft[p[2]] = $2 }
+            $1 ~ /^\.[0-9]+\.published_at$/ { split($1, p, "."); at[p[2]] = $2 }
+            $1 ~ /^\.[0-9]+\.assets\.[0-9]+\.name$/ && $2 == "index.json" { split($1, p, "."); has[p[2]] = 1 }
+            END {
+                for (r in tag) if (has[r] && draft[r] != "true" && at[r] != "null" && at[r] > best) { best = at[r]; chosen = tag[r] }
+                if (chosen != "") print chosen
+            }')"
+        [ -n "$INDEX_TAG" ] || fail "$NO_STABLE"
+        fetch "$RELEASES/download/$INDEX_TAG/index.json" "$WORK/index.json" || fail "$NO_STABLE"
+    fi
     CHOSEN="$(newest "$WORK/index.json" "$TARGET")"
     [ -n "$CHOSEN" ] || fail "$NO_STABLE"
     VERSION="${CHOSEN%% *}"
@@ -283,9 +273,9 @@ else
         nightly) say "note: there is no stable release or release candidate of Kobra yet; installing the newest nightly, $VERSION (choose another with --version <version>)" ;;
     esac
     TAG="v$VERSION"
+    fetch "$RELEASES/download/$TAG/SHA256SUMS" "$WORK/SHA256SUMS" ||
+        fail "cannot download SHA256SUMS of the release $TAG from $RELEASES"
 fi
-[ -n "$TAG" ] || fail "GitHub named no newest release of $REPO"
-asset "$TAG" SHA256SUMS "$WORK/SHA256SUMS" || fail "cannot download SHA256SUMS of $REPO's release $TAG (is it a released version?)"
 
 # `<digest>  k-<version>-<target>.tar.gz` (or `*name`, binary mode).
 LINE="$(awk -v suffix="-$TARGET.tar.gz" '{
@@ -298,12 +288,15 @@ DIGEST="${LINE%% *}"
 ARCHIVE="${LINE#* }"
 FOUND="${ARCHIVE#k-}"
 FOUND="${FOUND%-"$TARGET".tar.gz}"
+# The files of that release (`latest/download/` may move meanwhile).
+TAG="v$FOUND"
+FROM="$RELEASES/download/$TAG"
 
 DEST="$K_HOME/toolchains/$FOUND"
 if [ -x "$DEST/k" ]; then
     say "k $FOUND is already installed in $DEST"
 else
-    asset "$TAG" "$ARCHIVE" "$WORK/$ARCHIVE" || fail "cannot download $ARCHIVE from the release $TAG"
+    fetch "$FROM/$ARCHIVE" "$WORK/$ARCHIVE" || fail "cannot download $ARCHIVE from the release $TAG ($FROM)"
     GOT="$(sha256 "$WORK/$ARCHIVE")"
     [ "$GOT" = "$DIGEST" ] || fail "checksum mismatch for $ARCHIVE: SHA256SUMS says $DIGEST, the download is $GOT; nothing was installed"
     mkdir -p "$WORK/unpacked"
@@ -325,7 +318,7 @@ fi
 BOOK="$K_HOME/docs/$FOUND"
 DOCS_LINE="$(awk -v want="docs-$FOUND.tar.gz" '{ name = $2; sub(/^\*/, "", name); if (name == want) { print $1; exit } }' "$WORK/SHA256SUMS")"
 if [ -n "$DOCS_LINE" ] && [ ! -f "$BOOK/index.html" ]; then
-    if asset "$TAG" "docs-$FOUND.tar.gz" "$WORK/docs.tar.gz" &&
+    if fetch "$FROM/docs-$FOUND.tar.gz" "$WORK/docs.tar.gz" &&
         [ "$(sha256 "$WORK/docs.tar.gz")" = "$DOCS_LINE" ] &&
         mkdir -p "$WORK/book" && tar -xzf "$WORK/docs.tar.gz" -C "$WORK/book" &&
         [ -f "$WORK/book/docs-$FOUND/index.html" ]; then

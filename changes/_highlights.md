@@ -11,7 +11,8 @@ CHANGELOG.md section and empties this file at each release.
   newer `k` hands the command to the pinned one, and `k upgrade` moves a project to a later minor.
 - This release's wire formats (rpc encoding, service tokens, session cookies, job payloads) are
   recorded: 0.2 reads them, so a rolling deploy from 0.1 to 0.2 works, one minor at a time.
-- Collaborators install from the private repository with the GitHub CLI: `gh auth login`, then
-  `gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | sh`
-  (or `install.ps1` on Windows), or `k toolchain install`; every download is checked against its
-  SHA-256, and `k docs` opens the book installed with the toolchain. Kobra is MIT OR Apache-2.0.
+- Install with `curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh` (or
+  `irm https://slavkobojanic.github.io/kobra/install.ps1 | iex` on Windows), no sign-in needed, or
+  `k toolchain install`; every download is checked against its SHA-256. The book is at
+  https://slavkobojanic.github.io/kobra/, and `k docs` opens the copy installed with the toolchain.
+  Kobra is MIT OR Apache-2.0.

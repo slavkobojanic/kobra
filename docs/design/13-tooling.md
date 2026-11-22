@@ -37,8 +37,8 @@
 | `k doc` | Renders documentation from `///` comments ([39-doc-comments.md](39-doc-comments.md)) |
 | `k lsp` | The language server, over standard input and output, for editors ([docs/compiler/lsp.md](../compiler/lsp.md)) |
 | `k mcp` | The MCP server, over standard input and output, for AI assistants: the docs, the examples and snippet checks ([AI assistants](#ai-assistants), [docs/compiler/mcp.md](../compiler/mcp.md)) |
-| `k toolchain install`, `list`, `remove`, `default`; `k self update` | Install, list, remove and choose the default of the installed toolchains, and update the default to the newest release; the only commands that download, from the private repository's releases with the user's GitHub token ([48-releases-and-versioning.md](48-releases-and-versioning.md#commands), "Private distribution") |
-| `k docs [--path]` | Open the running toolchain's book, installed with it in `~/.k/docs/<version>/` (there is no public docs site while the repository is private), or print its path ([48](48-releases-and-versioning.md#private-distribution-decided-2026-11-23)) |
+| `k toolchain install`, `list`, `remove`, `default`; `k self update` | Install, list, remove and choose the default of the installed toolchains, and update the default to the newest release; the only commands that download, from the public repository's releases through GitHub's API, with the user's GitHub token only when one is found ([48-releases-and-versioning.md](48-releases-and-versioning.md#commands), "Public distribution") |
+| `k docs [--path]` | Open the running toolchain's book, installed with it in `~/.k/docs/<version>/` (the docs site's copy, offline; without it, the site's URL), or print its path ([48](48-releases-and-versioning.md#public-distribution-decided-2026-11-23)) |
 
 The built executable has its own commands (`serve`, `migrate`, `config`, `probe`, `jobs`), described in [38-deployment.md](38-deployment.md).
 
@@ -146,7 +146,7 @@ WebStorm, PyCharm, GoLand, RustRover and the other JetBrains IDEs what the VS Co
 - **`k` is found like the toolchain's installer puts it.** The setting (Settings | Languages & Frameworks
   | Kobra, the VS Code `k.server.path`) names it; empty, the plugin takes `k` on `PATH` (the login shell's,
   also for an IDE started from the Dock), then `$K_HOME/bin/k` (`~/.k/bin/k`). Without one, `.k` files are
-  highlighted only, and a notification gives the installer's `gh api …/install.sh … | sh` one-liner.
+  highlighted only, and a notification gives the installer's `curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh` one-liner.
   **Tools | Restart Kobra Language Server** restarts it.
 - **Versioned with the toolchain.** `editors/intellij/gradle.properties` `pluginVersion` is the workspace
   version, checked by `k_cli/tests/version.rs` and moved by `cargo xtask release prepare`; the id is the

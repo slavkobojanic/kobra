@@ -57,8 +57,8 @@ class KobraLspIntegrationProvider : LspIntegrationProvider {
                 .getNotificationGroup("Kobra")
                 .createNotification(
                     "Kobra: no language server",
-                    "$what, so Kobra files have highlighting only. Install Kobra with the GitHub CLI " +
-                        "(<code>gh auth login</code> first):<br><code>${escape(KobraToolchain.INSTALL_SH)}</code><br>" +
+                    "$what, so Kobra files have highlighting only. Install Kobra:<br>" +
+                        "<code>${escape(KobraToolchain.INSTALL_SH)}</code><br>" +
                         "or on Windows:<br><code>${escape(KobraToolchain.INSTALL_PS1)}</code><br>" +
                         "then restart the server (Tools | Restart Kobra Language Server).",
                     NotificationType.WARNING,

@@ -15,8 +15,8 @@
 # when all of that passed, `release`: the annotated tag v<version> on that
 # commit, pushed, and the GitHub release (a draft unless `-f draft=false`,
 # a pre-release for a version with a pre-release part). No job runs on
-# macOS (the repository is private, where a macOS minute costs ten Linux
-# ones): the release manager builds the macOS archive and attaches it with
+# macOS (design 48, "Private distribution", kept when the repository went
+# public): the release manager builds the macOS archive and attaches it with
 # `cargo xtask release attach-local v<version>`, then publishes with
 # `gh workflow run publish.yml -f version=<version>` (release.md §6).
 #
@@ -418,8 +418,7 @@ jobs:
 
   # The book of the release with the version substituted: for review, and
   # packed as docs-<version>.tar.gz, which the release attaches and the
-  # installers unpack for `k docs` (there is no public docs site while the
-  # repository is private).
+  # installers unpack for `k docs`, the offline copy of the docs site's.
   docs:
     needs: [check, gate-checks]
     runs-on: ubuntu-24.04

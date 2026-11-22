@@ -19,7 +19,7 @@ use crate::cli::Cli;
 /// Actions page or `gh workflow run` (design 48, "CI on request").
 pub const TRIGGER: &str = "workflow_dispatch";
 /// The switch of the jobs that deploy the docs to GitHub Pages (a
-/// repository variable; for the day the repository is public).
+/// repository variable, set since the repository went public).
 pub const PAGES_SWITCH: &str = "vars.K_PAGES_ENABLED == 'true'";
 /// The switch of the steps and jobs that push toolchain images to GHCR.
 pub const PUBLISH_SWITCH: &str = "vars.K_PUBLISH_ENABLED == 'true'";

@@ -10,9 +10,8 @@
 # One nightly per day: its version and tag carry the date, so a second
 # published run on the same day fails at `gh release create`. The
 # performance job needs a runner named by K_PERF_RUNNER. No job runs on
-# macOS: the repository is private, where a macOS minute costs ten Linux
-# ones (design 48, "Private distribution"), so nightlies have no macOS
-# archive.
+# macOS (design 48, "Private distribution", kept when the repository went
+# public), so nightlies have no macOS archive.
 name: nightly
 
 on:

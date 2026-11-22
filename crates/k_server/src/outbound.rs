@@ -319,7 +319,7 @@ pub async fn download(
 /// requested: the first, and every one a redirect leads to. `k toolchain`
 /// uses it to send a GitHub token to GitHub's API and to no other host,
 /// redirects included (`docs/design/48-releases-and-versioning.md`,
-/// "Private distribution").
+/// "Public distribution").
 ///
 /// # Errors
 ///

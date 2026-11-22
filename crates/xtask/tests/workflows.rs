@@ -104,9 +104,9 @@ fn every_workflow_runs_only_on_request() {
     }
 }
 
-/// The Pages deploys wait for `K_PAGES_ENABLED` (the day the repository is
-/// public), and pushing toolchain images to GHCR for `K_PUBLISH_ENABLED`
-/// (a private repository's packages count against the plan's storage).
+/// The Pages deploys wait for `K_PAGES_ENABLED` (set since the repository
+/// went public, design 48, "Public distribution"), and pushing toolchain
+/// images to GHCR for `K_PUBLISH_ENABLED`.
 #[test]
 fn deploying_pages_and_pushing_images_wait_for_their_switches() {
     for w in workflows().iter().filter(|w| !w.action) {
@@ -402,16 +402,80 @@ fn the_publish_workflow_publishes_an_existing_release() {
     }
 }
 
+/// The docs site is GitHub Pages: `ci.yml` deploys it for a run of main
+/// and `publish.yml` for each published release, both behind
+/// `K_PAGES_ENABLED`, each building the whole versioned site with the
+/// install scripts and the toolchain index at its root (the site action:
+/// `cargo xtask docs build` copies `scripts/install.sh` and `install.ps1`
+/// there, `release-index.sh` writes `index.json`), which the install
+/// one-liners pipe and read.
 #[test]
-fn the_pages_jobs_exist() {
+fn the_pages_jobs_deploy_the_site_with_the_install_scripts_and_the_index() {
+    let site = workflows()
+        .into_iter()
+        .find(|w| w.path == ".github/actions/site/action.yml")
+        .expect("the site action");
+    let built: Vec<String> = site
+        .jobs
+        .iter()
+        .flat_map(job_commands)
+        .map(|(_, c)| c.join(" "))
+        .collect();
+    for expected in [
+        "cargo xtask docs build --version latest --out target/site",
+        "cargo xtask docs build --version next --from origin/main --out target/site",
+        "scripts/ci/release-index.sh target/site/index.json",
+    ] {
+        assert!(
+            built.iter().any(|c| c == expected),
+            "{expected}: {built:#?}"
+        );
+    }
     for name in ["ci.yml", "publish.yml"] {
         let w = workflow(name);
+        let pages: Vec<&Job> = w
+            .jobs
+            .iter()
+            .filter(|j| {
+                j.steps.iter().any(|s| {
+                    s.uses
+                        .as_deref()
+                        .is_some_and(|u| u.starts_with("actions/deploy-pages@"))
+                })
+            })
+            .collect();
+        assert_eq!(pages.len(), 1, "{name} has one Pages deploy");
+        let job = pages[0];
+        let c = job.condition.as_deref().unwrap_or_default();
+        assert!(c.contains(PAGES_SWITCH), "{name}: {c}");
+        if name == "ci.yml" {
+            assert!(c.contains("github.ref == 'refs/heads/main'"), "{name}: {c}");
+        }
+        let uses: Vec<&str> = job.steps.iter().filter_map(|s| s.uses.as_deref()).collect();
+        let at = |prefix: &str| uses.iter().position(|u| u.starts_with(prefix));
+        let (Some(build), Some(upload)) = (
+            at("./.github/actions/site"),
+            at("actions/upload-pages-artifact@"),
+        ) else {
+            panic!("{name}: the Pages job doesn't build and upload the site: {uses:?}");
+        };
+        assert!(build < upload, "{name}: {uses:?}");
+        let upload = job
+            .steps
+            .iter()
+            .find(|s| {
+                s.uses
+                    .as_deref()
+                    .is_some_and(|u| u.starts_with("actions/upload-pages-artifact@"))
+            })
+            .unwrap();
         assert!(
-            w.jobs.iter().any(|j| j.steps.iter().any(|s| s
-                .uses
-                .as_deref()
-                .is_some_and(|u| u.starts_with("actions/deploy-pages@")))),
-            "{name} has no Pages deploy"
+            upload
+                .with
+                .iter()
+                .any(|(k, v)| k == "path" && v == "target/site"),
+            "{name}: {:?}",
+            upload.with
         );
     }
 }
@@ -631,8 +695,8 @@ fn commands_are_split_as_the_shell_splits_them() {
     );
 }
 
-/// The repository is private, where GitHub bills a macOS minute at ten
-/// Linux minutes (design 48, "Private distribution"): no workflow runs on
+/// No macOS runners (design 48, "Private distribution", kept when the
+/// repository went public): no workflow runs on
 /// macOS (the macOS archive is built and attached on the owner's Mac with
 /// `cargo xtask release attach-local`), and `ci.yml` runs on Linux only.
 #[test]
@@ -664,8 +728,8 @@ fn no_job_runs_on_macos_and_ci_runs_on_linux() {
 }
 
 /// Each release and nightly attaches its book and the whole toolchain
-/// index (`k toolchain` reads the newest release's `index.json`; there is
-/// no public site to serve one).
+/// index (`k toolchain` reads the newest release's `index.json`, and the
+/// install scripts when the docs site has none).
 #[test]
 fn releases_attach_the_book_and_the_index() {
     for name in ["release.yml", "nightly.yml"] {

@@ -1,10 +1,12 @@
 //! The install scripts, `scripts/install.sh` and `scripts/install.ps1`
-//! (`docs/design/48-releases-and-versioning.md`, "Private distribution";
+//! (`docs/design/48-releases-and-versioning.md`, "Public distribution";
 //! `docs/compiler/release.md` §2), against a fake release
-//! (`support/release.rs`) laid out as the private repository's GitHub
-//! releases: answered by a fake `gh` first on the `PATH`, or, for the curl
-//! path with `GH_TOKEN`, by GitHub's REST API faked on loopback by
-//! `support/static_host.rs` (`K_GITHUB_API`). Nothing reaches GitHub.
+//! (`support/release.rs`) laid out as the public repository's GitHub
+//! releases serve it (`K_RELEASES`: `latest/download/…` and
+//! `download/v<version>/…`), the docs site's `index.json`
+//! (`K_TOOLCHAIN_INDEX`) and, for the fallback when the site has no index,
+//! GitHub's REST API (`K_GITHUB_API`), each served on loopback by
+//! `support/static_host.rs`. Nothing reaches GitHub.
 //!
 //! `install.sh` runs wherever `sh` exists, with fake `uname` and `ldd`
 //! commands first on the `PATH`, so every target is tried on one machine:
@@ -12,9 +14,10 @@
 //! doesn't release for, verifies `SHA256SUMS`, installs into
 //! `$K_HOME/toolchains/<version>` with `$K_HOME/bin/k` as the default and
 //! the book in `$K_HOME/docs/<version>`, prints the `PATH` line, is
-//! idempotent, and says what to do without `gh`, signed out or without
-//! access. `install.ps1` runs where `pwsh` is installed (CI's Windows
-//! runner); elsewhere its test says so and passes.
+//! idempotent, and needs neither `gh` nor a token: one found (`GH_TOKEN`,
+//! `GITHUB_TOKEN`, `gh auth token`) is sent to the API only, never to the
+//! release or docs hosts. `install.ps1` runs where `pwsh` is installed
+//! (CI's Windows runner); elsewhere its test says so and passes.
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
@@ -52,13 +55,31 @@ fn describe(out: &Output) -> String {
     )
 }
 
+/// Every request `host` answered, as `target authorization`.
+fn seen(host: &StaticHost) -> Vec<String> {
+    host.requests()
+        .iter()
+        .map(|r| {
+            format!(
+                "{} {}",
+                r.target,
+                r.header("authorization").unwrap_or("(no token)")
+            )
+        })
+        .collect()
+}
+
 /// A temporary directory with a fake release of 99.1.0 and 99.2.0 (the
 /// newest stable), each archive's `k` printing its version and target,
-/// published as the repository's releases: `api` serves the REST API,
-/// whose asset URLs redirect to `assets`.
+/// published as the public repository's releases: `releases` serves the
+/// download URLs (`latest/download/…`, `download/v<version>/…`), `site`
+/// the docs site's `index.json`, and `api` GitHub's REST API, whose asset
+/// URLs redirect to `assets`.
 struct Fixture {
     root: PathBuf,
     release: FakeRelease,
+    releases: StaticHost,
+    site: StaticHost,
     api: StaticHost,
     assets: StaticHost,
 }
@@ -93,8 +114,12 @@ impl Fixture {
             }
             release.docs(version);
         }
-        fs::create_dir_all(release.root.join("api")).unwrap();
-        fs::create_dir_all(release.root.join("objects")).unwrap();
+        for dir in ["api", "objects"] {
+            fs::create_dir_all(release.root.join(dir)).unwrap();
+        }
+        fs::create_dir_all(root.join("site")).unwrap();
+        let releases = StaticHost::start(&release.root);
+        let site = StaticHost::start(&root.join("site"));
         let api = StaticHost::start(&release.root.join("api"));
         let assets = StaticHost::start(&release.root.join("objects"));
         release.github(
@@ -103,9 +128,23 @@ impl Fixture {
             latest,
             yanked,
         );
+        if let Some(v) = latest {
+            release.latest(v);
+        }
+        // The docs site's index, as the Pages deploy writes it.
+        let index = release.index_json(yanked, &|a| {
+            crate::release::github_download(&a.version, &a.name)
+        });
+        fs::write(
+            root.join("site/index.json"),
+            serde_json::to_string_pretty(&index).unwrap(),
+        )
+        .unwrap();
         Fixture {
             root,
             release,
+            releases,
+            site,
             api,
             assets,
         }
@@ -113,6 +152,19 @@ impl Fixture {
 
     fn home(&self) -> PathBuf {
         self.root.join("home/.k")
+    }
+
+    /// Asserts that no host but the API was sent a token.
+    fn no_token_outside_the_api(&self) {
+        for (name, host) in [
+            ("releases", &self.releases),
+            ("site", &self.site),
+            ("assets", &self.assets),
+        ] {
+            for line in seen(host) {
+                assert!(line.ends_with(" (no token)"), "{name}: {line}");
+            }
+        }
     }
 
     #[cfg(unix)]
@@ -139,8 +191,8 @@ impl Fixture {
     }
 
     #[cfg(unix)]
-    /// Runs `install.sh args` as if on `os`/`arch` with `libc`, with a fake
-    /// `gh` that is signed in; `path_has_bin` puts `$K_HOME/bin` on the
+    /// Runs `install.sh args` as if on `os`/`arch` with `libc`, without
+    /// `gh` and without a token; `path_has_bin` puts `$K_HOME/bin` on the
     /// `PATH` first.
     fn install_sh(
         &self,
@@ -149,18 +201,12 @@ impl Fixture {
         args: &[&str],
         path_has_bin: bool,
     ) -> Output {
-        self.install_sh_as(
-            Some(Gh::SignedIn("gho_fake")),
-            system,
-            env,
-            args,
-            path_has_bin,
-        )
+        self.install_sh_as(None, system, env, args, path_has_bin)
     }
 
     #[cfg(unix)]
-    /// [`Fixture::install_sh`] with the fake `gh` behaving as `gh` says
-    /// (none: no `gh`, `K_INSTALL_GH=none`).
+    /// [`Fixture::install_sh`] with a fake `gh` behaving as `gh` says
+    /// first on the `PATH` (none: no `gh`, `K_INSTALL_GH=none`).
     fn install_sh_as(
         &self,
         gh: Option<Gh>,
@@ -189,6 +235,11 @@ impl Fixture {
             .current_dir(&self.root)
             .env("HOME", self.root.join("home"))
             .env("PATH", path)
+            .env("K_RELEASES", format!("http://{}", self.releases.addr))
+            .env(
+                "K_TOOLCHAIN_INDEX",
+                format!("http://{}/index.json", self.site.addr),
+            )
             .env("K_GITHUB_API", format!("http://{}", self.api.addr))
             .env_remove("GH_TOKEN")
             .env_remove("GITHUB_TOKEN")
@@ -275,6 +326,16 @@ fn install_sh_picks_the_archive_for_uname_and_prints_the_path_line() {
         // Nothing is left in the scratch directory.
         let tmp: Vec<_> = fs::read_dir(home.join("tmp")).unwrap().collect();
         assert!(tmp.is_empty(), "{tmp:?}");
+        // Plain downloads from the release: GitHub's API isn't asked.
+        let files = seen(&fx.releases);
+        assert!(
+            files
+                .iter()
+                .any(|l| l.starts_with("/latest/download/SHA256SUMS ")),
+            "{files:#?}"
+        );
+        assert!(fx.api.requests().is_empty(), "{:#?}", seen(&fx.api));
+        fx.no_token_outside_the_api();
     }
 }
 
@@ -382,10 +443,10 @@ fn install_sh_is_idempotent_and_takes_a_version() {
     assert_eq!(fx.tree(), tree);
 }
 
-/// With only release candidates published, GitHub has no
-/// `releases/latest` (it skips pre-releases): the script reads the newest
-/// release's `index.json` and installs the newest candidate that isn't
-/// yanked, saying there is no stable release yet.
+/// With only release candidates published, GitHub has no `latest` (it
+/// skips pre-releases): the script reads the docs site's `index.json` and
+/// installs the newest candidate that isn't yanked, saying there is no
+/// stable release yet.
 #[cfg(unix)]
 #[test]
 fn install_sh_without_a_stable_release_installs_the_newest_candidate() {
@@ -420,14 +481,21 @@ fn install_sh_without_a_stable_release_installs_the_newest_candidate() {
         text(&run.stdout),
         "fake 99.1.0-rc.2 x86_64-unknown-linux-gnu\n"
     );
+    // The site's index was read; GitHub's API wasn't.
+    assert!(
+        seen(&fx.site).iter().any(|l| l.starts_with("/index.json ")),
+        "{:#?}",
+        seen(&fx.site)
+    );
+    assert!(fx.api.requests().is_empty(), "{:#?}", seen(&fx.api));
     // A named version still installs, the yanked one included.
     let out = fx.install_sh(system, &[], &["--version", "99.1.0-rc.3"], false);
     assert_eq!(out.status.code(), Some(0), "{}", describe(&out));
 }
 
 /// With only nightlies published, the newest nightly is installed, and
-/// without an index the script says there is no stable release and names
-/// `--version`.
+/// with no index on the site or on any release the script says there is
+/// no stable release and names `--version`.
 #[cfg(unix)]
 #[test]
 fn install_sh_without_a_stable_release_or_candidate() {
@@ -445,8 +513,9 @@ fn install_sh_without_a_stable_release_or_candidate() {
         "{}",
         describe(&out)
     );
-    // No index on the release: no guess.
+    // No index anywhere: no guess.
     fs::remove_dir_all(fx.home()).unwrap();
+    fs::remove_file(fx.root.join("site/index.json")).unwrap();
     for v in fx.release.versions() {
         fs::remove_file(fx.release.root.join(format!("download/v{v}/index.json"))).unwrap();
     }
@@ -458,80 +527,73 @@ fn install_sh_without_a_stable_release_or_candidate() {
     assert!(!fx.home().join("toolchains").exists());
 }
 
-/// Without `gh`, `GH_TOKEN` and curl reach the REST API: the token goes
-/// to the API, and not to the storage host its asset URLs redirect to.
+/// When the docs site has no `index.json` (not deployed yet), the script
+/// finds the newest published release through GitHub's API and reads the
+/// index attached to it: without a token, or with the one in `GH_TOKEN`,
+/// `GITHUB_TOKEN` or `gh auth token`, which goes to the API alone.
 #[cfg(unix)]
 #[test]
-fn install_sh_with_a_token_and_no_gh_uses_the_api() {
-    let fx = Fixture::new("token");
+fn install_sh_without_the_sites_index_reads_the_newest_releases() {
     let system = ("Linux", "x86_64", "glibc");
-    let out = fx.install_sh_as(None, system, &[("GH_TOKEN", "gho_token")], &[], false);
-    assert_eq!(out.status.code(), Some(0), "{}", describe(&out));
-    let run = Command::new(fx.home().join("bin/k")).output().unwrap();
-    assert_eq!(text(&run.stdout), "fake 99.2.0 x86_64-unknown-linux-gnu\n");
-    assert!(fx.home().join("docs/99.2.0/index.html").is_file());
-    let api = fx.api.requests();
-    assert!(api.len() >= 4, "{api:#?}");
-    for r in &api {
-        assert_eq!(r.header("authorization"), Some("Bearer gho_token"), "{r:?}");
-    }
-    let stored = fx.assets.requests();
-    assert!(stored.len() >= 2, "{stored:#?}");
-    for r in &stored {
-        assert_eq!(r.header("authorization"), None, "{r:?}");
-    }
-    // Without a stable release, the same way.
-    let fx = Fixture::with("token-rc", &["99.1.0-rc.1"], None, &[]);
-    let out = fx.install_sh_as(None, system, &[("GITHUB_TOKEN", "gho_token")], &[], false);
-    assert_eq!(out.status.code(), Some(0), "{}", describe(&out));
-    assert!(
-        text(&out.stdout).contains("installing the newest release candidate, 99.1.0-rc.1"),
-        "{}",
-        describe(&out)
-    );
-}
-
-/// Without `gh` and a token, signed out, or without access to the
-/// repository, the script says what to do and installs nothing.
-#[cfg(unix)]
-#[test]
-fn install_sh_says_how_to_get_access() {
-    let fx = Fixture::new("access");
-    let system = ("Linux", "x86_64", "glibc");
-    let empty = fx.root.join("empty-api");
-    fs::create_dir_all(&empty).unwrap();
-    let nothing = StaticHost::start(&empty);
-    let nothing = format!("http://{}", nothing.addr);
     type Case<'a> = (Option<Gh>, Vec<(&'a str, &'a str)>, &'a str);
     let cases: [Case<'_>; 4] = [
-        (None, vec![], "gh auth login"),
-        (Some(Gh::SignedOut), vec![], "gh auth login"),
+        (None, vec![], "(no token)"),
+        (Some(Gh::SignedOut), vec![], "(no token)"),
+        (None, vec![("GH_TOKEN", "gho_env")], "Bearer gho_env"),
         (
-            Some(Gh::NoAccess),
+            Some(Gh::SignedIn("gho_from_gh")),
             vec![],
-            "you may not have access to slavkobojanic/kobra",
-        ),
-        // A token the API answers 404 for: the repository isn't visible.
-        (
-            None,
-            vec![("GH_TOKEN", "gho_x"), ("K_GITHUB_API", &nothing)],
-            "you may not have access to slavkobojanic/kobra",
+            "Bearer gho_from_gh",
         ),
     ];
-    for (gh, env, expected) in cases {
+    for (gh, env, sent) in cases {
+        let fx = Fixture::with("no-site-index", &["99.1.0-rc.1", "99.1.0-rc.2"], None, &[]);
+        fs::remove_file(fx.root.join("site/index.json")).unwrap();
         let out = fx.install_sh_as(gh, system, &env, &[], false);
-        assert_eq!(out.status.code(), Some(1), "{gh:?}: {}", describe(&out));
-        let err = text(&out.stderr);
-        assert!(err.contains(expected), "{gh:?}: {}", describe(&out));
-        assert!(err.contains("GH_TOKEN"), "{gh:?}: {}", describe(&out));
-        assert!(!fx.home().join("toolchains").exists());
-        assert!(!fx.home().join("bin").exists());
+        assert_eq!(out.status.code(), Some(0), "{gh:?}: {}", describe(&out));
+        assert!(
+            text(&out.stdout).contains("installing the newest release candidate, 99.1.0-rc.2"),
+            "{gh:?}: {}",
+            describe(&out)
+        );
+        let api = seen(&fx.api);
+        assert!(api.iter().any(|l| l.contains("/releases?")), "{api:#?}");
+        for line in &api {
+            assert!(line.ends_with(sent), "{gh:?}: {api:#?}");
+        }
+        fx.no_token_outside_the_api();
     }
 }
 
-/// `install.ps1` where PowerShell is installed: with a token and no `gh`,
-/// through the REST API, the archive for the processor, the digest check,
-/// the default and idempotence.
+/// Neither `gh` nor a token is needed, and a token that is set is sent
+/// nowhere when the API isn't asked: the release's files are public.
+#[cfg(unix)]
+#[test]
+fn install_sh_needs_neither_gh_nor_a_token() {
+    let system = ("Linux", "aarch64", "glibc");
+    for (gh, env) in [
+        (Some(Gh::SignedOut), vec![]),
+        (None, vec![("GH_TOKEN", "gho_secret")]),
+        (Some(Gh::SignedIn("gho_from_gh")), vec![]),
+    ] {
+        let fx = Fixture::new("no-auth");
+        let out = fx.install_sh_as(gh, system, &env, &[], false);
+        assert_eq!(out.status.code(), Some(0), "{gh:?}: {}", describe(&out));
+        let run = Command::new(fx.home().join("bin/k")).output().unwrap();
+        assert_eq!(text(&run.stdout), "fake 99.2.0 aarch64-unknown-linux-gnu\n");
+        assert!(
+            !text(&out.stderr).contains("gh auth login"),
+            "{}",
+            describe(&out)
+        );
+        assert!(fx.api.requests().is_empty(), "{:#?}", seen(&fx.api));
+        fx.no_token_outside_the_api();
+    }
+}
+
+/// `install.ps1` where PowerShell is installed: from the public release
+/// without `gh` or a token, the archive for the processor, the digest
+/// check, the default and idempotence.
 #[test]
 fn install_ps1_installs_the_windows_archive() {
     let Ok(probe) = Command::new("pwsh")
@@ -574,19 +636,21 @@ fn install_ps1_installs_the_windows_archive() {
     let digest = sha256_of(&zip);
     let sums = fs::read_to_string(dir.join("SHA256SUMS")).unwrap();
     fs::write(dir.join("SHA256SUMS"), format!("{sums}{digest}  {name}\n")).unwrap();
-    fs::create_dir_all(release.root.join("api")).unwrap();
-    let api = StaticHost::start(&release.root.join("api"));
-    let api_url = format!("http://{}", api.addr);
-    release.github(&api_url, None, Some(version), &[]);
+    release.latest(version);
+    let releases = StaticHost::start(&release.root);
+    let releases_url = format!("http://{}", releases.addr);
     let home = root.join("home/.k");
     let run = || {
         Command::new("pwsh")
             .args(["-NoProfile", "-File"])
             .arg(scripts().join("install.ps1"))
-            .env("K_GITHUB_API", &api_url)
-            // Not the runner's own `gh`: nothing may reach GitHub.
+            .env("K_RELEASES", &releases_url)
+            .env("K_TOOLCHAIN_INDEX", format!("{releases_url}/no-index.json"))
+            // Nothing may reach GitHub: no API, not the runner's own `gh`.
+            .env("K_GITHUB_API", "http://127.0.0.1:9")
             .env("K_INSTALL_GH", "none")
-            .env("GH_TOKEN", "gho_ps1")
+            .env_remove("GH_TOKEN")
+            .env_remove("GITHUB_TOKEN")
             .env("K_HOME", &home)
             .env("K_INSTALL_ARCH", "AMD64")
             .env("USERPROFILE", root.join("home"))
@@ -604,8 +668,8 @@ fn install_ps1_installs_the_windows_archive() {
         fs::read_to_string(home.join("default")).unwrap(),
         "99.3.0\n"
     );
-    for r in api.requests() {
-        assert_eq!(r.header("authorization"), Some("Bearer gho_ps1"), "{r:?}");
+    for line in seen(&releases) {
+        assert!(line.ends_with(" (no token)"), "{line}");
     }
     let out = run();
     assert_eq!(out.status.code(), Some(0), "{}", describe(&out));
@@ -622,7 +686,7 @@ fn install_ps1_installs_the_windows_archive() {
         sums.replace(&digest, &"0".repeat(64)),
     )
     .unwrap();
-    release.github(&api_url, None, Some(version), &[]);
+    release.latest(version);
     let out = run();
     assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
     assert!(

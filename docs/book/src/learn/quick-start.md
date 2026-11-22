@@ -4,18 +4,16 @@ On this page you'll build a tip splitter: you enter a bill, pick a tip and say h
 paying, and the page shows what each person pays. It takes about ten minutes, and on the way you'll use
 the parts every Kobra app has: state, a view, a component, styles, a test and a build.
 
-You need the `k` command. Kobra's repository is private, so you install it with the
-[GitHub CLI](https://cli.github.com), signed in (`gh auth login`) with an account that can read
-`slavkobojanic/kobra`. If you don't have `k` yet, install it with one line on Linux or macOS:
+You need the `k` command. If you don't have it yet, install it with one line on Linux or macOS:
 
 ```sh
-gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | sh
+curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh
 ```
 
 or, on Windows, in PowerShell:
 
 ```powershell
-gh api repos/slavkobojanic/kobra/contents/scripts/install.ps1 -H 'Accept: application/vnd.github.raw' | Out-String | iex
+irm https://slavkobojanic.github.io/kobra/install.ps1 | iex
 ```
 
 [Installation](../getting-started/installation.md) has the details, including how to update and how

@@ -1,9 +1,10 @@
-//! `k docs` (`docs/design/48-releases-and-versioning.md`, "Private
+//! `k docs` (`docs/design/48-releases-and-versioning.md`, "Public
 //! distribution"): the book of the running toolchain, installed with it in
 //! `$K_HOME/docs/<version>/` by the install scripts and `k toolchain
-//! install`. `--path` prints the page; without it the page is opened with
-//! `$BROWSER` (a fake here) or the system's opener; a toolchain without its
-//! book says how to read one from a checkout.
+//! install`, so it reads offline. `--path` prints the page; without it the
+//! page is opened with `$BROWSER` (a fake here) or the system's opener; a
+//! toolchain without its book names the docs site and how to read one
+//! from a checkout.
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
@@ -111,7 +112,7 @@ fn docs_opens_the_page_with_browser() {
 }
 
 #[test]
-fn without_the_book_docs_says_where_to_read_it() {
+fn without_the_book_docs_names_the_site_and_the_source() {
     let fx = Fixture::new("missing");
     for args in [&["docs"][..], &["docs", "--path"][..]] {
         let out = fx.k(args, &[("BROWSER", "/nonexistent/browser")]);
@@ -122,6 +123,14 @@ fn without_the_book_docs_says_where_to_read_it() {
             "{err}"
         );
         assert!(err.contains("mdbook serve docs/book"), "{err}");
+        // The docs site, at this release's minor (or /next/ for a nightly).
+        let minor: Vec<&str> = VERSION.split(['.', '-']).take(2).collect();
+        let page = if VERSION.contains("-nightly.") {
+            "https://slavkobojanic.github.io/kobra/next/".to_owned()
+        } else {
+            format!("https://slavkobojanic.github.io/kobra/{}/", minor.join("."))
+        };
+        assert!(err.contains(&page), "{err}");
         assert!(text(&out.stdout).is_empty(), "{}", describe(&out));
     }
 }

@@ -1,27 +1,32 @@
-# Installs the Kobra toolchain, the `k` command, on Windows, for
-# collaborators on the private repository slavkobojanic/kobra
-# (docs/design/48-releases-and-versioning.md, "Private distribution";
-# docs/compiler/release.md section 2). The same steps as install.sh:
+# Installs the Kobra toolchain, the `k` command, on Windows
+# (docs/design/48-releases-and-versioning.md, "Public distribution";
+# docs/compiler/release.md section 2). The same steps as install.sh; the
+# docs site serves this file:
 #
-#   gh api repos/slavkobojanic/kobra/contents/scripts/install.ps1 -H 'Accept: application/vnd.github.raw' | Out-String | iex
-#   & ([scriptblock]::Create((gh api repos/slavkobojanic/kobra/contents/scripts/install.ps1 -H 'Accept: application/vnd.github.raw' | Out-String))) -Version 0.1.0
+#   irm https://slavkobojanic.github.io/kobra/install.ps1 | iex
+#   & ([scriptblock]::Create((irm https://slavkobojanic.github.io/kobra/install.ps1))) -Version 0.1.0
 #
-# The releases are private, so every download is authenticated: with the
-# GitHub CLI (`gh`, signed in with `gh auth login`), else with the token in
-# GH_TOKEN or GITHUB_TOKEN. It picks the archive for this machine's
-# processor, downloads it and the release's SHA256SUMS, checks the digest,
-# unpacks the toolchain into $K_HOME\toolchains\<version>\, makes it the
-# default ($K_HOME\bin\k.exe, the version in $K_HOME\default), unpacks the
-# release's book into $K_HOME\docs\<version>\ (read it with `k docs`) and
-# prints how to put $K_HOME\bin on the PATH. Running it again changes
-# nothing. While no stable release exists, it installs the newest release
-# candidate (else the newest nightly) from the newest release's index.json
-# and says so.
+# It picks the archive for this machine's processor, downloads it and the
+# release's SHA256SUMS from the public GitHub Releases of
+# slavkobojanic/kobra, checks the digest, unpacks the toolchain into
+# $K_HOME\toolchains\<version>\, makes it the default ($K_HOME\bin\k.exe,
+# the version in $K_HOME\default), unpacks the release's book into
+# $K_HOME\docs\<version>\ (read it with `k docs`) and prints how to put
+# $K_HOME\bin on the PATH. Running it again changes nothing. While no
+# stable release exists, it installs the newest release candidate (else
+# the newest nightly) from the docs site's index.json (else the newest
+# release's) and says so.
+#
+# No sign-in is needed. Only the fallback for a site without index.json
+# asks GitHub's API (60 requests an hour without a token): there a token
+# is sent when one is found, in GH_TOKEN, GITHUB_TOKEN or `gh auth token`,
+# and only to the API.
 #
 # Variables: K_VERSION (a version instead of the newest stable), K_HOME
 # (where toolchains go; %USERPROFILE%\.k by default), GH_TOKEN or
-# GITHUB_TOKEN (a token, used when gh isn't installed), K_INSTALL_GH (the gh
-# command; `none` to use the token), K_GITHUB_API (GitHub's API, for tests).
+# GITHUB_TOKEN (optional, for GitHub's API); for tests K_RELEASES (the
+# releases' download URLs), K_TOOLCHAIN_INDEX (the site's index.json),
+# K_GITHUB_API (GitHub's API) and K_INSTALL_GH (the gh command; `none`).
 
 param([string]$Version = $env:K_VERSION)
 
@@ -34,16 +39,11 @@ function Fail([string]$Message) {
 }
 
 $Repo = 'slavkobojanic/kobra'
+$Releases = if ($env:K_RELEASES) { $env:K_RELEASES.TrimEnd('/') } else { 'https://github.com/slavkobojanic/kobra/releases' }
+$Index = if ($env:K_TOOLCHAIN_INDEX) { $env:K_TOOLCHAIN_INDEX } else { 'https://slavkobojanic.github.io/kobra/index.json' }
 $Api = if ($env:K_GITHUB_API) { $env:K_GITHUB_API.TrimEnd('/') } else { 'https://api.github.com' }
 $Gh = if ($null -ne $env:K_INSTALL_GH) { $env:K_INSTALL_GH } else { 'gh' }
-$Token = if ($env:GH_TOKEN) { $env:GH_TOKEN } elseif ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { '' }
 $KHome = if ($env:K_HOME) { $env:K_HOME } else { Join-Path $env:USERPROFILE '.k' }
-$SignIn = "sign in with the GitHub CLI (https://cli.github.com): ``gh auth login``, or set GH_TOKEN to a token that can read $Repo"
-
-$UseGh = $Gh -and $Gh -ne 'none' -and (Get-Command $Gh -ErrorAction SilentlyContinue)
-if (-not $UseGh -and -not $Token) {
-    Fail "Kobra's repository $Repo is private, and neither gh nor a token was found: install the GitHub CLI (https://cli.github.com) and run ``gh auth login``, or set GH_TOKEN (or GITHUB_TOKEN) to a token that can read $Repo"
-}
 
 $Arch = if ($env:K_INSTALL_ARCH) { $env:K_INSTALL_ARCH } else { $env:PROCESSOR_ARCHITECTURE }
 switch ($Arch) {
@@ -52,62 +52,40 @@ switch ($Arch) {
     default { Fail "Kobra releases no toolchain for the $Arch processor; build k from source" }
 }
 
-# Explains a failed API request and stops.
-function Stop-Api([string]$Err) {
-    if ($Err -match '404|Not Found') { Fail "GitHub answered 404: you may not have access to $Repo; $SignIn" }
-    if ($Err -match '401|auth login|Bad credentials') { Fail "GitHub refused the request: you are not signed in; $SignIn" }
-    Fail "cannot reach GitHub: $Err"
+# Downloads a public file to $Out, with no token; $false when it fails.
+function Get-File([string]$Url, [string]$Out) {
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $Out
+        return $true
+    } catch { return $false }
 }
 
-# GET an API path; $null (with -Soft) or a stop when it fails.
-function Get-Api([string]$Path, [switch]$Soft) {
-    if ($UseGh) {
+# The optional token for GitHub's API: GH_TOKEN, GITHUB_TOKEN, else
+# `gh auth token`; '' without one.
+function Get-Token {
+    if ($env:GH_TOKEN) { return $env:GH_TOKEN }
+    if ($env:GITHUB_TOKEN) { return $env:GITHUB_TOKEN }
+    if ($Gh -and $Gh -ne 'none' -and (Get-Command $Gh -ErrorAction SilentlyContinue)) {
         # Windows PowerShell turns a native command's standard error into
         # errors, which 'Stop' would make fatal.
         $ErrorActionPreference = 'Continue'
-        $Out = & $Gh api -H 'Accept: application/vnd.github+json' $Path 2>&1
+        $Out = & $Gh auth token 2>$null
         $Ok = $LASTEXITCODE -eq 0
         $ErrorActionPreference = 'Stop'
-        $Text = ($Out | ForEach-Object { "$_" }) -join "`n"
-        if ($Ok) { return ($Text | ConvertFrom-Json) }
-        if ($Soft) { return $null }
-        Stop-Api $Text
+        if ($Ok -and $Out) { return "$Out".Trim() }
     }
-    try {
-        return Invoke-RestMethod -UseBasicParsing -Uri "$Api/$Path" -Headers @{
-            Authorization = "Bearer $Token"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28'
-        }
-    } catch {
-        if ($Soft) { return $null }
-        $Code = $null
-        if ($_.Exception.Response) { $Code = [int]$_.Exception.Response.StatusCode }
-        Stop-Api "HTTP $Code $($_.Exception.Message)"
-    }
+    return ''
 }
 
-$Releases = @{}
-# Downloads a release's asset to $Out; $false when it isn't there.
-function Get-Asset([string]$Tag, [string]$Name, [string]$Out) {
-    if ($UseGh) {
-        $ErrorActionPreference = 'Continue'
-        & $Gh release download $Tag -R $Repo -p $Name -O $Out --clobber 2>&1 | Out-Null
-        $Ok = $LASTEXITCODE -eq 0
-        $ErrorActionPreference = 'Stop'
-        return $Ok
-    }
-    if (-not $Releases.ContainsKey($Tag)) { $Releases[$Tag] = Get-Api "repos/$Repo/releases/tags/$Tag" -Soft }
-    $Release = $Releases[$Tag]
-    if (-not $Release) { return $false }
-    $Asset = $Release.assets | Where-Object { $_.name -eq $Name } | Select-Object -First 1
-    if (-not $Asset) { return $false }
-    # The token goes to the API only: PowerShell drops it on the redirect
-    # to the signed storage URL.
+# GET an API path, with the token when there is one (sent to the API
+# only); $null when it fails.
+function Get-Api([string]$Path) {
+    $Headers = @{ Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
+    $Token = Get-Token
+    if ($Token) { $Headers.Authorization = "Bearer $Token" }
     try {
-        Invoke-WebRequest -UseBasicParsing -Uri $Asset.url -OutFile $Out -Headers @{
-            Authorization = "Bearer $Token"; Accept = 'application/octet-stream'
-        }
-        return $true
-    } catch { return $false }
+        return Invoke-RestMethod -UseBasicParsing -Uri "$Api/$Path" -Headers $Headers
+    } catch { return $null }
 }
 
 # The newest release in the toolchain index that isn't yanked and has an
@@ -135,20 +113,22 @@ New-Item -ItemType Directory -Force -Path (Join-Path $KHome 'tmp') | Out-Null
 $Work = Join-Path (Join-Path $KHome 'tmp') ("install-ps1." + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Work | Out-Null
 try {
-    # Access first, so a missing permission isn't mistaken for a missing release.
-    Get-Api "repos/$Repo" | Out-Null
+    $Sums = Join-Path $Work 'SHA256SUMS'
     if ($Version) {
         $Tag = "v$($Version.TrimStart('v'))"
-    } else {
-        $Latest = Get-Api "repos/$Repo/releases/latest" -Soft
-        if ($Latest) {
-            $Tag = $Latest.tag_name
-        } else {
-            # GitHub's `latest` skips pre-releases: with only release
-            # candidates (or nightlies) published there is none, and the
-            # newest release's index names them.
-            $NoStable = 'there is no stable release of Kobra yet; install a pre-release by name with -Version <version>'
+        if (-not (Get-File "$Releases/download/$Tag/SHA256SUMS" $Sums)) {
+            Fail "cannot download SHA256SUMS of the release $Tag from $Releases (is it a released version?)"
+        }
+    } elseif (-not (Get-File "$Releases/latest/download/SHA256SUMS" $Sums)) {
+        # GitHub's `latest` skips pre-releases: with only release
+        # candidates (or nightlies) published there is none, and the
+        # toolchain index names them: the docs site's, else the newest
+        # release's.
+        $NoStable = 'there is no stable release of Kobra yet; install a pre-release by name with -Version <version>'
+        $IndexFile = Join-Path $Work 'index.json'
+        if (-not (Get-File $Index $IndexFile)) {
             $List = Get-Api "repos/$Repo/releases?per_page=100"
+            if ($null -eq $List) { Fail "$NoStable (GitHub's API didn't answer; set GH_TOKEN if it limited the requests)" }
             $WithIndex = $null
             # `foreach`, not the pipeline: Windows PowerShell passes a JSON
             # array down a pipeline as one object.
@@ -158,22 +138,20 @@ try {
                 if (-not $WithIndex -or [datetime]$R.published_at -gt [datetime]$WithIndex.published_at) { $WithIndex = $R }
             }
             if (-not $WithIndex) { Fail $NoStable }
-            $IndexFile = Join-Path $Work 'index.json'
-            if (-not (Get-Asset $WithIndex.tag_name 'index.json' $IndexFile)) { Fail $NoStable }
-            $Chosen = Get-Newest $IndexFile
-            if (-not $Chosen) { Fail $NoStable }
-            $Version, $Channel = $Chosen
-            if ($Channel -eq 'candidate') {
-                Write-Output "note: there is no stable release of Kobra yet; installing the newest release candidate, $Version (choose another with -Version <version>)"
-            } elseif ($Channel -eq 'nightly') {
-                Write-Output "note: there is no stable release or release candidate of Kobra yet; installing the newest nightly, $Version (choose another with -Version <version>)"
-            }
-            $Tag = "v$Version"
+            if (-not (Get-File "$Releases/download/$($WithIndex.tag_name)/index.json" $IndexFile)) { Fail $NoStable }
         }
-    }
-    $Sums = Join-Path $Work 'SHA256SUMS'
-    if (-not (Get-Asset $Tag 'SHA256SUMS' $Sums)) {
-        Fail "cannot download SHA256SUMS of $Repo's release $Tag (is it a released version?)"
+        $Chosen = Get-Newest $IndexFile
+        if (-not $Chosen) { Fail $NoStable }
+        $Version, $Channel = $Chosen
+        if ($Channel -eq 'candidate') {
+            Write-Output "note: there is no stable release of Kobra yet; installing the newest release candidate, $Version (choose another with -Version <version>)"
+        } elseif ($Channel -eq 'nightly') {
+            Write-Output "note: there is no stable release or release candidate of Kobra yet; installing the newest nightly, $Version (choose another with -Version <version>)"
+        }
+        $Tag = "v$Version"
+        if (-not (Get-File "$Releases/download/$Tag/SHA256SUMS" $Sums)) {
+            Fail "cannot download SHA256SUMS of the release $Tag from $Releases"
+        }
     }
     $SumLines = Get-Content $Sums | ForEach-Object {
         $Parts = $_ -split '\s+', 2
@@ -184,13 +162,16 @@ try {
     if (-not $Line) { Fail "the release $Tag has no archive for $Target" }
     $Digest, $Archive = $Line
     $Found = $Archive.Substring(2, $Archive.Length - 2 - $Suffix.Length)
+    # The files of that release (`latest/download/` may move meanwhile).
+    $Tag = "v$Found"
+    $From = "$Releases/download/$Tag"
 
     $Dest = Join-Path (Join-Path $KHome 'toolchains') $Found
     if (Test-Path (Join-Path $Dest 'k.exe')) {
         Write-Output "k $Found is already installed in $Dest"
     } else {
         $File = Join-Path $Work $Archive
-        if (-not (Get-Asset $Tag $Archive $File)) { Fail "cannot download $Archive from the release $Tag" }
+        if (-not (Get-File "$From/$Archive" $File)) { Fail "cannot download $Archive from the release $Tag ($From)" }
         $Got = (Get-FileHash -Algorithm SHA256 $File).Hash.ToLower()
         if ($Got -ne $Digest) {
             Fail "checksum mismatch for ${Archive}: SHA256SUMS says $Digest, the download is $Got; nothing was installed"
@@ -214,7 +195,7 @@ try {
         $BookFile = Join-Path $Work $BookName
         $BookDir = Join-Path $Work 'book'
         $Done = $false
-        if ((Get-Asset $Tag $BookName $BookFile) -and ((Get-FileHash -Algorithm SHA256 $BookFile).Hash.ToLower() -eq $BookLine[0])) {
+        if ((Get-File "$From/$BookName" $BookFile) -and ((Get-FileHash -Algorithm SHA256 $BookFile).Hash.ToLower() -eq $BookLine[0])) {
             New-Item -ItemType Directory -Force -Path $BookDir | Out-Null
             $ErrorActionPreference = 'Continue'
             & tar -xzf $BookFile -C $BookDir 2>&1 | Out-Null

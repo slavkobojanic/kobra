@@ -14,7 +14,7 @@
 //! response.
 //!
 //! For the fake GitHub API of the toolchain tests
-//! (`docs/design/48-releases-and-versioning.md`, "Private distribution"):
+//! (`docs/design/48-releases-and-versioning.md`, "Public distribution"):
 //!
 //! * a directory is answered with its `_index.json` when it has one, so a
 //!   collection (`repos/o/r/releases`) and its members

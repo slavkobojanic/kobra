@@ -569,8 +569,8 @@ fn write_root(o: &Options, v: &Versions, scripts: Option<&Path>) -> Result<(), S
         }
         fs::write(path, redirect_page(&target)).map_err(io)?;
     }
-    // The install scripts, as the repository has them: they download from
-    // the GitHub releases with the user's token (design 48, "Private
+    // The install scripts, as the repository has them: they name the public
+    // GitHub releases and this site's index.json (design 48, "Public
     // distribution"), so the copy needs nothing filled in.
     if let Some(scripts) = scripts {
         for name in ["install.sh", "install.ps1"] {

@@ -743,7 +743,7 @@ my-app/
 | `k test [project] [--filter text]… [--watch]` | run `test` declarations in one isolate over the fake DOM, ([codegen.md §21.1](codegen.md#211-the-test-bundle-k-test), [runtime.md §13](runtime.md#13-testing)); one browser and one server per test (rpcs in-process through the wire format, a fresh in-memory database, the test's one session); failures are K7510 diagnostics; `--watch` re-runs the tests a change affects (`Analysis::file_dependencies`); `K_TEST_BUNDLE_DIR` writes the bundle ([testing.md §8.4](testing.md#84-k-test-and-the-project-commands)) |
 | `k routes [project]` | print the route table: pages, each endpoint handler, `routes.lock` redirects, with parameters and guards (`k_codegen::route_table`) |
 | `k migrate new "description" [--empty \| --drop-retired \| --rename name…]`, `k migrate rename old new`, `k migrate apply\|status [project]` | migrations ([§10](#10-persistence), [db.md §10](db.md#10-migrations)) |
-| `k docs [--path]` | open the running toolchain's book from `$K_HOME/docs/<version>/` (`$BROWSER`, else the system's opener), or print its path; nothing is fetched (`k_cli` `docs.rs`) |
+| `k docs [--path]` | open the running toolchain's book from `$K_HOME/docs/<version>/` (`$BROWSER`, else the system's opener), or print its path; nothing is fetched, and without it the docs site's URL is named (`k_cli` `docs.rs`) |
 | `k debug tokens\|ast\|diag <file>` | hidden; print golden-file formats |
 
 Exit status: 0 success, 1 problems found, 2 usage or internal error.
