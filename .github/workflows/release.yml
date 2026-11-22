@@ -93,7 +93,7 @@ jobs:
         with:
           mdbook: "true"
       - shell: bash
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
       - shell: bash
         run: "cargo test -p k_cli --test it -- install_script::"
 

@@ -53,7 +53,7 @@ jobs:
         with:
           mdbook: "true"
       - shell: bash
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
 
   # The database tests on Postgres and the browser tests in real Chrome.
   services:

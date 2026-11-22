@@ -85,7 +85,7 @@ fn create_table_renders_columns_and_indexes_in_both_dialects() {
     );
     assert_eq!(
         r.postgres[0],
-        "CREATE TABLE \"account\" (\"id\" uuid NOT NULL PRIMARY KEY, \"email\" text NOT NULL, \"created_at\" timestamptz NOT NULL)"
+        "CREATE TABLE \"account\" (\"id\" uuid NOT NULL PRIMARY KEY, \"email\" text COLLATE \"C\" NOT NULL, \"created_at\" timestamptz NOT NULL)"
     );
 }
 

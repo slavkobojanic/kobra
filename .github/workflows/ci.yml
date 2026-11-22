@@ -71,7 +71,7 @@ jobs:
       # examples, version consistency, the fragments, the compatibility
       # fixtures; the database tests also on Postgres, the browser tests in
       # the runner's Chrome (which must be found).
-      - run: cargo test --workspace
+      - run: cargo test --workspace --no-fail-fast
         env:
           K_TEST_POSTGRES_URL: postgres://postgres:k@127.0.0.1:5432/k_test
           K_REQUIRE_CHROME: "1"
