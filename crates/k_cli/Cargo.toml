@@ -26,6 +26,8 @@ k_fmt.workspace = true
 k_db.workspace = true
 # `k lsp`: the language server, over the same analysis as `k check`.
 k_lsp.workspace = true
+# `k mcp`: the MCP server for AI assistants (docs, examples, snippet checks).
+k_mcp.workspace = true
 k_server = { workspace = true, optional = true }
 # `k dev` waits for a signal or a source change (server builds only).
 tokio = { workspace = true, optional = true }

@@ -1700,6 +1700,7 @@ dependencies = [
  "k_diagnostics",
  "k_fmt",
  "k_lsp",
+ "k_mcp",
  "k_runtime",
  "k_sema",
  "k_server",
@@ -1797,6 +1798,16 @@ dependencies = [
  "regex",
  "rowan",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "k_mcp"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "k_diagnostics",
+ "k_sema",
  "serde_json",
 ]
 

@@ -1,0 +1,14 @@
+{
+  "name": "kobra",
+  "description": "Claude Code plugins for the Kobra language.",
+  "owner": {
+    "name": "Slavko Bojanic"
+  },
+  "plugins": [
+    {
+      "name": "kobra",
+      "source": "./editors/claude",
+      "description": "Skills for writing Kobra (language, apps, tooling) and the `k mcp` documentation and checking server."
+    }
+  ]
+}

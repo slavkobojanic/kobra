@@ -36,6 +36,7 @@
 | `k proto export` | Emits `.proto` files from Kobra protocols |
 | `k doc` | Renders documentation from `///` comments ([39-doc-comments.md](39-doc-comments.md)) |
 | `k lsp` | The language server, over standard input and output, for editors ([docs/compiler/lsp.md](../compiler/lsp.md)) |
+| `k mcp` | The MCP server, over standard input and output, for AI assistants: the docs, the examples and snippet checks ([AI assistants](#ai-assistants), [docs/compiler/mcp.md](../compiler/mcp.md)) |
 | `k toolchain install`, `list`, `remove`, `default`; `k self update` | Install, list, remove and choose the default of the installed toolchains, and update the default to the newest release; the only commands that download ([48-releases-and-versioning.md](48-releases-and-versioning.md#commands)) |
 
 The built executable has its own commands (`serve`, `migrate`, `config`, `probe`, `jobs`), described in [38-deployment.md](38-deployment.md).
@@ -182,6 +183,18 @@ user guide is the book's Debugging chapter.
   crate and checks exact lines and columns; `k_cli/tests/debugging.rs` sets breakpoints at `.k` lines in
   headless Chrome and in the server's inspector, triggers them, and checks the paused `.k` line, the Kobra
   names in scope, a mapped exception, the formatters and the mapped server traces.
+
+## AI assistants
+
+**`k mcp` is an MCP server, in the `k` binary, that answers AI assistants from the toolchain's own documentation and compiler.** An assistant writing Kobra has never seen much of it, so it needs the language's docs and a way to check what it wrote; both are in `k` already. Install: `claude mcp add kobra -- k mcp`. The architecture is in [docs/compiler/mcp.md](../compiler/mcp.md).
+
+- **Tools, not prompts:** `list_docs`, `read_doc`, `search_docs`, `list_examples`, `read_example`, `explain_diagnostic` and `check_snippet`; every document is also a resource (`kobra://book/language/types.md`, `kobra://examples/todos/App.k`). The server has no prompts and never writes a file: what it does is read, search and check.
+- **The corpus is embedded at build time** (`docs/book/src`, `docs/design`, `docs/compiler`, `README.md`, and each example's Markdown, `k.toml` and `.k` sources), so an installed `k` works anywhere, offline, and its answers describe the compiler that gives them. It is compressed (DEFLATE, about 1.5 MB of the binary for about 5 MB of text) and inflated on first use. Reading the docs from a checkout was rejected: an installed toolchain has none.
+- **The project is read from disk.** Started in a project (the nearest `k.toml` at or above the working directory) or given `--root`, the server adds that project's `.k`, `k.toml` and Markdown files as the `project` section, re-read on every request so edits show.
+- **`check_snippet` runs the analysis `k check` runs** (`k_sema`'s `AnalysisHost`, the same diagnostics and renderings), on the snippet and any other files given. A snippet gets the path the book's sample check would give it and, without a theme, the book's sample theme. It runs no tests and no codegen lockfile checks, which need a whole project; the assistant runs `k check` for those.
+- **`explain_diagnostic` reads the sources of truth:** the code registry, the code's section of the generated diagnostics reference and the compiler catalogue's row. It is what `k explain` (Planned `k-explain`) will print, available to assistants first.
+- **The protocol is hand-rolled** over `serde_json` (newline-delimited JSON-RPC 2.0, MCP `2025-06-18`, also `2025-03-26` and `2024-11-05` when a client asks for them), as the language server's transport is: the protocol surface is a handful of methods, and an SDK would bring an async runtime and a dependency tree for them.
+- **`k mcp` is never delegated to a project's pinned toolchain.** One assistant configuration runs one `k mcp` for every project, and toolchains older than the command don't have it.
 
 ## Compiler errors
 

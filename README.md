@@ -2,7 +2,7 @@
 
 Kobra is a strongly typed language for full-stack web applications that compiles ahead of time to
 JavaScript. Source files end in `.k`, and everything ships as one binary, `k`: compiler, test runner,
-formatter, development server, migration tool, language server and server runtime.
+formatter, development server, migration tool, language server, MCP server and server runtime.
 
 ## Install
 
@@ -25,6 +25,18 @@ newest release candidate). Then:
 ```sh
 k new hello && cd hello && k dev
 ```
+
+## AI assistants
+
+`k mcp` is an MCP server that gives AI coding assistants Kobra's documentation, its example apps and the
+compiler's checks, all built into `k`. In Claude Code:
+
+```sh
+claude mcp add kobra -- k mcp
+```
+
+See [AI assistants](docs/book/src/getting-started/ai-assistants.md) in the book, and
+[docs/compiler/mcp.md](docs/compiler/mcp.md) for the tools.
 
 ## Documentation
 
@@ -52,6 +64,7 @@ crates/
   k_db            persistence: schema, query IR, SQL, migrations, drivers
   k_fmt           the formatter (`k fmt`)
   k_lsp           the language server (`k lsp`)
+  k_mcp           the MCP server for AI assistants (`k mcp`)
   k_cli           the `k` binary
   k_corpus        golden corpus test harness
   xtask           release automation (`cargo xtask`), never shipped

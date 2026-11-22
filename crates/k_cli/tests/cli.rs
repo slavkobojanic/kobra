@@ -64,6 +64,49 @@ fn lsp_accepts_the_stdio_flag() {
     }
 }
 
+/// `k mcp` answers the MCP handshake and a tool call over stdio, writes
+/// nothing but protocol lines to standard output, and serves the project
+/// it runs in (docs/compiler/mcp.md).
+#[test]
+fn mcp_answers_over_stdio() {
+    use std::io::Write as _;
+    let dir = TempDir::new("mcp");
+    fs::write(dir.0.join("k.toml"), "[package]\nname = \"demo\"\n").unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_k"))
+        .arg("mcp")
+        .current_dir(&dir.0)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run k mcp");
+    let input = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_docs","arguments":{"section":"project"}}}"#,
+        "\n",
+    );
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2, "{stdout}");
+    assert_eq!(lines[0]["result"]["protocolVersion"], "2025-06-18");
+    let text = lines[1]["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("project/k.toml"), "{text}");
+}
+
 #[test]
 fn check_on_an_empty_directory_succeeds() {
     let dir = TempDir::new("empty");

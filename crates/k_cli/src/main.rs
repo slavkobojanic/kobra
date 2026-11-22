@@ -150,6 +150,12 @@ fn main() -> ExitCode {
         Command::Dev(args) => build::dev(&args),
         // The language server speaks JSON-RPC on stdin/stdout until `exit`.
         Command::Lsp { .. } => ExitCode::from(u8::try_from(k_lsp::run_stdio()).unwrap_or(1)),
+        // The MCP server speaks JSON-RPC lines on stdin/stdout until the
+        // input ends.
+        Command::Mcp { root } => {
+            let root = root.map(|r| std::path::absolute(&r).unwrap_or(r));
+            ExitCode::from(u8::try_from(k_mcp::run_stdio(root)).unwrap_or(1))
+        }
         Command::Test(args) => test::run(&args),
         Command::Routes(args) => routes::run(&args),
         Command::HashPassword => hash_password(),

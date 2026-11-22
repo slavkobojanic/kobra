@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "kobra": {
+      "command": "k",
+      "args": ["mcp"]
+    }
+  }
+}

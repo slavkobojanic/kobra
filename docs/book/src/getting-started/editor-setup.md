@@ -136,6 +136,21 @@ Plug '/path/to/k/editors/vim'
 `:LspDefinition`, `:LspImplementation`, `:LspReferences`, `:LspRename`, `:LspHover`, `:LspCodeAction`
 and `:LspDocumentFormat` then work in `.k` files.
 
+## Claude Code
+
+`editors/claude` is a [Claude Code](https://code.claude.com) plugin. Its skills teach Claude Kobra's
+syntax, how a full-stack app fits together, and the `k` command. It also starts the `k mcp` server
+described in [AI assistants (MCP)](ai-assistants.md), so Claude can read this book and check every piece
+of Kobra it writes with the compiler. Install it from inside Claude Code:
+
+```text
+/plugin marketplace add slavkobojanic/kobra
+/plugin install kobra@kobra
+```
+
+To try it from a checkout without installing it, run `claude --plugin-dir editors/claude`.
+`editors/claude/README.md` lists the skills.
+
 ## Other editors
 
 Configure the editor to run `k lsp` for `.k` files, talking over standard input and output, with the

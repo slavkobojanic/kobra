@@ -43,6 +43,14 @@ pub enum Command {
         #[arg(long, hide = true)]
         stdio: bool,
     },
+    /// Run the MCP server on standard input and output (for AI assistants): the docs, the examples and the checker.
+    Mcp {
+        /// The Kobra project whose files the server also serves; by default
+        /// the nearest directory with a `k.toml` at or above the working
+        /// directory.
+        #[arg(long, value_name = "DIR")]
+        root: Option<PathBuf>,
+    },
     /// Hash the password read from standard input with Argon2id, printing its PHC string.
     HashPassword,
     /// Make keys for `k.crypto`'s key types.

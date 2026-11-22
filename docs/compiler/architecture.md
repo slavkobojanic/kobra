@@ -58,6 +58,8 @@ crates/
   k_lsp           the language server: LSP transport, document sync and the IDE features over k_sema
   k_fmt           the formatter's core: canonical rewrites and layout over the lossless tree
                   (docs/design/56-formatter.md); `k fmt` itself comes later
+  k_mcp           the MCP server (`k mcp`) for AI assistants: the embedded docs and examples, search,
+                  diagnostic explanations and snippet checks over k_sema (mcp.md)
   k_cli           the `k` binary: subcommands over the crates above
   k_corpus        golden corpus harness and golden file formats (tests/corpus)
   xtask           `cargo xtask`: release automation (fragments, version bumps, the local gate,
@@ -81,6 +83,7 @@ k_cli ──▶ k_server ──▶ k_runtime
   │        └──▶ k_runtime
   ├──▶ k_sema (k check)
   ├──▶ k_db (k migrate status)
+  ├──▶ k_mcp (k mcp) ──▶ k_sema, k_diagnostics
   └──▶ k_corpus (golden formats, sema/codegen/run suites) ──▶ k_codegen, k_sema, k_syntax
 
 k_fmt ──▶ k_syntax ──▶ k_diagnostics
@@ -772,14 +775,14 @@ Few, well-known crates. Adding one requires a line here.
 | `libfuzzer-sys` | fuzz targets (nightly, outside workspace) | in use |
 | `arbitrary` | structure-aware Kobra program generator shared by fuzz targets and property tests (dev) | in use |
 | `salsa` | incremental query engine | rejected: hand-rolled queries ([sema.md §3.1](sema.md#31-decision-hand-rolled-salsa-style-layered-queries)) |
-| `serde`, `serde_json` | manifests, ops, RPC JSON, app archive, `k test` results | in use (k_codegen, k_server, k_db, k_corpus, k_cli) |
+| `serde`, `serde_json` | manifests, ops, RPC JSON, app archive, `k test` results, `k mcp`'s JSON-RPC (no MCP SDK: [mcp.md §2](mcp.md#2-dependencies)) | in use (k_codegen, k_server, k_db, k_corpus, k_cli, k_mcp) |
 | `toml` (parse only) | `schema.lock`; `storage.lock` (the payload check); `fakes.toml` of e2e projects (dev) | in use (k_db, k_sema; k_server tests) |
 | `yaml-rust2` (no default features) | reading `examples/shop`'s `docker-compose.yml` and Kubernetes manifests in `k_cli`'s `tests/deploy.rs` (dev); pure Rust, YAML 1.2 | in use (k_cli tests) |
 | `tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes` | HTTP server, async drivers | in use (k_server, k_db) |
 | `deno_core`, `deno_error` | V8 embedding, ops | in use (k_server) |
 | deno web extensions | web APIs in isolates | rejected: a small bootstrap and Kobra ops instead ([§9.1](#91-process-model)) |
 | `rusqlite` (bundled, statement cache, `collation` for `k_decimal`), `tokio-postgres` | database drivers | in use (k_db) |
-| `flate2` | gzip for the runtime size-budget test (dev); the gzip and deflate streams of toolchain archives for `k toolchain install` (`k_cli` `archive.rs`, whose tar and zip readers are its own) | in use (k_runtime, k_cli) |
+| `flate2` | gzip for the runtime size-budget test (dev); the gzip and deflate streams of toolchain archives for `k toolchain install` (`k_cli` `archive.rs`, whose tar and zip readers are its own); compressing `k mcp`'s embedded docs at build time and inflating them on first use ([mcp.md §4](mcp.md#4-the-corpus)) | in use (k_runtime, k_cli, k_mcp) |
 | `getrandom` | the OS CSPRNG for session ids and OAuth state (already in the tree through deno_core) | in use (k_server) |
 | `argon2` | Argon2id password hashing (`k.crypto.Password`, PHC strings; RustCrypto, pure Rust) | in use (k_server) |
 | `hyper` (`client`), `hyper-util` (`client-legacy`) | outgoing HTTP for `FetchHttpClient` (`op_k_fetch`), the same HTTP stack as the server; `k_server::outbound::download`, which `k toolchain install` uses for the index and archives | in use (k_server) |

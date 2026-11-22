@@ -1,0 +1,36 @@
+[package]
+name = "k_mcp"
+# Integration tests are modules of tests/main.rs (one binary, `it`), not one
+# binary per file: docs/design/13-tooling.md, "One test binary per crate".
+autotests = false
+description = "The Kobra MCP server (`k mcp`): the docs, the examples and the compiler's checks for AI assistants, over the Model Context Protocol."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# The library's unit tests are not benchmarks (see k_sema).
+[lib]
+bench = false
+
+[dependencies]
+k_diagnostics.workspace = true
+# `check_snippet`: the analysis `k check` runs.
+k_sema.workspace = true
+# The protocol is hand-rolled JSON-RPC over serde_json; no MCP SDK
+# (docs/compiler/mcp.md, "Dependencies").
+serde_json.workspace = true
+# Inflates the embedded corpus (build.rs compresses it).
+flate2.workspace = true
+
+[build-dependencies]
+flate2.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"
+
+[lints]
+workspace = true

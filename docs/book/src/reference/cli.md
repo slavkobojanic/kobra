@@ -40,6 +40,8 @@ error.
 | `k doc` | render documentation from `///` comments (**Planned** k-doc) |
 | `k explain <code>` | describe a diagnostic code (**Planned** k-explain; see the [diagnostics reference](diagnostics.md)) |
 | `k lsp` | run the language server on standard input and output, for editors ([Editor setup](../getting-started/editor-setup.md)) |
+| `k mcp` | run the MCP server on standard input and output, for AI assistants: the docs, the examples and the compiler's checks ([AI assistants](../getting-started/ai-assistants.md)) |
+| `k mcp --root <dir>` | the same, serving that project's files too instead of the one around the working directory |
 
 > **Planned** (fmt-check, doc-blocks). The design adds the formatting check and the type-checking of `k` blocks in doc comments
 > to `k check`.

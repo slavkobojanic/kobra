@@ -207,6 +207,10 @@ fn command_project(command: &Command) -> Option<PathBuf> {
         // Managing toolchains is the running `k`'s job, whatever the
         // project in the working directory pins.
         Command::Toolchain { .. } | Command::Itself { .. } => None,
+        // The MCP server is the running `k`'s: an assistant's configuration
+        // names one `k mcp` for every project, and toolchains older than it
+        // have no such command (docs/compiler/mcp.md, "Toolchains").
+        Command::Mcp { .. } => None,
     }
 }
 

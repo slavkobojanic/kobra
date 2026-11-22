@@ -18,6 +18,14 @@ unpinned = [
     "typing 50 as the bill shows that each person pays $28.75",
 ]
 
+[pages."getting-started/ai-assistants.md"]
+commit = "d5e11ff"
+date = "2026-11-22"
+note = "new with `k mcp`; written against the working tree on top of d5e11ff, every claim about the tools checked against crates/k_mcp and its tests (crates/k_mcp/tests/server.rs), the install command against `claude mcp add`'s syntax"
+unpinned = [
+    "Claude Code's `/mcp` lists the server after a restart (Claude Code's behaviour, not tested here)",
+]
+
 [pages."learn/tutorial/index.md"]
 commit = "8f94734"
 date = "2026-11-09"

@@ -1,0 +1,12 @@
+{
+  "name": "kobra",
+  "version": "0.1.0",
+  "description": "Write correct, idiomatic Kobra: language, full-stack app and tooling skills, plus the `k mcp` server for the docs and the compiler's checks.",
+  "author": {
+    "name": "Slavko Bojanic"
+  },
+  "homepage": "https://github.com/slavkobojanic/kobra",
+  "repository": "https://github.com/slavkobojanic/kobra",
+  "license": "MIT OR Apache-2.0",
+  "keywords": ["kobra", "k", "language", "web", "full-stack"]
+}
