@@ -191,8 +191,17 @@ a fake never reaches the internet:
 
 | Member | Meaning |
 |---|---|
+| `serveJson(path:_:)` | answers requests to `path` with a value encoded as JSON, status `.ok` |
+| `serveText(path:_:status:)` | answers requests to `path` with text, status `.ok` unless given |
 | `respond(path:with:)` | answers requests to `path` with an `HttpResponse` |
+| `fail(path:error:)` | makes requests to `path` throw an `HttpError` |
 | `requests: List<HttpRequest>` | every request sent so far |
+
+The value and the text are unlabelled: `http.serveText(path: "/v1/forecast", "Service unavailable",
+status: .serviceUnavailable)`.
+
+The weather example uses its own fake instead, `FakeHttpClient` (chosen with `use FakeHttpClient for
+HttpClient`), whose `serveText` labels the text `body:`:
 
 ```k
 // examples/weather/src/weather/WeatherService.test.k

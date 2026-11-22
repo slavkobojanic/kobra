@@ -1482,7 +1482,7 @@ export function memoryStorage(R, W) {
      */
     write(codec, key, value) {
       if (writeError !== null) throw writeError;
-      items.set(key.name, JSON.stringify(codec.encode(value)));
+      items.set(key.name, stringify(codec.encode(value)));
     },
     /** Removes the value under the key, the last argument. */
     remove(...a) {
@@ -1539,7 +1539,7 @@ export function memoryCollections(schema) {
   const writing = () => {
     if (writeError !== null) throw writeError;
   };
-  const record = (n, cv, value) => collectionRecord(schema[n], JSON.stringify(cv.encode(value)));
+  const record = (n, cv, value) => collectionRecord(schema[n], stringify(cv.encode(value)));
   const keyOf = (n, ck, key) => collectionKey(schema[n][1], ck.encode(key));
   const at = (index) => {
     const found = collectionIndex(schema, index);
@@ -2858,7 +2858,7 @@ export function testHttpClient(E, S) {
     },
     /** Cans a 200 JSON response holding `value` for requests to `path`. */
     serveJson(codec, path, value) {
-      answers.set(String(path), answer(ok, "application/json", new TextEncoder().encode(JSON.stringify(codec.encode(value)))));
+      answers.set(String(path), answer(ok, "application/json", new TextEncoder().encode(stringify(codec.encode(value)))));
     },
     /**
      * Cans a plain-text response for requests to `path`, `ok` unless
@@ -2885,7 +2885,7 @@ export function recordingJobQueue() {
      * has no codec (`null`, which `InlineJobQueue` accepts too).
      */
     async enqueue(_c, codec, kind, payload, delay) {
-      const json = codec ? JSON.stringify(codec.encode(payload)) : null;
+      const json = codec ? stringify(codec.encode(payload)) : null;
       jobs.push({ name: String(kind.name), json, payload, delay: delay ?? 0 });
     },
     /**

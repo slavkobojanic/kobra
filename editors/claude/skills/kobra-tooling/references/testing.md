@@ -38,7 +38,7 @@ test ForecastService {
     @Inject let forecasts: ForecastService
 
     test "the temperature is decoded" {
-        http.serveText(path: "/v1/forecast", "{{\"temperature_2m\": 21.5}")
+        http.serveJson(path: "/v1/forecast", Forecast(temperature: 21.5))
 
         let forecast = try await forecasts.current(latitude: 59.9, longitude: 10.7)
 
@@ -239,10 +239,3 @@ test PaymentWebhook {
 
 `client.send(request:)` never throws, and lowercases response header names. Cookies persist across one
 test's requests.
-
-## Known quirk
-
-With the toolchain this plugin was written against, serving a struct whose field has
-`@JsonKey("temperature_2m")` with `TestHttpClient.serveJson(path:_:)` made `fetchJson` fail to decode
-the answer (`.temperature_2m: expected a number`), even though `Json.encode` writes the key correctly.
-Serve the literal JSON with `serveText` when a response type renames keys.

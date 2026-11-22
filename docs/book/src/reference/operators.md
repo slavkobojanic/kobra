@@ -64,4 +64,3 @@ Consequences worth knowing:
 | `;` between statements | a new line |
 | `tuple.0` | a pattern, or a struct with named fields |
 | `x == true`, `x == false` | `x`, `not x` (the comparison is reported with a fix) |
-| `f<Int>(x)` | an annotated binding: `let tags: Set<String> = Set([])` |

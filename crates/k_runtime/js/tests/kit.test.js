@@ -8,7 +8,7 @@
  * doubles, expectation failures and the runner.
  */
 import { assert, assertDeepEq, assertEq, assertThrows, installDom, test } from "k:testing";
-import { Instant, KPanic, effect, flush, isPanic, on, root, signal, unitCase } from "k:runtime";
+import { Instant, KPanic, codecs, effect, flush, isPanic, on, root, signal, unitCase } from "k:runtime";
 import * as kit from "k:testing/kit";
 
 /** Mounts `html` as a rendered view and returns its screen. */
@@ -253,6 +253,13 @@ test("MemoryStorage stores encoded values and simulates failures", () => {
   assertEq(s.read(codec, key), 4);
   s.remove(codec, key);
   assertEq(s.read(codec, key), null);
+});
+
+test("TestHttpClient serves a Double as a JSON number", async () => {
+  const http = kit.testHttpClient({}, {});
+  http.serveJson(codecs.list(codecs.double), "/v1/numbers", [21.5, 2]);
+  const r = await http.send(null, { url: "https://api.example.com/v1/numbers" });
+  assertEq(r.body, "[21.5,2.0]");
 });
 
 test("TestHttpClient answers canned paths and fails the test on any other", async () => {
