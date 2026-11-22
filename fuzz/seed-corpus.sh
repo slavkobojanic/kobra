@@ -23,7 +23,7 @@
 #   started; the curated set loads in a few seconds and covers every
 #   checker area.
 # * `check_structured`, `check_typed`, `codegen`, `codegen_run`,
-#   `lsp_edits`: their bytes drive a generator, so K source is no better a
+#   `lsp_edits`: their bytes drive a generator, so Kobra source is no better a
 #   seed than noise. They get sixteen random seeds, so they start from
 #   programs of every size rather than growing from the empty input: 64 to
 #   1,024 bytes for the semantic two (their cap, `GENERATOR_MAX_INPUT`) and

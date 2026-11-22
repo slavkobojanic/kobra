@@ -119,7 +119,7 @@ public protocol BookProtocol {
 - The draft is checked against its rules on the server too, before `add` runs, so a request that skips
   the form can't save a book without a title.
 
-What crosses the network must be `Codable`: K can turn it into bytes and back. Add `Codable` to
+What crosses the network must be `Codable`: Kobra can turn it into bytes and back. Add `Codable` to
 `BookDraft`:
 
 ```k
@@ -173,9 +173,9 @@ public service BookApi implements BookProtocol {
 }
 ```
 
-- `@Inject let records: BookRepository` asks K for the repository. You never create services yourself:
-  K makes one of each and passes it to whatever injects it.
-- `Clock` tells the time. Taking it from K, instead of reading the computer's clock, lets a test set the
+- `@Inject let records: BookRepository` asks Kobra for the repository. You never create services yourself:
+  Kobra makes one of each and passes it to whatever injects it.
+- `Clock` tells the time. Taking it from Kobra, instead of reading the computer's clock, lets a test set the
   time.
 - `add` makes a record, inserts it, and returns the `Book` the browser will show. The compiler checks that
   `BookApi` answers every rpc of the protocol, with the same types.

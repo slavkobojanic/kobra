@@ -1,6 +1,6 @@
-# K Grammar
+# Kobra Grammar
 
-This document is the precise grammar of K: its lexical structure, lexer modes, statement termination, the
+This document is the precise grammar of Kobra: its lexical structure, lexer modes, statement termination, the
 syntax of every construct, operator precedence, and the S-expression format used to dump syntax trees in
 golden tests. It is normative for `crates/k_syntax`. Where the design documents in [`docs/design`](../design)
 leave a syntactic question open, the answer is recorded under [Resolved ambiguities](#18-resolved-ambiguities).
@@ -284,7 +284,7 @@ nothing changes. (`foo.style` and `.style(x)` therefore never enter style mode.)
 Style mode tokenizes a CSS-like language ([§16](#16-style-blocks)). It differs from code mode as follows:
 
 - **Identifiers** may contain `-` after the first character: `sans-serif`, `nth-child`, `space-between`.
-  They are always `Ident`; there are no keywords in style mode (`not`, `and` are `Ident`). K spells
+  They are always `Ident`; there are no keywords in style mode (`not`, `and` are `Ident`). Kobra spells
   keyword values in camel case (`sansSerif`); a hyphenated keyword in a value still lexes as one `Ident`
   so that the checker can report it (K3214, [06-styles.md](../design/06-styles.md#keyword-values)).
 - **Negative numbers**: `-` immediately followed by a digit, or by `.` and a digit, starts a numeric
@@ -319,7 +319,7 @@ again. The keyframes block ends at its matching `}`; a `;` or `}` before its `{`
 cancels it. Keyframes blocks nested in `@media` work at any depth.
 
 Because a statement that starts with a letter is always a declaration (outside keyframes blocks), element selectors such as
-`button { ... }` are not selectors in K ([RA-8](#ra-8-no-element-selectors)): the lexer treats `button` as
+`button { ... }` are not selectors in Kobra ([RA-8](#ra-8-no-element-selectors)): the lexer treats `button` as
 a property name, and the parser reports K0116. An interpolation that opens in a declaration **before its
 `:`** (only this element-rule shape) also ends the statement when it closes, so the statement after
 `button { color: red; }` starts fresh; an interpolation in a value (`padding: {x} {y};`) does not.
@@ -333,7 +333,7 @@ including an unclosed style block, report K0101 (parser).
 
 ## 5. Newlines and termination
 
-K has no statement terminator symbol. **Newlines end statements, members and items**, with these rules:
+Kobra has no statement terminator symbol. **Newlines end statements, members and items**, with these rules:
 
 **N1. Newlines inside `(` `)`, `[` `]` and generic `<` `>` are insignificant.** This holds at any depth
 until a `{` is opened inside them, where rules N2–N4 apply again.
@@ -432,7 +432,7 @@ path_word  ::= IDENT | keyword | contextual_keyword
 - Imports must come before the first item (K0111 otherwise).
 - An import names exactly one declaration: `import shop.catalog.Product`. Package paths may contain a host
   name, slashes and hyphens: `import github.com/acme/my-charts.LineChart`.
-- `import proto "billing/v1/invoice.proto"` imports Protobuf definitions as K types.
+- `import proto "billing/v1/invoice.proto"` imports Protobuf definitions as Kobra types.
 
 ```ebnf
 item ::= ComponentDecl | PageDecl | LayoutDecl | ServiceDecl | ProtocolDecl | EntityDecl
@@ -872,7 +872,7 @@ css_expr      ::= ImplicitMemberExpr ( ( '.' name ) | ArgList )*  (* a K postfix
   inside pseudo-class arguments.
 - **Declarations** must end with `;` unless they are the last item of their block (K0117 with a fix
   inserting `;`). A declaration directly in the style block, outside any rule, is K0133.
-- **Values.** Bare identifiers are CSS keywords (`solid`, `hidden`, `sansSerif`). K values start with
+- **Values.** Bare identifiers are CSS keywords (`solid`, `hidden`, `sansSerif`). Kobra values start with
   `.` (implicit members and their chains: `.md`, `.primary.opacity(0.8)`) or are interpolated with `{ }`
   (reactive values: `{accent}`). Theme tokens and static values never need braces.
 - **Commas** separate the values of a declaration: `fontFamily: "Inter", sansSerif;` has two `CssValue`s.
@@ -970,7 +970,7 @@ a hard keyword; it can still be used after `.` and as a label.
 
 ### RA-8. No element selectors
 
-Classes are typed and scoped; K element names (`box`) differ from HTML tags anyway. **Decision:** style
+Classes are typed and scoped; Kobra element names (`box`) differ from HTML tags anyway. **Decision:** style
 blocks select classes, `&`, pseudo-classes and pseudo-elements, attributes and `*`, never elements or ids.
 A statement starting with a letter is always a declaration (except directly inside a `@keyframes` block,
 [RA-36](#ra-36-keyframes)), which keeps style lexing context-free. Elements are styled through classes:
@@ -978,12 +978,12 @@ A statement starting with a letter is always a declaration (except directly insi
 
 ### RA-9. Comments in style blocks
 
-`//` and `/* */` are comments in style blocks, as in K code. Consequently there is no raw `url(...)` token;
+`//` and `/* */` are comments in style blocks, as in Kobra code. Consequently there is no raw `url(...)` token;
 write `url("https://...")` with a string.
 
 ### RA-10. String escapes
 
-Only `{{` escapes a brace, since `{ }` always means "a K expression goes here". `}` needs no escape. `\{`
+Only `{{` escapes a brace, since `{ }` always means "a Kobra expression goes here". `}` needs no escape. `\{`
 is an error with a fix. The backslash escapes are `\n \r \t \0 \\ \" \u{...}`.
 
 ### RA-11. Strings are single-line
@@ -1042,7 +1042,7 @@ follows.
 
 ### RA-21. ASCII identifiers
 
-Identifiers are ASCII. K's naming rules are English, and ASCII avoids confusable characters and Unicode
+Identifiers are ASCII. Kobra's naming rules are English, and ASCII avoids confusable characters and Unicode
 normalization questions. Strings and comments may contain any Unicode text.
 
 ### RA-22. No tuple element access by index
@@ -1155,7 +1155,7 @@ Tests bind a config to a value with `use <expression> for <Config>`
 bind implementations with `use <Type> for <Type>`. **Decision:** `UseDecl` takes a `Type` or an `Expr`
 before `for`, decided by a bounded lookahead over the operand's leading dotted path
 ([§9](#9-members)): a call (`Config(…)`), a member of a type (`Config.sample`) or anything that cannot
-start a type makes it an `Expr`. The decision uses K's naming convention (types are capitalized,
+start a type makes it an `Expr`. The decision uses Kobra's naming convention (types are capitalized,
 modules and members are not), the one place the parser relies on it, because `Config.sample` and
 `shop.Config` have the same token shape. Where the operand is allowed is a semantic rule.
 
@@ -1184,7 +1184,7 @@ tree. The dump is derived mechanically from the tree, so it is fully determined 
    (elsewhere `<` and `>` are comparison operators or combinators and are kept). A string literal with
    no text dumps as `(StringLit)`.
 3. **Strings.** Each maximal run of `StringText` and `StringEscape` tokens becomes **one quoted atom**
-   holding the *decoded* value. The K source `"Line\n{{x}"` (text `Line`, escape `\n`, escape `{{`, text
+   holding the *decoded* value. The Kobra source `"Line\n{{x}"` (text `Line`, escape `\n`, escape `{{`, text
    `x}`) dumps as `(StringLit "Line\n{x}")`; the `\n` inside the atom is the dump's own escape for the
    newline character. An interpolation splits the runs: `"a{b}c"` dumps as
    `(StringLit "a" (Interpolation (NameExpr b)) "c")`. Invalid escapes (already reported by the lexer) are

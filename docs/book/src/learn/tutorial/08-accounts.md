@@ -10,7 +10,7 @@ module, `src/accounts/`.
 
 ## Store the accounts
 
-A signed-in person is known by an id, which K's `k.auth` module needs to know the type of. Declare it in
+A signed-in person is known by an id, which Kobra's `k.auth` module needs to know the type of. Declare it in
 `src/accounts/AccountId.k`:
 
 ```k

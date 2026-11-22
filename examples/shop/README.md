@@ -1,11 +1,11 @@
 # K Shop
 
-A small, production-style shop written entirely in K, as a **workspace of two services** and the contract
+A small, production-style shop written entirely in Kobra, as a **workspace of two services** and the contract
 library between them ([`docs/design/40-workspaces-and-services.md`](../../docs/design/40-workspaces-and-services.md)):
 
 - **shop** is the storefront. Customers browse products, check out as guests and pay by card. A
   background job emails a confirmation over SMTP, and staff sign in to an admin page that lists orders.
-- **paybox** is a fake card payment provider, a server-only K app. It charges test card numbers, refunds,
+- **paybox** is a fake card payment provider, a server-only Kobra app. It charges test card numbers, refunds,
   keeps merchants' callback addresses, and tells each merchant about its payments by calling the
   merchant back from retried background jobs. It has its own database and its own tests.
 - **pay-contracts** is a library holding the two protocols between them, `Payments` (served by paybox)
@@ -181,7 +181,7 @@ in as `admin@shop.example` with the password `init-secrets.sh` printed (it is al
 `argon2` in a throwaway container), and fails, writing no hash, when none of them is available.
 
 - The **Dockerfile** builds the `k` toolchain from this repository (no published image or registry
-  account is needed; pass `--build-arg K_TOOLCHAIN=ghcr.io/k-lang/k:0.1.0` to use a published one), runs
+  account is needed; pass `--build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0` to use a published one), runs
   `k check` (which runs the tests) at the workspace root, and copies only `dist/<app>/app` into
   `gcr.io/distroless/cc`. The same Dockerfile builds both images, `k-paybox:local` and `k-shop:local`,
   with `APP=paybox` or `APP=shop`. The first build compiles the toolchain and takes a few minutes; later

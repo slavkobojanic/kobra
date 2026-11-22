@@ -25,7 +25,7 @@
 //!         Some(at) => {
 //!             let at = u32::try_from(at).unwrap();
 //!             let span = Span::new(file, TextRange::new(at.into(), (at + 2).into()));
-//!             vec![Diagnostic::new(codes::SYMBOLIC_AND, span, "K uses `and`, not `&&`")
+//!             vec![Diagnostic::new(codes::SYMBOLIC_AND, span, "Kobra uses `and`, not `&&`")
 //!                 .with_fix(Fix::replace("Replace `&&` with `and`", span, "and"))]
 //!         }
 //!         None => Vec::new(),

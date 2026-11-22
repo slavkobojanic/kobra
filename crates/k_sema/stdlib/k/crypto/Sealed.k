@@ -7,7 +7,7 @@
 /// `k1.` followed by that in base64url.
 @Native
 public struct Sealed<T> implements Codable, Equatable, Hashable where T implements Codable {
-    /// The wire form, for storing outside K.
+    /// The wire form, for storing outside Kobra.
     var bytes: Bytes
 
     /// Reads the wire form.

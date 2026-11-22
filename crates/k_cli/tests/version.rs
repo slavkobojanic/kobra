@@ -15,6 +15,14 @@
 //!   are written `{{k_version}}`, which the site build (and the snippet
 //!   test) replaces with the minor.
 //!
+//! * `<tool> --help` names the language (`[workspace.metadata.project]
+//!   name`, Kobra).
+//! * The project's namespace (`[workspace.metadata.project]`: the
+//!   repository, the docs site, the toolchain image, the editor extension)
+//!   is the one the workflows, the Dockerfiles, the extension's
+//!   `package.json`, the install one-liners in the README and the book, and
+//!   the licence name; no placeholder namespace is left.
+//!
 //! The tool's name comes from the built binary, not from this file, so
 //! renaming the toolchain doesn't need this test changed.
 
@@ -58,6 +66,30 @@ fn version() -> String {
     panic!("no `[workspace.package] version` in Cargo.toml");
 }
 
+/// `[workspace.metadata.project] key` of the workspace `Cargo.toml`.
+fn project(key: &str) -> String {
+    let manifest = fs::read_to_string(repo().join("Cargo.toml")).unwrap();
+    let mut inside = false;
+    for line in manifest.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            inside = line == "[workspace.metadata.project]";
+        } else if inside
+            && let Some((k, value)) = line.split_once('=')
+            && k.trim() == key
+        {
+            return value.trim().trim_matches('"').to_owned();
+        }
+    }
+    panic!("no `[workspace.metadata.project] {key}` in Cargo.toml");
+}
+
+/// The toolchain image's name, the last segment of
+/// `[workspace.metadata.project] image` (`kobra`), which a tag follows.
+fn image_name() -> String {
+    project("image").rsplit('/').next().unwrap().to_owned()
+}
+
 /// The minor version (`0.1` for `0.1.0`): what a project requires.
 fn minor() -> String {
     let version = version();
@@ -96,10 +128,10 @@ fn shown(path: &Path) -> String {
         .to_string()
 }
 
-/// The toolchain image tags in `text`: the text after `/<tool>:` in a
-/// reference such as `ghcr.io/org/<tool>:0.1.0`, with its line number.
-fn image_tags(text: &str, tool: &str) -> Vec<(usize, String)> {
-    let needle = format!("/{tool}:");
+/// The toolchain image tags in `text`: the text after `/<image>:` in a
+/// reference such as `ghcr.io/org/<image>:0.1.0`, with its line number.
+fn image_tags(text: &str, image: &str) -> Vec<(usize, String)> {
+    let needle = format!("/{image}:");
     let mut tags = Vec::new();
     for (index, line) in text.lines().enumerate() {
         for (at, _) in line.match_indices(&needle) {
@@ -294,7 +326,7 @@ fn test_sources_write_no_literal_requirement() {
 
 #[test]
 fn image_tags_name_the_current_version() {
-    let tool = tool();
+    let image = image_name();
     let mut paths = Vec::new();
     files(
         &repo().join("examples"),
@@ -317,7 +349,7 @@ fn image_tags_name_the_current_version() {
     let mut seen = 0;
     for path in &paths {
         let text = fs::read_to_string(path).unwrap();
-        for (line, tag) in image_tags(&text, &tool) {
+        for (line, tag) in image_tags(&text, &image) {
             seen += 1;
             if tag != version() && tag != "{{k_version}}" && tag != "<version>" {
                 problems.push(format!(
@@ -410,4 +442,175 @@ fn image_tags_are_found_in_references() {
         found,
         [(1, "0.1.0".to_owned()), (2, "{{k_version}}".to_owned())]
     );
+}
+
+#[test]
+fn help_names_the_language() {
+    let output = Command::new(env!("CARGO_BIN_EXE_k"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let first = stdout.lines().next().unwrap_or("");
+    let name = project("name");
+    assert!(
+        first.contains(&format!("the {name} language")),
+        "`{} --help` begins {first:?}, which doesn't name {name}",
+        tool()
+    );
+}
+
+/// Every tracked text file of the repository, skipping build output.
+fn tracked() -> Vec<PathBuf> {
+    let out = Command::new("git")
+        .args(["ls-files", "-z"])
+        .current_dir(repo())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git ls-files failed");
+    String::from_utf8_lossy(&out.stdout)
+        .split('\0')
+        .filter(|p| !p.is_empty())
+        .map(|p| repo().join(p))
+        .filter(|p| p.is_file())
+        .collect()
+}
+
+#[test]
+fn the_project_namespace_is_used_everywhere() {
+    let repository = project("repository");
+    let site = project("site");
+    let image = project("image");
+    let extension = project("extension");
+    let (owner, repo_name) = repository
+        .strip_prefix("https://github.com/")
+        .and_then(|r| r.split_once('/'))
+        .unwrap();
+    assert!(site.ends_with('/'), "the site ends in `/`: {site}");
+    assert_eq!(image, format!("ghcr.io/{owner}/{repo_name}"));
+    let mut problems = Vec::new();
+
+    // The licence: dual MIT OR Apache-2.0, both texts at the root.
+    let manifest = fs::read_to_string(repo().join("Cargo.toml")).unwrap();
+    let licence = "MIT OR Apache-2.0";
+    if !manifest.contains(&format!("license = \"{licence}\"")) {
+        problems.push(format!("Cargo.toml: no `license = \"{licence}\"`"));
+    }
+    for file in ["LICENSE-MIT", "LICENSE-APACHE"] {
+        if !repo().join(file).is_file() {
+            problems.push(format!("{file} is missing"));
+        }
+    }
+
+    // The editor extension: `<publisher>.<name>`, the language's name, the licence.
+    let (publisher, name) = extension.split_once('.').unwrap();
+    let package: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(repo().join("editors/vscode/package.json")).unwrap(),
+    )
+    .unwrap();
+    for (key, expected) in [
+        ("name", name),
+        ("publisher", publisher),
+        ("displayName", project("name").as_str()),
+        ("license", licence),
+    ] {
+        if package[key].as_str() != Some(expected) {
+            problems.push(format!(
+                "editors/vscode/package.json: `{key}` is {}, expected {expected:?}",
+                package[key]
+            ));
+        }
+    }
+    let lock: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(repo().join("editors/vscode/package-lock.json")).unwrap(),
+    )
+    .unwrap();
+    if lock["name"].as_str() != Some(name) || lock["packages"][""]["name"].as_str() != Some(name) {
+        problems.push("editors/vscode/package-lock.json: the package's name differs".to_owned());
+    }
+
+    // The workflows build release binaries with the site's index and push
+    // the project's image.
+    let index = format!("{site}index.json");
+    for workflow in ["release.yml", "nightly.yml"] {
+        let text = fs::read_to_string(repo().join(".github/workflows").join(workflow)).unwrap();
+        for expected in [
+            format!("K_IMAGE: {image}\n"),
+            format!("K_INDEX_URL: {index}\n"),
+        ] {
+            if !text.contains(&expected) {
+                problems.push(format!(
+                    ".github/workflows/{workflow}: no `{}`",
+                    expected.trim()
+                ));
+            }
+        }
+        if !text.contains("K_DEFAULT_TOOLCHAIN_INDEX: ${{ env.K_INDEX_URL }}") {
+            problems.push(format!(
+                ".github/workflows/{workflow}: the release build has no built-in index"
+            ));
+        }
+    }
+    let dockerfile = fs::read_to_string(repo().join("docker/toolchain.Dockerfile")).unwrap();
+    if !dockerfile.contains(&format!("org.opencontainers.image.source=\"{repository}\"")) {
+        problems.push(
+            "docker/toolchain.Dockerfile: the image's source isn't the repository".to_owned(),
+        );
+    }
+
+    // The install one-liners users are told to run.
+    let sh = format!("curl -fsSL {site}install.sh | sh");
+    let ps1 = format!("irm {site}install.ps1 | iex");
+    for page in [
+        "README.md",
+        "docs/book/src/getting-started/installation.md",
+        "docs/book/src/learn/quick-start.md",
+    ] {
+        let text = fs::read_to_string(repo().join(page)).unwrap();
+        for line in [&sh, &ps1] {
+            if !text.contains(line.as_str()) {
+                problems.push(format!("{page}: no `{line}`"));
+            }
+        }
+    }
+
+    // No placeholder namespace in any tracked file, and outside the crates
+    // (whose tests use made-up images) no reference to another image.
+    let placeholder = ["k", "-lang"].concat();
+    let this = Path::new(file!()).file_name().unwrap().to_owned();
+    for path in tracked() {
+        if path.file_name() == Some(&this) {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for (n, line) in text.lines().enumerate() {
+            if line.contains(&placeholder) {
+                problems.push(format!("{}:{}: `{placeholder}`", shown(&path), n + 1));
+            }
+            if shown(&path).starts_with("crates/") {
+                continue;
+            }
+            for (at, _) in line.match_indices("ghcr.io/") {
+                let reference: String = line[at..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '/' | '-' | '_'))
+                    .collect();
+                // `ghcr.io/` alone (a registry login) and the project's image are fine.
+                if reference != "ghcr.io/"
+                    && reference != image
+                    && !line[at..].starts_with("ghcr.io/${{")
+                {
+                    problems.push(format!(
+                        "{}:{}: `{reference}`, expected `{image}`",
+                        shown(&path),
+                        n + 1
+                    ));
+                }
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }

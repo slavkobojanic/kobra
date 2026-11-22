@@ -152,7 +152,7 @@ fn needles(check: &str, column: &str) -> Option<&'static [&'static str]> {
             "cargo fmt --all --check",
             "cargo clippy --workspace --all-targets",
         ],
-        ("K formatting", _) => &["fmt --check examples"],
+        ("Kobra formatting", _) => &["fmt --check examples"],
         (c, _) if c.starts_with("full test suite") => &["cargo test --workspace"],
         ("on Postgres", _) => &["K_TEST_POSTGRES_URL=", "service:postgres"],
         ("real Chrome", _) => &["K_REQUIRE_CHROME=1"],

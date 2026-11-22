@@ -24,6 +24,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  # The project's toolchain image and index (Cargo.toml's
+  # [workspace.metadata.project]; crates/k_cli/tests/version.rs checks they agree).
+  K_IMAGE: ghcr.io/slavkobojanic/kobra
+  K_INDEX_URL: https://slavkobojanic.github.io/kobra/index.json
 
 jobs:
   # ---- The gate, on the tag -------------------------------------------------
@@ -101,7 +105,7 @@ jobs:
           cache: book
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      # The K code of the examples in `k fmt`'s canonical form (a compiler-only
+      # The Kobra code of the examples in `k fmt`'s canonical form (a compiler-only
       # `k`, without V8).
       - run: cargo run -p k_cli --no-default-features --bin k -- fmt --check examples
       - run: cargo xtask fragments --none-left
@@ -186,7 +190,11 @@ jobs:
           cache: release-${{ matrix.target }}
       - shell: bash
         run: rustup target add ${{ matrix.target }}
+      # The built-in index `k toolchain` and `k self update` read; only
+      # release builds have one (tests and developer builds never reach a host).
       - shell: bash
+        env:
+          K_DEFAULT_TOOLCHAIN_INDEX: ${{ env.K_INDEX_URL }}
         run: cargo build --release -p k_cli --locked --target ${{ matrix.target }}
       - shell: bash
         run: cargo xtask dist archive --target ${{ matrix.target }}
@@ -298,7 +306,7 @@ jobs:
       - uses: sigstore/cosign-installer@v3
       - run: scripts/ci/verify.sh target/dist "${{ github.server_url }}/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}"
 
-  # The VS Code extension, k-language-<version>.vsix (npm runs here only).
+  # The VS Code extension, kobra-<version>.vsix (npm runs here only).
   extension:
     if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
     needs: [gate-checks]
@@ -344,8 +352,8 @@ jobs:
           path: target/dist
       - run: mkdir -p target/image
       - run: tar -xzf target/dist/k-${{ steps.v.outputs.version }}-${{ matrix.target }}.tar.gz -C target/image --strip-components 1
-      - run: docker build --file docker/toolchain.Dockerfile --tag "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}-${{ matrix.arch }}" target/image
-      - run: docker build --file examples/shop/Dockerfile --build-arg "K_TOOLCHAIN=ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}-${{ matrix.arch }}" --build-arg APP=shop --tag k-shop:ci .
+      - run: docker build --file docker/toolchain.Dockerfile --tag "${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}-${{ matrix.arch }}" target/image
+      - run: docker build --file examples/shop/Dockerfile --build-arg "K_TOOLCHAIN=${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}-${{ matrix.arch }}" --build-arg APP=shop --tag k-shop:ci .
       - if: vars.K_PUBLISH_ENABLED == 'true'
         uses: docker/login-action@v3
         with:
@@ -353,7 +361,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - if: vars.K_PUBLISH_ENABLED == 'true'
-        run: docker push "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}-${{ matrix.arch }}"
+        run: docker push "${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}-${{ matrix.arch }}"
 
   # The book of the tag with the version substituted, for review; deployed
   # only when the release is published.
@@ -369,7 +377,7 @@ jobs:
         with:
           mdbook: "true"
           cache: book
-      - run: cargo xtask docs build --version "${{ github.ref_name }}" --out target/site --releases "${{ github.server_url }}/${{ github.repository }}/releases"
+      - run: cargo xtask docs build --version "${{ github.ref_name }}" --out target/site
       - uses: actions/upload-artifact@v4
         with:
           name: site
@@ -408,7 +416,7 @@ jobs:
           name: extension
           path: target/dist
       - run: cargo xtask ci notes "${{ github.ref_name }}" --out target/notes.md --links "${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}"
-      - run: gh release create "${{ github.ref_name }}" --draft --verify-tag --title "K ${{ steps.v.outputs.version }}" --notes-file target/notes.md ${{ steps.v.outputs.prerelease == 'true' && '--prerelease' || '' }} target/dist/k-* target/dist/SHA256SUMS target/dist/index-entry.json
+      - run: gh release create "${{ github.ref_name }}" --draft --verify-tag --title "Kobra ${{ steps.v.outputs.version }}" --notes-file target/notes.md ${{ steps.v.outputs.prerelease == 'true' && '--prerelease' || '' }} target/dist/k-* target/dist/SHA256SUMS target/dist/index-entry.json
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -432,9 +440,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}" "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}-amd64" "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}-arm64"
+      - run: docker buildx imagetools create --tag "${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}" "${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}-amd64" "${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}-arm64"
       - if: steps.v.outputs.prerelease != 'true'
-        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.minor }}" --tag "ghcr.io/${{ github.repository_owner }}/k:latest" "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}"
+        run: docker buildx imagetools create --tag "${{ env.K_IMAGE }}:${{ steps.v.outputs.minor }}" --tag "${{ env.K_IMAGE }}:latest" "${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}"
 
   # The docs site: the newest release at /0.N/ with `/` and `/latest/`
   # pointing at it, /next/ from main, versions.json, the install scripts and

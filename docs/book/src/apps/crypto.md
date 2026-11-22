@@ -186,7 +186,7 @@ func migrate(pem: Secret<String>) -> Secret<String>? {
   configuration, from rpcs or from a JWK set.
 - **`RsaPublicKey` verifies only:** `verify(_:of:)` for RSASSA-PKCS1-v1_5 (JWT `RS256`) and
   `verifyPss(_:of:)` for RSASSA-PSS with a 32-byte salt (`PS256`), of an `RsaSignature`. It exists for
-  identity providers that still sign with RSA; K never signs with RSA.
+  identity providers that still sign with RSA; Kobra never signs with RSA.
 
 ## Authenticated encryption: `Sealed`
 
@@ -216,7 +216,7 @@ func roundTrip(key: AesGcmKey, id: Int, draft: String) async throws OpenError ->
 | `key.seal(_ value: T, context: Bytes) async -> Sealed<T>` | encrypts `value` with a fresh random nonce. `T` is `Bytes`, encrypted as is, or any `Codable`, encrypted as its JSON. `context` may be left out. |
 | `key.open(_ sealed: Sealed<T>, context: Bytes) async throws OpenError -> T` | checks and decrypts |
 | `Sealed<T>` | the ciphertext: `Codable` (as text), `Equatable` and `Hashable` |
-| `sealed.bytes`, `Sealed.parse(bytes:)`, `"{sealed}"`, `Sealed.parse(_:)` | the wire forms, for storing outside K |
+| `sealed.bytes`, `Sealed.parse(bytes:)`, `"{sealed}"`, `Sealed.parse(_:)` | the wire forms, for storing outside Kobra |
 
 `OpenError` has two cases: `.authenticationFailed` for the wrong key, the wrong context or changed bytes,
 and `.undecodable(DecodingError)` for a value that is authentic but not a `T`, written by another version
@@ -429,8 +429,8 @@ config SigningConfig {
 
 ## JWS and JWT, for interop
 
-K's own sessions are cookies, and K services call each other with rpcs. JWTs are for **talking to systems
-outside K**: an identity provider's ID token, a webhook signed with JWS, or an API that wants a signed
+Kobra's own sessions are cookies, and Kobra services call each other with rpcs. JWTs are for **talking to systems
+outside Kobra**: an identity provider's ID token, a webhook signed with JWS, or an API that wants a signed
 assertion.
 
 ```k
@@ -455,7 +455,7 @@ func claims(of token: String, key: Ed25519PublicKey, now: Date) async throws Jwt
 | `Jwt.verify(_:key:issuer:audience:now:leeway:)` | checks the signature, `exp` (required), `nbf`, `iss` and `aud`, with a minute's leeway unless given, then decodes the payload as the expected `Codable` type |
 | `Jwt.sign(_:key:keyId:expiresIn:now:)` | a compact JWT of the claims, with `iat` and `exp` set |
 | `Jws.verify(_:key:)`, `Jws.sign(_:key:)` | the signature layer alone, for JWS that isn't a JWT: the payload is `Bytes` |
-| `JwkSet.parse(_:)` | a JWKS document, such as an identity provider's `jwks_uri`; it keeps only the public signature keys K supports |
+| `JwkSet.parse(_:)` | a JWKS document, such as an identity provider's `jwks_uri`; it keeps only the public signature keys Kobra supports |
 
 **The algorithm comes from the key's type, never from the token:**
 

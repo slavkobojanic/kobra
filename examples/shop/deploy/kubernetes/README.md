@@ -20,7 +20,7 @@ Mailpit, paybox and two shop pods, with no account anywhere. Every command runs 
 
 Secrets never appear in the manifests. `create-secrets.sh` makes three Secrets from the files
 `scripts/init-secrets.sh` generates, and each pod mounts its Secret at `/run/secrets`, where the
-`NAME_FILE` variables of `config.yaml` point, exactly as with Docker Compose. In the K repository,
+`NAME_FILE` variables of `config.yaml` point, exactly as with Docker Compose. In the Kobra repository,
 `cargo test -p k_cli --test it -- deploy::` checks that these manifests give every container what its
 `dist/app config` lists, and `K_KIND=1 cargo test -p k_cli --test it -- kubernetes:: --test-threads 1`
 runs this walkthrough on a throwaway kind cluster.

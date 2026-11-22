@@ -26,7 +26,7 @@
 - [Project layout](getting-started/project-layout.md)
 - [Everyday commands](getting-started/commands.md)
 - [Debugging](getting-started/debugging.md)
-- [A tour of K](tour.md)
+- [A tour of Kobra](tour.md)
 
 # The language
 
@@ -87,7 +87,7 @@
 - [Document metadata](apps/metadata.md)
 - [The app declaration](apps/app.md)
 - [Deployment](apps/deployment.md)
-- [Upgrading K](apps/upgrading.md)
+- [Upgrading Kobra](apps/upgrading.md)
 
 # Example apps
 

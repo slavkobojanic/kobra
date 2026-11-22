@@ -1,7 +1,7 @@
 # Units and number extensions
 
 Web code is full of quantities: pixel widths, animation durations, cache lifetimes, upload limits. In
-most languages they're plain numbers, and the unit lives in a variable name or a comment. In K, **units
+most languages they're plain numbers, and the unit lives in a variable name or a comment. In Kobra, **units
 are part of the type system**.
 
 ## Unit literals

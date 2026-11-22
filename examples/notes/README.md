@@ -1,6 +1,6 @@
 # K Notes
 
-A small full-stack notes app written entirely in K: accounts with email and password or a passkey, notes with tags, a list that stays live across browser tabs, editing that never silently overwrites a change made elsewhere, and a private vault whose text the server can't read. Data lives in SQLite.
+A small full-stack notes app written entirely in Kobra: accounts with email and password or a passkey, notes with tags, a list that stays live across browser tabs, editing that never silently overwrites a change made elsewhere, and a private vault whose text the server can't read. Data lives in SQLite.
 
 It is a teaching example. Every file is meant to show one part of the language the way the design documents in [`docs/design`](../../docs/design/README.md) intend it to be written, with the syntax of the compiler's [grammar](../../docs/compiler/grammar.md). [Design documents used](#design-documents-used) lists the documents each part relies on.
 
@@ -158,7 +158,7 @@ k run                  # like k dev, without rebuilding on change
 - `k test` never reads the environment. Every test gets a fresh in-memory SQLite database with the migrations applied, so a test sees only what it wrote.
 - Sessions are stored server-side by `k.auth`, so there is no session secret to set.
 - In production, `dist/app` reads `DATABASE_URL` (Postgres, as [19-persistence.md](../../docs/design/19-persistence.md) intends) and, optionally, `DATABASE_PASSWORD` or `DATABASE_PASSWORD_FILE` from the real environment, and refuses to start without `DATABASE_URL`: the development default never applies there. `dist/app config` lists every variable it reads.
-- Several K apps can run on `localhost` at once: on an `http` origin with a port the session cookie is named after the port (`k_session_8080`), so the apps don't sign each other out.
+- Several Kobra apps can run on `localhost` at once: on an `http` origin with a port the session cookie is named after the port (`k_session_8080`), so the apps don't sign each other out.
 
 Try it with two tabs: sign up, open the list in both, and create, pin or delete a note in one. Then open the same note's editor in both tabs and save in each.
 

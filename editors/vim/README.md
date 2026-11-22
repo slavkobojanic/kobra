@@ -1,6 +1,6 @@
-# K for Vim
+# Kobra for Vim
 
-Filetype detection, syntax highlighting and the K language server (`k lsp`) through
+Filetype detection, syntax highlighting and the Kobra language server (`k lsp`) through
 [vim-lsp](https://github.com/prabirshrestha/vim-lsp).
 
 ## Install

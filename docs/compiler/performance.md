@@ -1,6 +1,6 @@
 # Performance
 
-This document records how the performance of the K toolchain is measured, the current baseline numbers, and
+This document records how the performance of the Kobra toolchain is measured, the current baseline numbers, and
 what the profiles say. The budgets themselves are defined in
 [architecture.md §12](architecture.md#12-performance-budgets); the benchmark conventions are in
 [testing.md §9](testing.md#9-benchmarks-and-performance-budgets). Sections 1–9 cover the syntax layer
@@ -72,7 +72,7 @@ the budget check share through `#[path]` includes. The generator is a pure funct
 (SplitMix64, seed `workload::SEED`), so every run measures byte-identical text. Its output is tested in
 `crates/k_syntax/tests/workload.rs`, part of the normal test suite.
 
-**Realistic input** (`workload::realistic(lines, seed)`): valid K that starts with an import block and
+**Realistic input** (`workload::realistic(lines, seed)`): valid Kobra that starts with an import block and
 cycles through every declaration kind in a seeded order: components (props, injected services, state,
 derived values, functions, a view with elements, modifiers, `if`/`for ... key`/`match`, and a style block
 with rules, nested rules, pseudo-classes and elements, combinators, attribute selectors and `@media`),
@@ -604,7 +604,7 @@ divides; the best of three to five blocks is kept.
 
 | Test | Measures |
 |---|---|
-| `k_codegen` `lowering_and_printing_a_100k_line_project` | `generate` on a checked 100k-line realistic project (`crates/k_sema/benches/project/`, the same text `k check` is measured on), program view and point-query index already built: lowering, printing, bundling; fastest of ≥ 3 runs; lines of K per second |
+| `k_codegen` `lowering_and_printing_a_100k_line_project` | `generate` on a checked 100k-line realistic project (`crates/k_sema/benches/project/`, the same text `k check` is measured on), program view and point-query index already built: lowering, printing, bundling; fastest of ≥ 3 runs; lines of Kobra per second |
 | `k_codegen` `codegen_time_is_linear_in_project_size` | the same at 10k and 100k lines; time ratio |
 | `k_codegen` `cold_build_of_a_100k_line_project` | new host, check and `generate` on min(8, cores) threads (`k build` without file I/O); the codegen part separately |
 | `k_codegen` `lockfile_checks_of_a_100k_line_project` | `project_diagnostics` (what `k check` adds to the semantic pass: `routes.lock` and `schema.lock`) on the checked 100k-line realistic project with the `routes.lock` `k build` writes for it; fastest of ≥ 5 runs |

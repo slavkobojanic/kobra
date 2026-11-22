@@ -6,7 +6,7 @@
 
 - **The compiler and the language server are the same engine.** Every IDE feature reuses compiler queries, so the IDE never disagrees with the compiler.
 - **Edits recompute only what they affect,** which makes state-preserving HMR and instant diagnostics practical on large codebases.
-- **Everything ships as one static `k` binary:** compiler, language server, formatter, dev server and test runner. Installing K needs no Node tooling.
+- **Everything ships as one static `k` binary:** compiler, language server, formatter, dev server and test runner. Installing Kobra needs no Node tooling.
 
 ## Server runtime
 
@@ -33,7 +33,7 @@
 | `k migrate new "description"` | Writes the next migration from the difference between the entities and `schema.lock` ([19-persistence.md](19-persistence.md)); `--empty`, `--drop-retired` and `--rename <name>` write the other kinds |
 | `k migrate rename <old> <new>` | Records a renamed entity or field in `schema.lock`, keeping its table or column ([19-persistence.md](19-persistence.md#renames)) |
 | `k routes` | Prints the route table, endpoint pages included |
-| `k proto export` | Emits `.proto` files from K protocols |
+| `k proto export` | Emits `.proto` files from Kobra protocols |
 | `k doc` | Renders documentation from `///` comments ([39-doc-comments.md](39-doc-comments.md)) |
 | `k lsp` | The language server, over standard input and output, for editors ([docs/compiler/lsp.md](../compiler/lsp.md)) |
 | `k toolchain install`, `list`, `remove`, `default`; `k self update` | Install, list, remove and choose the default of the installed toolchains, and update the default to the newest release; the only commands that download ([48-releases-and-versioning.md](48-releases-and-versioning.md#commands)) |
@@ -118,30 +118,30 @@ Decisions made with the server:
 
 ## Debugging
 
-**K is debugged as K, in the browser's DevTools and in VS Code, with no tool outside `k`.** Breakpoints
+**Kobra is debugged as Kobra, in the browser's DevTools and in VS Code, with no tool outside `k`.** Breakpoints
 are set in `.k` files, the paused line is the `.k` line, stack traces name `.k` lines, and the values in
-the Scope pane and the console read as K values. The mechanics are in
+the Scope pane and the console read as Kobra values. The mechanics are in
 [docs/compiler/codegen.md §18](../compiler/codegen.md#18-source-maps) (maps) and
 [docs/compiler/server.md §19](../compiler/server.md#19-debugging-the-server) (the server's inspector); the
 user guide is the book's Debugging chapter.
 
-- **Source maps from the printer, not from text.** Lowering marks the JS IR with the K location it came
+- **Source maps from the printer, not from text.** Lowering marks the JS IR with the Kobra location it came
   from (`Stmt::At`, `Expr::At`: every lowered statement, the last expression of a block or lambda, view
   bindings, event handlers, `@Derived` and `@Load` initializers, component fields, style rules and
   declarations), and the printer records a mark where each starts. Every JavaScript chunk, every server
-  module that holds K code and the development stylesheet get a v3 map built from those marks.
+  module that holds Kobra code and the development stylesheet get a v3 map built from those marks.
   **Decision:** line-and-statement granularity, plus the start of each binding and handler, is what
   breakpoints and stack traces need; per-identifier mappings would double the maps for no visible gain.
-- **One virtual root for K sources.** **Decision:** a client map names `/_k/src/<project path>`
+- **One virtual root for Kobra sources.** **Decision:** a client map names `/_k/src/<project path>`
   (`/_k/src/src/home/Home.k`), a server module's map `k:/_k/src/<project path>`. Rejected `k://`: Chrome
   resolves a scheme it doesn't know as an opaque URL it never fetches, and VS Code's path overrides
   match prefixes, which `/_k/src/` keeps the same on both sides. `k run` and `k dev` serve the `.k` files
   at `/_k/src/`; development maps also embed them (`sourcesContent`), so a debugger needs neither.
-  Stdlib K code maps below `/_k/src/$std/` and is on the `ignoreList`.
+  Stdlib Kobra code maps below `/_k/src/$std/` and is on the `ignoreList`.
 - **Release maps compose.** `k build` minifies with oxc, which maps minified code to the readable chunk;
-  the linker composes that map with the chunk's K map, so minified code maps straight to `.k` lines and
+  the linker composes that map with the chunk's Kobra map, so minified code maps straight to `.k` lines and
   names. **Decision on publishing:** release maps are always written next to their chunks in
-  `dist/public/assets` (`stem.<hash>.js.map`, referenced by the chunk), without the K text. `dist/app`
+  `dist/public/assets` (`stem.<hash>.js.map`, referenced by the chunk), without the Kobra text. `dist/app`
   serves them only when `ServerConfig.publicSourceMaps` is `true` (`K_PUBLIC_SOURCE_MAPS`, a `Bool`, default
   `false`; [25-config-and-secrets.md](25-config-and-secrets.md)): they reveal the code's structure and file names, so
   they are opt-in in production, while a team that wants production debugging opts in or loads the map
@@ -149,9 +149,9 @@ user guide is the book's Debugging chapter.
   before uploading to keep them private. The server's modules carry their maps inline and always map
   the server's logged stack traces. Symbolicating stack traces the browser reports to the server is
   deferred (there is no client error report yet).
-- **Original names, not scopes.** Generated code keeps K's local names (`count`, `next`, `greeter`);
+- **Original names, not scopes.** Generated code keeps Kobra's local names (`count`, `next`, `greeter`);
   where it can't (a JavaScript reserved word, `arguments` → `arguments$`; a shadowed name, `item$1`) the
-  map's `names` gives the K name at the binding and its uses, and release maps carry the K name through
+  map's `names` gives the Kobra name at the binding and its uses, and release maps carry the Kobra name through
   the minifier's renaming. Chrome's Scope pane renames from these. **Decision:** no ECMA-426 `scopes`
   yet. The Scopes proposal is at Stage 3 of TC39-TG4 and the Chrome DevTools team publishes a codec
   for it, but we found no browser release that applies it by default (checked November 2026), and its
@@ -161,7 +161,7 @@ user guide is the book's Debugging chapter.
 - **The runtime is ignore-listed.** The runtime chunk, the feature chunks and the `app` entry (glue only)
   get a map whose one source is on the `ignoreList` (and Chrome's older `x_google_ignoreList`), so
   stepping skips them and stack traces collapse their frames; under `--inspect` the server's runtime
-  modules carry the same. Async stack traces through `await` and rpc calls are V8's own and read as K
+  modules carry the same. Async stack traces through `await` and rpc calls are V8's own and read as Kobra
   once the runtime's frames are hidden.
 - **Custom formatters, development only.** A development client appends `runtime/devtools.js` to its
   runtime chunk: a `devtoolsFormatters` entry that shows a `@State` or `@Derived` value as its current
@@ -180,7 +180,7 @@ user guide is the book's Debugging chapter.
   server (`node` attach to the inspector, `k:/_k/src/*` mapped likewise), and a compound of both.
 - **Tested in a real browser.** `k_codegen/tests/sourcemaps.rs` decodes the maps with the `sourcemap`
   crate and checks exact lines and columns; `k_cli/tests/debugging.rs` sets breakpoints at `.k` lines in
-  headless Chrome and in the server's inspector, triggers them, and checks the paused `.k` line, the K
+  headless Chrome and in the server's inspector, triggers them, and checks the paused `.k` line, the Kobra
   names in scope, a mapped exception, the formatters and the mapped server traces.
 
 ## Compiler errors

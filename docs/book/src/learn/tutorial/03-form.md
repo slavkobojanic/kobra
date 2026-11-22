@@ -9,7 +9,7 @@ the repository as `examples/learn/shelf/03-form`.
 
 ## Say what a valid book is
 
-A form needs to know two things: which fields it has, and what counts as a valid value for each. In K
+A form needs to know two things: which fields it has, and what counts as a valid value for each. In Kobra
 both are written once, as a struct. Create `src/books/BookDraft.k`:
 
 ```k
@@ -32,7 +32,7 @@ public struct BookDraft implements Validatable {
 
 - A draft is what someone types, before it becomes a `Book`, so it has no `id` yet.
 - `implements Validatable` says the struct can be checked against rules. `Validatable` comes from
-  `k.validation`, a module of K's standard library, imported like your own modules are.
+  `k.validation`, a module of Kobra's standard library, imported like your own modules are.
 - The annotations above each field are constraints: rules the field's value must pass.
   `@NotBlank` refuses text that is empty or only spaces, and its `message` is what the form shows when
   the rule fails. `@Length(max: 200)` refuses a title longer than 200 characters, with the standard

@@ -5,7 +5,7 @@ read. You'll start with a page that says hello and end with a full-stack app, wi
 keeps their own shelf, the books saved in a database, tests, and one file to run in production.
 
 Each step is one short page that adds one thing to the app, and ends with the app working. Read them in
-order: a step uses only what the steps before it explained. If you haven't built anything with K yet, the
+order: a step uses only what the steps before it explained. If you haven't built anything with Kobra yet, the
 [Quick start](../quick-start.md) is a shorter first look, and you need the `k` command
 ([Installation](../../getting-started/installation.md)).
 
@@ -31,7 +31,7 @@ All ten steps are written.
 Every step's finished project is in the repository, under `examples/learn/shelf/`: `01-create`,
 `02-list` and so on. Each page shows every file that changed since the step before, so you can type the
 changes yourself, or copy a step's directory and start from there. Each page also has **Try it**
-sections: a small change to make, often a mistake on purpose, and what K says about it.
+sections: a small change to make, often a mistake on purpose, and what Kobra says about it.
 
 You need a terminal and an editor. Keep `k dev` running in one terminal while you work, and run
 `k check` in a second one.

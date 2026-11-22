@@ -1,6 +1,6 @@
 # Errors
 
-K uses **typed, checked errors**. A function declares exactly what it can throw, every call that can
+Kobra uses **typed, checked errors**. A function declares exactly what it can throw, every call that can
 throw is marked with `try`, and `catch` must handle every case. Failures are part of a function's
 signature, where readers and the compiler can see them.
 
@@ -351,7 +351,7 @@ private func fetch<T>(url: Url, query: Map<String, String>) async throws Weather
 
 ## Turning errors into values
 
-Sometimes you don't want to handle an error case by case. K uses keywords for this, never symbols.
+Sometimes you don't want to handle an error case by case. Kobra uses keywords for this, never symbols.
 
 `try … else` provides a fallback block, which must exit or produce a value:
 
@@ -550,6 +550,6 @@ test "out of stock surfaces a typed error" {
 ## Why not exceptions?
 
 Unchecked exceptions hide failures: any call might throw anything, and nothing tells you. Java's checked
-exceptions made failures visible but are disliked for their boilerplate. K keeps the safety and removes
+exceptions made failures visible but are disliked for their boilerplate. Kobra keeps the safety and removes
 most of the boilerplate with typed error enums, exhaustive `catch` patterns, and wrapping at layer
 boundaries.

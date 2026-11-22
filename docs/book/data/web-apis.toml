@@ -1,4 +1,4 @@
-# Which web platform APIs K wraps, how, and which it doesn't.
+# Which web platform APIs Kobra wraps, how, and which it doesn't.
 #
 # The source of the generated part of docs/book/src/reference/web-platform.md, and checked by
 # `cargo test -p k_sema --test it -- web_platform::` (crates/k_sema/tests/web_platform.rs). After an
@@ -20,9 +20,9 @@
 #             "not-planned" (the design decides against it, or covers it another way; the note says why)
 #   tier      planned rows only: 2 (next, gets its own design topic) or 3 (when an app needs it);
 #             a planned row without one is tracked by its `feature` instead
-#   k         the K API: qualified stdlib declarations (`k.device.Clipboard`) or `event:<name>` for an
+#   k         the Kobra API: qualified stdlib declarations (`k.device.Clipboard`) or `event:<name>` for an
 #             event every element has. Each must resolve in crates/k_sema/stdlib.
-#   side      "client", "server" or "both": where the K API runs
+#   side      "client", "server" or "both": where the Kobra API runs
 #   runtime   the files of crates/k_runtime/js/runtime that implement it. Every runtime file is claimed
 #             by a row or listed under [internal], so a new binding fails the check until it is here.
 #   chromium, firefox
@@ -753,7 +753,7 @@ k = ["k.crypto.RsaPublicKey", "k.crypto.RsaSignature"]
 side = "both"
 runtime = ["crypto.js"]
 design = "33-crypto.md#signatures"
-note = "Verification only (PKCS #1 v1.5 and PSS), for tokens from identity providers; K never signs or encrypts with RSA."
+note = "Verification only (PKCS #1 v1.5 and PSS), for tokens from identity providers; Kobra never signs or encrypts with RSA."
 
 [[area.api]]
 name = "Crypto: getRandomValues, randomUUID"

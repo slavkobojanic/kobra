@@ -68,6 +68,7 @@ fn options(mdbook: String, book: PathBuf, version: &str, out: &Path) -> Options 
         out: out.to_owned(),
         tags: Some(Vec::new()),
         releases: None,
+        index: None,
         mdbook,
     }
 }
@@ -194,7 +195,44 @@ fn the_site_layout() {
             "{script}"
         );
         assert!(!text.contains("@K_RELEASES@"), "{script}");
+        assert!(!text.contains("@K_TOOLCHAIN_INDEX@"), "{script}");
     }
+}
+
+#[test]
+fn the_install_scripts_take_the_projects_hosts_by_default() {
+    // Without `--releases` or `--index`, the install scripts at the site's
+    // root download from the project's GitHub Releases and read the index
+    // on the project's site (`[workspace.metadata.project]`), the URLs the
+    // book's installation page tells users to pipe into `sh`.
+    let Some(mdbook) = mdbook("the_install_scripts_take_the_projects_hosts_by_default") else {
+        return;
+    };
+    let out = Scratch::new("hosts");
+    let o = options(mdbook, fixture_book(), &minor(), &out.0);
+    build(&o).unwrap();
+    for script in ["install.sh", "install.ps1"] {
+        let text = out.read(script);
+        assert!(
+            text.contains("https://github.com/slavkobojanic/kobra/releases"),
+            "{script}"
+        );
+        assert!(
+            text.contains("https://slavkobojanic.github.io/kobra/index.json"),
+            "{script}"
+        );
+        assert!(!text.contains("@K_"), "{script}: a placeholder is left");
+    }
+    let page =
+        fs::read_to_string(repo().join("docs/book/src/getting-started/installation.md")).unwrap();
+    assert!(
+        page.contains("curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh"),
+        "the installation page names the site's install.sh"
+    );
+    assert!(
+        page.contains("irm https://slavkobojanic.github.io/kobra/install.ps1 | iex"),
+        "the installation page names the site's install.ps1"
+    );
 }
 
 #[test]

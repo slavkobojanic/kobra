@@ -31,7 +31,7 @@ k dev
 serving on http://localhost:8080
 ```
 
-Open `http://localhost:8080` in the browser. You'll see a heading, "Hello from K", a count and a button
+Open `http://localhost:8080` in the browser. You'll see a heading, "Hello from Kobra", a count and a button
 that adds one to it. Leave `k dev` running in this terminal: it rebuilds the app every time you save a
 file, and you reload the browser to see the change. Stop it with Ctrl-C when you're done.
 
@@ -41,7 +41,7 @@ A project is a directory with a `k.toml` file in it. `k new` wrote these files:
 
 ```text
 shelf/
-  k.toml                 the project manifest: its name and the K version it needs
+  k.toml                 the project manifest: its name and the Kobra version it needs
   App.k                  the app declaration: settings every page shares
   .gitignore
   src/
@@ -55,7 +55,7 @@ shelf/
 Your code goes in `src/`. Every directory below it is a module, a group of declarations that belong
 together, and the module's name is the directory's name: `src/home/` is the module `home`. Each file holds
 at most one public declaration, named like the file, so `Home.k` holds `Home`. You'll never need to say
-where a file is: K finds every page, component and theme from its declaration.
+where a file is: Kobra finds every page, component and theme from its declaration.
 
 Open `src/home/Home.k`. It starts with `public page Home at "/"`: a page is a part of the app with its
 own address, and this one is at `/`, the start page. Inside it, `metadata { title("Shelf") }` sets the
@@ -99,7 +99,7 @@ Save it and reload the browser: the page now has the heading "Shelf" and a sente
 A view is a tree of elements. Each element is written as its name, then its contents in braces:
 
 - `main` holds the page's main content. Elements that hold other elements nest inside its braces.
-- `heading(level: 1)` is the page's top heading. `level: 1` is a named argument: in K you write the name of
+- `heading(level: 1)` is the page's top heading. `level: 1` is a named argument: in Kobra you write the name of
   each argument, so a call says what every value means.
 - `paragraph` is a paragraph of text. Text is written as a string, in double quotes.
 - `.class(.page)`, on the line after `main`'s closing brace, applies to `main`. It gives it the `page`
@@ -127,7 +127,7 @@ checked 4 files, ran 1 test: 1 error(s), 0 warning(s)
 ```
 
 It fails, because `k new` also wrote a test, `src/home/Home.test.k`, and that test clicks the button you
-just removed. A test is K code that renders the page and states what must be true about it; step 3
+just removed. A test is Kobra code that renders the page and states what must be true about it; step 3
 explains how to write them. For now, replace the contents of `src/home/Home.test.k` with a test of the
 new page:
 

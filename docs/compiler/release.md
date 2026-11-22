@@ -1,6 +1,6 @@
-# Releasing K
+# Releasing Kobra
 
-The maintainer runbook: how a version of K is cut, checked, published and fixed. The decisions behind it
+The maintainer runbook: how a version of Kobra is cut, checked, published and fixed. The decisions behind it
 (what a version promises, channels, pinning, upgrades, formats, the docs) are in
 [docs/design/48-releases-and-versioning.md](../design/48-releases-and-versioning.md); this file is the
 procedure.
@@ -15,9 +15,11 @@ procedure.
 > build (`cargo xtask docs build`), the CI workflows in `.github/` and the toolchain version in the
 > editor, then the dry run's fixes. **The workflows are switched off**: every job waits for the repository variable
 > `K_CI_ENABLED` ([§9, "Switching CI on"](#switching-ci-on)), so pushing them runs nothing. Sections
-> marked *(planned)* describe files and commands not built yet. Publishing anything needs the owner
-> decisions of [design 48](../design/48-releases-and-versioning.md#owner-decisions); every step up to
-> publishing can be run locally.
+> marked *(planned)* describe files and commands not built yet. The name (Kobra), the namespace
+> (`slavkobojanic/kobra` on GitHub and GHCR), the docs site (`https://slavkobojanic.github.io/kobra/`)
+> and the licence (MIT OR Apache-2.0) are decided ([design 48](../design/48-releases-and-versioning.md#owner-decisions));
+> publishing waits only for the owner to switch it on ([step 15](#12-implementation-plan)'s list), and
+> every step up to publishing can be run locally.
 
 Contents:
 
@@ -64,7 +66,9 @@ Contents:
 | `.github/actions/setup/`, `.github/actions/site/` | the workflows' shared steps: Rust, mdBook and the caches; assembling the whole docs site | exist |
 | `scripts/ci/` | the few steps that need `gh` or `cosign`: `release-index.sh`, `sign.sh`, `verify.sh`, `nightly-issue.sh` | exist |
 | `docker/toolchain.Dockerfile` | the toolchain image, from a Linux release archive's `k` | exists (built only by the workflows) |
-| `scripts/install.sh`, `scripts/install.ps1` | installers, served from the docs site (the docs build fills in `@K_RELEASES@`, the release host); tested by `crates/k_cli/tests/install_script.rs` | exist |
+| `scripts/install.sh`, `scripts/install.ps1` | installers, served from the docs site's root, `https://slavkobojanic.github.io/kobra/install.sh` and `install.ps1` (the docs build fills in `@K_RELEASES@`, the release host, and `@K_TOOLCHAIN_INDEX@`, the index); tested by `crates/k_cli/tests/install_script.rs` | exist |
+| `Cargo.toml` `[workspace.metadata.project]` | **the** name and namespace: `Kobra`, the repository, the docs site, the image, the extension id; read by `docs build` and `release prepare`, checked against the rest by `version.rs` | exists |
+| `LICENSE-MIT`, `LICENSE-APACHE` | the licence (MIT OR Apache-2.0), packed into every archive | exist |
 | `tests/compat/locks/`, `tests/compat/wire/` | golden lockfiles per format and recorded traffic per minor; checked by `crates/k_server/tests/compat/` | exists (format 1 of every lockfile; the 0.1 transcripts) |
 | `crates/k_cli/tests/version.rs` | every version string agrees; `k --version` format | exists (the commit and date in `--version` come with step 1's `build.rs`, in round 3) |
 | `k.lock` (`toolchain = "…"`) in every example app and workspace root | the toolchain that last built it; `version.rs` checks it names the version | exists |
@@ -377,7 +381,7 @@ name.)*
    artifacts as a user would and checks the digests and the signatures against the workflow's
    identity (`scripts/ci/verify.sh`).
 6. **`extension`**: `npm ci` and `npx @vscode/vsce package` in `editors/vscode` (npm is used here and only
-   here, [architecture.md §15](architecture.md#15-dependencies)): `k-language-<version>.vsix`.
+   here, [architecture.md §15](architecture.md#15-dependencies)): `kobra-<version>.vsix`.
 7. **`image`**: the toolchain image per architecture, checked by building `examples/shop` with it; pushed
    as `<version>-amd64` and `<version>-arm64` only with `K_PUBLISH_ENABLED`.
 8. **`docs`**: `cargo xtask docs build --version <tag>`, the book with the version substituted, uploaded
@@ -495,7 +499,8 @@ in round 5.
    interrupted download killed halfway, yanked versions, the project's toolchain, `list`, `remove`,
    `default`, `self update`, no index), the unit tests of `index` and `archive`. Decisions in design 48,
    "Commands: decided while implementing": the index format, the `$K_HOME` layout (`bin/k` is a copy
-   of the default, recorded in `$K_HOME/default`), no built-in index URL until the docs domain exists,
+   of the default, recorded in `$K_HOME/default`), a built-in index URL only in release builds (the
+   workflows set `K_DEFAULT_TOOLCHAIN_INDEX` to the site's `index.json`),
    yanked notes from the last fetched index, and `k upgrade` still never downloading.
 5. **Lockfile format versions.** Golden files under `tests/compat/locks/` for today's format 1 of every
    lockfile; tests that a missing `format` reads as 1, a `format` newer than known is the new
@@ -609,7 +614,11 @@ in round 5.
     `shasum`, `tar`) and `scripts/install.ps1` read `K_RELEASES`, a host laid out like GitHub Releases
     (`latest/download/<file>` for the newest stable, `download/v<version>/<file>`), take `--version`
     (`-Version`) or `K_VERSION`, install into `$K_HOME/toolchains/<version>/` with the same layout as
-    `k toolchain`, make it the default and print the `PATH` line without editing any profile. Tests:
+    `k toolchain`, make it the default and print the `PATH` line without editing any profile.
+    *Since 2026-11-23:* with no version asked for and no stable release (no `latest/download/`), they
+    read `K_TOOLCHAIN_INDEX` (the site's `index.json`, filled in by the docs build) and install the
+    newest release there that isn't yanked and has this machine's archive, a candidate before a
+    nightly, saying so; the download and the `SHA256SUMS` check are unchanged. Tests:
     `cargo test -p k_cli --test it -- install_script::`, with fake `uname` and `ldd` first on the `PATH`
     so every Unix target is tried on one machine; the `install.ps1` test runs where `pwsh` is installed
     (CI's Windows job) and says it was skipped elsewhere. `scripts/affected-tests.sh` maps a change in
@@ -634,8 +643,10 @@ in round 5.
     minor from 1.0 on), `index.html` and one redirect page per page of the newest minor under
     `latest/` (relative, so the site works below any path; `next/` before any release), a `404.html` that
     sends `latest/…` and a retired minor's pages to the newest minor's same page and a missing page of a
-    live version to its landing page, `.nojekyll`, and the install scripts with `@K_RELEASES@` replaced
-    by `--releases` (from the newest minor's source, or the first build's). The theme's
+    live version to its landing page, `.nojekyll`, and the install scripts with `@K_RELEASES@` and
+    `@K_TOOLCHAIN_INDEX@` replaced by `--releases` and `--index`, by default the project's
+    (`https://github.com/slavkobojanic/kobra/releases`, `https://slavkobojanic.github.io/kobra/index.json`,
+    from `[workspace.metadata.project]`), taken from the newest minor's source, or the first build's. The theme's
     `theme/k-version.js` reads `versions.json` to add the version switcher (same page in another version)
     and the banner on `/next/` and on an archived minor; it does nothing in a book outside a version
     directory. Decisions in design 48, "Docs versioning: decided while implementing". The lexer
@@ -724,13 +735,20 @@ in round 5.
     1.2 to 1.4 s) failed in two of three full runs and passes alone: a flake under load, not yet
     explained ([testing.md §4.6](testing.md#46-flakes)); the gate has no retries, so it can fail a release check.
 
+    **Settled since (2026-11-23):** the name (Kobra; the command stays `k`, files `.k`), the namespace
+    (`github.com/slavkobojanic/kobra`, `ghcr.io/slavkobojanic/kobra`, the extension
+    `slavkobojanic.kobra`), the docs site (`https://slavkobojanic.github.io/kobra/`, which serves
+    `install.sh`, `install.ps1` and `index.json`, and which release builds take their built-in index
+    from) and the licence (MIT OR Apache-2.0, both files in every archive); design 48, "Owner
+    decisions".
+
     **What only the owner can do** before a real `0.1.0-rc.1`
-    ([design 48, "Owner decisions"](../design/48-releases-and-versioning.md#owner-decisions)): settle
-    the name and namespace (`k-lang` in the image tags, the extension's publisher and the docs domain
-    are placeholders, and `k` has no built-in index URL until the domain exists); choose the licence
-    (there is no `LICENSE`, so the archives carry only the README); create the GitHub repository and
+    ([design 48, "Owner decisions"](../design/48-releases-and-versioning.md#owner-decisions)): rename
+    the GitHub repository to `slavkobojanic/kobra` (GitHub redirects the old name), make it public and
     push `main`; switch CI on (`K_CI_ENABLED`), then Pages (Settings → Pages → Source "GitHub
     Actions", `K_PAGES_ENABLED`) and publishing (`K_PUBLISH_ENABLED`); choose the required checks and
     the performance runner (`K_PERF_RUNNER`); check that the Sigstore identity `verify.sh` expects is
     the repository's; and push `release/0.1` and the tag `v0.1.0-rc.1` (§6 step 6), which starts the
-    first real pipeline run, expected to need fixes since no workflow has run on GitHub yet.
+    first real pipeline run, expected to need fixes since no workflow has run on GitHub yet. Until a
+    release is published, `curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh` has
+    nothing to install.

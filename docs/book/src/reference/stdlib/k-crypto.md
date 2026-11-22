@@ -24,7 +24,7 @@ Import each declaration by name, for example `import k.crypto.AesGcmKey`.
 | [`Hmac`](#hmac) | HMAC over Web Crypto. |
 | [`JwkSet`](#jwkset) | A JSON Web Key Set, such as an identity provider's `jwks_uri` document (`docs/design/33-crypto.md`, "JWS and JWT, for interop"). |
 | [`Jws`](#jws) | JSON Web Signatures in the compact serialization (RFC 7515), for JWS that isn't a JWT (`docs/design/33-crypto.md`, "JWS and JWT, for interop"). |
-| [`Jwt`](#jwt) | JSON Web Tokens (RFC 7519) for talking to systems outside K, such as an identity provider's ID token (`docs/design/33-crypto.md`, "JWS and JWT, for interop"). |
+| [`Jwt`](#jwt) | JSON Web Tokens (RFC 7519) for talking to systems outside Kobra, such as an identity provider's ID token (`docs/design/33-crypto.md`, "JWS and JWT, for interop"). |
 | [`JwtError`](#jwterror) | Why verifying a JWS or a JWT failed (`docs/design/33-crypto.md`, "JWS and JWT, for interop"). |
 | [`KeyName`](#keyname) | The name a key is kept under in a [`KeyStore`](#keystore), paired with its type: `KeyName<AesGcmKey>(name: "notes-vault")`. |
 | [`KeyStore`](#keystore) | Keeps secret and private keys in the browser across reloads without writing them down as bytes (`docs/design/33-crypto.md`, "Keeping keys in the browser"): [`BrowserKeyStore`](#browserkeystore) stores them in IndexedDB as non-extractable Web Crypto keys. |
@@ -405,7 +405,7 @@ form is `k1e.` followed by base64url.
 **Members**
 
 - `var bytes: Bytes`
-  The wire form, for storing outside K.
+  The wire form, for storing outside Kobra.
 - `static func parse(bytes: Bytes) -> Envelope<T>?`
   Reads the wire form.
 
@@ -567,7 +567,7 @@ public struct JwkSet
 
 A JSON Web Key Set, such as an identity provider's `jwks_uri`
 document (`docs/design/33-crypto.md`, "JWS and JWT, for interop"). It
-keeps only the public signature keys K supports (Ed25519, ECDSA P-256,
+keeps only the public signature keys Kobra supports (Ed25519, ECDSA P-256,
 RSA of 2,048 bits or more), so it never holds a symmetric key; a token
 verified with it uses the key whose `kid` matches its header, at that
 key's own algorithm. Fetching and caching the document is the app's own
@@ -665,9 +665,9 @@ key's is `.wrongAlgorithm`.
 public class Jwt
 ```
 
-JSON Web Tokens (RFC 7519) for talking to systems outside K, such as an
+JSON Web Tokens (RFC 7519) for talking to systems outside Kobra, such as an
 identity provider's ID token (`docs/design/33-crypto.md`, "JWS and JWT,
-for interop"). K's own sessions are cookies. The algorithm comes from
+for interop"). Kobra's own sessions are cookies. The algorithm comes from
 the key's type, never from the token, and `issuer`, `audience` and
 `now` are required; `now` comes from an injected `Clock`, so tests
 control expiry with `TestClock`.
@@ -969,7 +969,7 @@ public struct RsaPublicKey implements Codable, Equatable, Hashable, ConfigValue
 
 An RSA public key, for verifying signatures from systems that still
 sign with RSA, such as identity providers (`docs/design/33-crypto.md`,
-"Signatures"). K never signs with RSA. Ordinary data: [`Codable`](k-core.md#codable) as
+"Signatures"). Kobra never signs with RSA. Ordinary data: [`Codable`](k-core.md#codable) as
 base64url text of its SPKI DER, and a `ConfigValue`. Keys of 2,048 to
 8,192 bits only.
 
@@ -1039,7 +1039,7 @@ ciphertext and the 16-byte tag; the text form, which `Codable` uses, is
 **Members**
 
 - `var bytes: Bytes`
-  The wire form, for storing outside K.
+  The wire form, for storing outside Kobra.
 - `static func parse(bytes: Bytes) -> Sealed<T>?`
   Reads the wire form.
 

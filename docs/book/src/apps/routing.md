@@ -363,7 +363,7 @@ url = "/webhooks/stripe"
 
 ## Endpoint pages
 
-A page with HTTP handler functions instead of a `view` is an **endpoint page**: K's one deliberate
+A page with HTTP handler functions instead of a `view` is an **endpoint page**: Kobra's one deliberate
 escape hatch to raw HTTP, for external systems that can't speak RPC, such as webhooks, OAuth callbacks and
 health checks. Everything else, including every call from the app's own client, is RPC.
 

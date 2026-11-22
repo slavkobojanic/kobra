@@ -137,7 +137,7 @@ codes! {
         "A number literal is malformed, for example `0x` with no digits, a trailing `_`, or `1e` with no exponent.";
     /// `\{` used in a string; K escapes braces by doubling them.
     BRACE_ESCAPE = 7, "brace-escape", Error,
-        "`\\{` is not an escape in K strings; write `{{` for a literal `{`.";
+        "`\\{` is not an escape in Kobra strings; write `{{` for a literal `{`.";
     /// A malformed `\u{...}` escape.
     INVALID_UNICODE_ESCAPE = 8, "invalid-unicode-escape", Error,
         "A `\\u{...}` escape must contain 1 to 6 hexadecimal digits naming a Unicode scalar value.";
@@ -154,19 +154,19 @@ codes! {
         "Statements, members and declarations must be separated by a newline.";
     /// A `;` in K code (outside style blocks).
     SEMICOLON = 103, "semicolon", Error,
-        "K code does not use semicolons; statements end at the end of the line.";
+        "Kobra code does not use semicolons; statements end at the end of the line.";
     /// `&&` instead of `and`.
     SYMBOLIC_AND = 104, "symbolic-and", Error,
-        "K writes logical conjunction as `and`, not `&&`.";
+        "Kobra writes logical conjunction as `and`, not `&&`.";
     /// `||` instead of `or`.
     SYMBOLIC_OR = 105, "symbolic-or", Error,
-        "K writes logical disjunction as `or`, not `||`.";
+        "Kobra writes logical disjunction as `or`, not `||`.";
     /// `!` instead of `not`.
     SYMBOLIC_NOT = 106, "symbolic-not", Error,
-        "K writes logical negation as `not`, not `!`.";
+        "Kobra writes logical negation as `not`, not `!`.";
     /// A C-style ternary `a ? b : c`.
     TERNARY = 107, "ternary", Error,
-        "K has no ternary operator; use an `if` expression.";
+        "Kobra has no ternary operator; use an `if` expression.";
     /// A reserved word used where a name is expected.
     RESERVED_WORD = 108, "reserved-word", Error,
         "A reserved keyword (`as`, `is`) cannot be used as a name.";
@@ -617,7 +617,7 @@ codes! {
         "A style declaration names a property that doesn't exist.";
     /// A property's value doesn't match the property's value grammar or K types.
     INVALID_CSS_VALUE = 3202, "invalid-css-value", Error,
-        "A property's value doesn't match the property's value grammar or K types.";
+        "A property's value doesn't match the property's value grammar or Kobra types.";
     /// A class reference names a class the component's style block doesn't declare.
     UNKNOWN_CLASS = 3203, "unknown-class", Error,
         "A class reference names a class the component's style block doesn't declare.";
@@ -653,7 +653,7 @@ codes! {
         "A style block declares two keyframes with the same name.";
     /// A CSS keyword in a style value is written in kebab case; K spells keywords in camel case.
     KEBAB_CASE_CSS_KEYWORD = 3214, "kebab-case-css-keyword", Error,
-        "A CSS keyword in a style value is written in kebab case; K spells keywords in camel case.";
+        "A CSS keyword in a style value is written in kebab case; Kobra spells keywords in camel case.";
 
     // ---------------------------------------------------------------- themes
     /// An override or variant names a token no theme declares.

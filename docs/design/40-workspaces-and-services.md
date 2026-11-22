@@ -2,7 +2,7 @@
 
 ## Decision
 
-**Several K projects can live in one workspace, and one K app calls another through a shared protocol.** Microservices need no extra tooling:
+**Several Kobra projects can live in one workspace, and one Kobra app calls another through a shared protocol.** Microservices need no extra tooling:
 
 - **A workspace is a root `k.toml` with a `[workspace]` table** listing its member projects.
 - **Contracts live in a library package.** A library holds the protocols and the types they carry. The serving app implements a protocol from it; a calling app injects the same protocol and binds it with a `remote` rule in `App.k`.

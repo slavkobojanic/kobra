@@ -1,6 +1,6 @@
 # Design status
 
-This book describes K as designed. The language design lives in `docs/design/` in the repository and is
+This book describes Kobra as designed. The language design lives in `docs/design/` in the repository and is
 the source of truth; where the book and the design disagree, the design wins and the book should be fixed.
 For syntax, the compiler grammar, `docs/compiler/grammar.md`, is authoritative, and its "Resolved
 ambiguities" section records the syntactic decisions the design leaves open.
@@ -38,7 +38,7 @@ with a Planned note naming the feature's id, and this table is generated from th
 | State-preserving hot module replacement in `k dev` | `hmr` | [Your first app](../getting-started/first-app.md#running-it), [Everyday commands](../getting-started/commands.md#k-dev), [Reactivity](../apps/reactivity.md#why-explicit-annotations) |
 | The formatting check of `k check` (`k fmt --check` is built) | `fmt-check` | [Your first app](../getting-started/first-app.md#checking-everything), [Everyday commands](../getting-started/commands.md#k-check), [The k command](cli.md#development) |
 | Type-checking the `k` blocks of `///` comments in `k check` | `doc-blocks` | [Everyday commands](../getting-started/commands.md#k-check), [Documentation comments](../language/doc-comments.md#what-should-be-documented), [The k command](cli.md#development) |
-| `k doc`, rendering documentation from `///` comments | `k-doc` | [Introduction](../introduction.md#the-state-of-k), [Documentation comments](../language/doc-comments.md#what-should-be-documented), [The k command](cli.md#development) |
+| `k doc`, rendering documentation from `///` comments | `k-doc` | [Introduction](../introduction.md#the-state-of-kobra), [Documentation comments](../language/doc-comments.md#what-should-be-documented), [The k command](cli.md#development) |
 | Warnings for undocumented package API | `doc-coverage` | [Documentation comments](../language/doc-comments.md#what-should-be-documented), [Packages](../apps/packages.md#writing-a-package) |
 | `k explain` | `k-explain` | [The k command](cli.md#development) |
 | Custom id types (a `ProductId` struct) as page parameters | `custom-id-params` | [Pages and routing](../apps/routing.md#parameters) |

@@ -33,7 +33,7 @@ view {
 - **Built-in elements are type-checked.** Required attributes are named arguments (`image` requires `description`), and invalid values or misspelled attributes are compile errors.
 - **Text is a string literal written directly inside a block.** No wrapper is needed.
 - **Events are chained, one per call:** `.on(click: handler)`. See [04-components.md](04-components.md#events) for handler rules.
-- **A `form` with `.on(submit:)` never navigates.** The browser's own form submission (a page load of the form's URL) is always prevented, before the handler runs and whether or not it throws, so the page and what was typed stay. There is no opt-out: a K form is handled by K, and leaving the page is a `link` or a navigation. A `form` without a `submit` handler keeps the browser's behaviour. (Decided after the real-browser runs found every `.on(submit:)` reloading the page.)
+- **A `form` with `.on(submit:)` never navigates.** The browser's own form submission (a page load of the form's URL) is always prevented, before the handler runs and whether or not it throws, so the page and what was typed stay. There is no opt-out: a Kobra form is handled by Kobra, and leaving the page is a `link` or a navigation. A `form` without a `submit` handler keeps the browser's behaviour. (Decided after the real-browser runs found every `.on(submit:)` reloading the page.)
 - **Classes are typed references** to the component's `style` block: `.class(.muted)`. See [06-styles.md](06-styles.md).
 
 ## Control flow
@@ -65,7 +65,7 @@ view {
 
 HTML's abbreviated names are replaced with **full English names in camel case**. Each one compiles to the correct semantic HTML. Writing an HTML name is a compile error with a hint, for example: "`a` → did you mean `link`?"
 
-| HTML | K | Notes |
+| HTML | Kobra | Notes |
 |---|---|---|
 | `a` | `link(to: .page)` / `link(url: "https://…")` | Internal links are typed pages |
 | `img` | `image(source:, description:)` | `alt` → `description`, required |

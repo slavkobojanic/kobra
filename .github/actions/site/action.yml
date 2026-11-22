@@ -10,8 +10,8 @@ runs:
   using: composite
   steps:
     - shell: bash
-      run: cargo xtask docs build --version latest --out target/site --releases "${{ github.server_url }}/${{ github.repository }}/releases"
+      run: cargo xtask docs build --version latest --out target/site
     - shell: bash
-      run: cargo xtask docs build --version next --from origin/main --out target/site --releases "${{ github.server_url }}/${{ github.repository }}/releases"
+      run: cargo xtask docs build --version next --from origin/main --out target/site
     - shell: bash
       run: scripts/ci/release-index.sh target/site/index.json

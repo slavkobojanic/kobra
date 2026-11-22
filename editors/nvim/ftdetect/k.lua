@@ -1,2 +1,2 @@
--- `.k` files are K.
+-- `.k` files are Kobra.
 vim.filetype.add({ extension = { k = "k" } })

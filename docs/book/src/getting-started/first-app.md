@@ -1,11 +1,11 @@
 # Your first app
 
-In this chapter you'll create a K app, run it, change it, test it and build it for production. It
+In this chapter you'll create a Kobra app, run it, change it, test it and build it for production. It
 takes about five minutes.
 
 ## Creating a project
 
-A K app is a directory with a manifest, an app declaration and a `src/` directory. `k new` creates
+A Kobra app is a directory with a manifest, an app declaration and a `src/` directory. `k new` creates
 one:
 
 ```bash
@@ -31,7 +31,7 @@ The manifest, `k.toml`, names the app and the toolchain version it needs:
 [package]
 name = "hello"
 title = "Hello"
-description = "A new K app."
+description = "A new Kobra app."
 k = "0.1"
 version = "0.1.0"
 ```
@@ -68,7 +68,7 @@ public theme AppTheme {
 ```
 
 The start page and its test follow below. The [project layout](project-layout.md) is fixed: every
-K project has this shape, and there is nothing to configure. The generated `.gitignore` excludes
+Kobra project has this shape, and there is nothing to configure. The generated `.gitignore` excludes
 `dist/`, `.k/` and `.env`.
 
 ## Running it
@@ -87,7 +87,7 @@ last good build keeps serving.
 > **Planned** (hmr). State-preserving hot module replacement (HMR) isn't in the first compiler releases.
 > Today `k dev` rebuilds and restarts the server on save, and you refresh the browser to see the change.
 > A build with errors is reported and the last good build keeps serving. With HMR, edits will apply
-> without a reload, and component state will be preserved, which is possible because K state is always
+> without a reload, and component state will be preserved, which is possible because Kobra state is always
 > declared explicitly with `@State`.
 
 ## Reading the start page
@@ -107,7 +107,7 @@ public page Home at "/" {
 
     view {
         main {
-            heading(level: 1) { "Hello from K" }
+            heading(level: 1) { "Hello from Kobra" }
 
             paragraph { "Count: {count}" }
 
@@ -237,6 +237,6 @@ health checks.
 
 ## Where to go next
 
-- [Project layout](project-layout.md) explains every file in a K project.
+- [Project layout](project-layout.md) explains every file in a Kobra project.
 - [Everyday commands](commands.md) covers `k dev`, `k build`, `k test` and `k check` in more depth.
-- [A tour of K](../tour.md) builds a small full-stack feature, from the database to the button.
+- [A tour of Kobra](../tour.md) builds a small full-stack feature, from the database to the button.

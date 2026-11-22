@@ -106,7 +106,7 @@ users.filter { user => user.isActive }
 ~}
 ```
 
-The shorthand `users.filter { $0.isActive }` from other languages is not valid K.
+The shorthand `users.filter { $0.isActive }` from other languages is not valid Kobra.
 
 A lambda with several parameters separates them with commas:
 

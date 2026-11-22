@@ -1,6 +1,6 @@
 # Call
 
-A 1:1 video call written in K: sign in with a name, start a call, and send its link to the person you want to talk to. They open it in their browser, and you see and hear each other, with mute, camera off, switching cameras, screen sharing, a text chat and the connection's statistics.
+A 1:1 video call written in Kobra: sign in with a name, start a call, and send its link to the person you want to talk to. They open it in their browser, and you see and hear each other, with mute, camera off, switching cameras, screen sharing, a text chat and the connection's statistics.
 
 It is a teaching example for `k.rtc` ([`docs/design/46-media-and-rtc.md`](../../docs/design/46-media-and-rtc.md)): calls between two browsers, signalled over a channel of the app's own protocol, with no third-party server anywhere. Two tabs on one machine, or two laptops on one network, connect with no STUN or TURN server at all; a deployment that must connect across networks runs its own coturn next to the app.
 

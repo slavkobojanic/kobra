@@ -255,7 +255,7 @@ pub fn gate() -> Vec<Step> {
             ],
         ),
         step(
-            "the examples' K code is formatted",
+            "the examples' Kobra code is formatted",
             vec![],
             &[
                 "cargo",

@@ -74,29 +74,32 @@ Open a project, the directory with `k.toml`, or any directory above it. Then:
 
 ## Visual Studio Code
 
-The extension is in `editors/vscode`. It needs `k` on your `PATH` (see [Installation](installation.md)), or
-the `k.server.path` setting pointing at it.
+The extension, `slavkobojanic.kobra`, needs `k` on your `PATH` (see [Installation](installation.md)), or
+the `k.server.path` setting pointing at it. Each release on
+[GitHub Releases](https://github.com/slavkobojanic/kobra/releases) has it as `kobra-<version>.vsix`;
+download it and install it with `code --install-extension kobra-0.1.0.vsix`. To build it yourself from
+`editors/vscode`:
 
 ```bash
 cd editors/vscode
 npm install
 npx @vscode/vsce package
-code --install-extension k-language-0.1.0.vsix
+code --install-extension kobra-0.1.0.vsix
 ```
 
-The extension formats K files on save: it sets `editor.formatOnSave`, four-space indentation and no
+The extension formats Kobra files on save: it sets `editor.formatOnSave`, four-space indentation and no
 indentation detection for the `k` language. To keep saving as it is, add this to your settings:
 
 ```json
 "[k]": { "editor.formatOnSave": false }
 ```
 
-npm is only needed to package the extension; K itself never uses it. The command **K: Restart Language
+npm is only needed to package the extension; Kobra itself never uses it. The command **Kobra: Restart Language
 Server** restarts the server, for example after you rebuild `k`.
 
-While a K file is open, the language status item (the `{}` next to "K" in the status bar) shows the
+While a Kobra file is open, the language status item (the `{}` next to "Kobra" in the status bar) shows the
 toolchain the server runs, such as `K 0.1.0`: the `k` on your `PATH` runs the toolchain the project pins
-in `k.lock` ([Upgrading K](../apps/upgrading.md)), so this is the version the project uses, whatever the
+in `k.lock` ([Upgrading Kobra](../apps/upgrading.md)), so this is the version the project uses, whatever the
 extension's own version is. Clicking it restarts the server.
 
 Highlighting comes from the extension's own grammar, so after you update the repository, package and install
@@ -110,7 +113,7 @@ Add `editors/nvim` to the runtime path and call the setup function, for example 
 { dir = "/path/to/k/editors/nvim", config = function() require("k.lsp").setup() end }
 ```
 
-It adds the `k` filetype, highlighting and comment settings, and starts `k lsp` for K buffers with the
+It adds the `k` filetype, highlighting and comment settings, and starts `k lsp` for Kobra buffers with the
 nearest `k.toml` as the project root. It uses Neovim's built-in LSP configuration on 0.11 and later, and
 nvim-lspconfig on older versions. To see page URLs inline, enable inlay hints:
 

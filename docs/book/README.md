@@ -1,10 +1,10 @@
-# The K Programming Language (book)
+# The Kobra Programming Language (book)
 
-This directory holds the source of the K language guide, built with
+This directory holds the source of the Kobra language guide, built with
 [mdBook](https://rust-lang.github.io/mdBook/).
 
 The language design in [`docs/design`](../design/README.md) is the source of truth. The book explains
-it for people learning K; where they disagree, the design wins and the book should be fixed.
+it for people learning Kobra; where they disagree, the design wins and the book should be fixed.
 
 ## Building
 
@@ -54,11 +54,11 @@ theme/k.css                  small style additions
 
 ## Writing chapters
 
-- Tag K code blocks with `k`, shell commands with `bash`, TOML with `toml`, and everything else
+- Tag Kobra code blocks with `k`, shell commands with `bash`, TOML with `toml`, and everything else
   (directory trees, compiler output, Dockerfiles) with `text`. Only languages bundled with mdBook's
   highlight.js, plus `k`, are highlighted.
-- Every K sample must follow the design: `let`/`var`, `func`, named required arguments and chained
-  options, K element names, typed classes, camelCase style properties, and the layering rules.
+- Every Kobra sample must follow the design: `let`/`var`, `func`, named required arguments and chained
+  options, Kobra element names, typed classes, camelCase style properties, and the layering rules.
 - Mark a feature that the first compiler releases defer with a `> **Planned** (id).` note, or
   `(**Planned** id)` inline, where `id` is the feature's row in `crates/k_sema/src/features.rs` (add one
   if it's new; several ids are written `(a, b)`). Mark a question the design records as still open with a
@@ -74,7 +74,7 @@ theme/k.css                  small style additions
   the book, such as design topics, by their repository path in backticks, because the site doesn't contain
   them.
 
-## Every K sample compiles
+## Every Kobra sample compiles
 
 `cargo test -p k_sema --test it -- book::` extracts every fenced block tagged `k` from `src/` and checks it with
 the same analysis `k check` runs. A block passes when it reports no error. The rules
@@ -116,7 +116,7 @@ The book's prose is checked too, by `cargo test -p k_sema --test it -- book:: bo
 - no pattern of `check/stale.txt` (one regular expression per line, then ` # ` and the reason) occurs in
   prose or in `text`, `bash`, `console` and `toml` blocks. When a change makes a phrase false or removes
   syntax, add the old form there;
-- inline code that reads as a qualified K name or an annotation (`RemoteClient.at`, `k.auth.Session`,
+- inline code that reads as a qualified Kobra name or an annotation (`RemoteClient.at`, `k.auth.Session`,
   `@Load`) resolves in the standard library; `check/inline-names.txt` lists the deliberate exceptions;
 - a sentence that says a diagnostic has a quick fix names its code ("a compile error (`K2304`) with a
   quick fix to `default`"), and a corpus `.diag` case pins that code's fix (a `fix` line);
@@ -159,6 +159,6 @@ mdbook build docs/book
 
 mdBook ships highlight.js 10 and highlights code blocks before additional scripts load. Blocks tagged
 `k` are left untouched at that point, since the language is unknown. `theme/k-highlight.js` then
-registers K (keywords from `docs/compiler/grammar.md`, string interpolation, unit and color literals,
+registers Kobra (keywords from `docs/compiler/grammar.md`, string interpolation, unit and color literals,
 annotations, types and implicit members) and highlights those blocks. When the grammar's keyword lists
 change, update the lists at the top of that file.

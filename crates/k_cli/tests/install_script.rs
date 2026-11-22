@@ -5,7 +5,7 @@
 //!
 //! `install.sh` runs wherever `sh` exists, with fake `uname` and `ldd`
 //! commands first on the `PATH`, so every target is tried on one machine:
-//! it picks the archive for `uname`, fails clearly on musl and on systems K
+//! it picks the archive for `uname`, fails clearly on musl and on systems Kobra
 //! doesn't release for, verifies `SHA256SUMS`, installs into
 //! `$K_HOME/toolchains/<version>` with `$K_HOME/bin/k` as the default,
 //! prints the `PATH` line, and is idempotent. `install.ps1` runs where
@@ -58,12 +58,24 @@ struct Fixture {
 
 impl Fixture {
     fn new(tag: &str) -> Fixture {
+        Fixture::with(tag, &["99.1.0", "99.2.0"], Some("99.2.0"), &[])
+    }
+
+    /// A fake release of `versions`, with `latest` as the host's newest
+    /// stable (none: only pre-releases are published) and `yanked` marked
+    /// in the index.
+    fn with(
+        tag: &str,
+        versions: &[&str],
+        latest: Option<&str>,
+        yanked: &[(&str, &str)],
+    ) -> Fixture {
         let n = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
         let root = std::env::temp_dir().join(format!("k_install_{tag}_{}_{n}", std::process::id()));
         let mut release = FakeRelease::new(&root.join("release"));
-        for version in ["99.1.0", "99.2.0"] {
+        for version in versions {
             for (_, _, target) in UNIX_TARGETS {
                 release.archive(
                     version,
@@ -73,8 +85,10 @@ impl Fixture {
                 );
             }
         }
-        release.latest("99.2.0");
-        release.index(&[]);
+        if let Some(latest) = latest {
+            release.latest(latest);
+        }
+        release.index(yanked);
         let host = StaticHost::start(&release.root);
         Fixture {
             root,
@@ -89,6 +103,11 @@ impl Fixture {
 
     fn releases(&self) -> String {
         format!("http://{}", self.host.addr)
+    }
+
+    /// The fake site's toolchain index, the one `k toolchain` reads.
+    fn index(&self) -> String {
+        format!("http://{}/index.json", self.host.addr)
     }
 
     #[cfg(unix)]
@@ -138,6 +157,7 @@ impl Fixture {
             .env("HOME", self.root.join("home"))
             .env("PATH", path)
             .env("K_RELEASES", self.releases())
+            .env_remove("K_TOOLCHAIN_INDEX")
             .env_remove("K_HOME")
             .env_remove("K_VERSION");
         for (k, v) in env {
@@ -188,7 +208,8 @@ fn install_sh_picks_the_archive_for_uname_and_prints_the_path_line() {
         let run = Command::new(&bin).output().unwrap();
         assert_eq!(text(&run.stdout), format!("fake 99.2.0 {target}\n"));
         assert!(home.join("toolchains/99.2.0/k").is_file());
-        assert!(home.join("toolchains/99.2.0/LICENSE").is_file());
+        assert!(home.join("toolchains/99.2.0/LICENSE-MIT").is_file());
+        assert!(home.join("toolchains/99.2.0/LICENSE-APACHE").is_file());
         assert_eq!(
             fs::read_to_string(home.join("default")).unwrap(),
             "99.2.0\n"
@@ -218,11 +239,11 @@ fn install_sh_fails_clearly_on_musl_and_unsupported_systems() {
         (("Linux", "x86_64", "musl"), "this Linux uses musl"),
         (
             ("FreeBSD", "amd64", "glibc"),
-            "K releases no toolchain for FreeBSD",
+            "Kobra releases no toolchain for FreeBSD",
         ),
         (
             ("Linux", "riscv64", "glibc"),
-            "K releases no toolchain for the riscv64 processor",
+            "Kobra releases no toolchain for the riscv64 processor",
         ),
         (("MINGW64_NT-10.0", "x86_64", "glibc"), "install.ps1"),
     ] {
@@ -315,28 +336,78 @@ fn install_sh_is_idempotent_and_takes_a_version() {
     assert_eq!(fx.tree(), tree);
 }
 
-#[cfg(unix)]
 /// With only release candidates published, the host has no
 /// `latest/download/` (GitHub's `latest` skips pre-releases): the script
-/// says so and names `--version`, as the 0.1.0-rc.1 dry run asked.
+/// reads the toolchain index (`K_TOOLCHAIN_INDEX`, the site's
+/// `index.json` in the copy the docs site serves) and installs the newest
+/// candidate that isn't yanked, saying there is no stable release yet.
 #[cfg(unix)]
 #[test]
-fn install_sh_without_a_stable_release_names_version() {
-    let fx = Fixture::new("no-stable");
-    fs::remove_dir_all(fx.release.root.join("latest")).unwrap();
-    let out = fx.install_sh(("Linux", "x86_64", "glibc"), &[], &[], false);
+fn install_sh_without_a_stable_release_installs_the_newest_candidate() {
+    let fx = Fixture::with(
+        "no-stable",
+        &[
+            "99.1.0-rc.1",
+            "99.1.0-rc.2",
+            "99.1.0-rc.3",
+            "99.2.0-nightly.20261201",
+        ],
+        None,
+        &[("99.1.0-rc.3", "miscompiles match")],
+    );
+    let system = ("Linux", "x86_64", "glibc");
+    let index = fx.index();
+    let out = fx.install_sh(system, &[("K_TOOLCHAIN_INDEX", &index)], &[], false);
+    assert_eq!(out.status.code(), Some(0), "{}", describe(&out));
+    let stdout = text(&out.stdout);
+    assert!(stdout.contains("no stable release"), "{}", describe(&out));
+    assert!(
+        stdout.contains("installing the newest release candidate, 99.1.0-rc.2"),
+        "{}",
+        describe(&out)
+    );
+    assert!(stdout.contains("--version"), "{}", describe(&out));
+    assert_eq!(
+        fs::read_to_string(fx.home().join("default")).unwrap(),
+        "99.1.0-rc.2\n"
+    );
+    let run = Command::new(fx.home().join("bin/k")).output().unwrap();
+    assert_eq!(
+        text(&run.stdout),
+        "fake 99.1.0-rc.2 x86_64-unknown-linux-gnu\n"
+    );
+    // A named version still installs, the yanked one included.
+    let out = fx.install_sh(system, &[], &["--version", "99.1.0-rc.3"], false);
+    assert_eq!(out.status.code(), Some(0), "{}", describe(&out));
+}
+
+/// With only nightlies published, the newest nightly is installed, and
+/// without an index the script says there is no stable release and names
+/// `--version`.
+#[cfg(unix)]
+#[test]
+fn install_sh_without_a_stable_release_or_candidate() {
+    let fx = Fixture::with(
+        "nightly-only",
+        &["99.2.0-nightly.20261201", "99.2.0-nightly.20261202"],
+        None,
+        &[],
+    );
+    let system = ("Darwin", "arm64", "glibc");
+    let out = fx.install_sh(system, &[], &[], false);
     assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
     let err = text(&out.stderr);
     assert!(err.contains("no stable release"), "{}", describe(&out));
     assert!(err.contains("--version"), "{}", describe(&out));
-    // A named version still installs.
-    let out = fx.install_sh(
-        ("Linux", "x86_64", "glibc"),
-        &[],
-        &["--version", "99.1.0"],
-        false,
-    );
+    assert!(!fx.home().join("toolchains").exists());
+    let index = fx.index();
+    let out = fx.install_sh(system, &[("K_TOOLCHAIN_INDEX", &index)], &[], false);
     assert_eq!(out.status.code(), Some(0), "{}", describe(&out));
+    assert!(
+        text(&out.stdout).contains("installing the newest nightly, 99.2.0-nightly.20261202"),
+        "{}",
+        describe(&out)
+    );
 }
 
 #[test]
@@ -377,7 +448,8 @@ fn install_ps1_installs_the_windows_archive() {
     let top = fx.root.join(format!("zip/k-{version}-{target}"));
     fs::create_dir_all(&top).unwrap();
     fs::write(top.join("k.exe"), "fake k.exe").unwrap();
-    fs::write(top.join("LICENSE"), "MIT\n").unwrap();
+    fs::write(top.join("LICENSE-MIT"), "MIT\n").unwrap();
+    fs::write(top.join("LICENSE-APACHE"), "Apache-2.0\n").unwrap();
     let dir = fx.release.root.join("latest/download");
     let name = format!("k-{version}-{target}.zip");
     let zip = dir.join(&name);

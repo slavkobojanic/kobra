@@ -2,9 +2,9 @@
 
 ## Decision
 
-**The book is reorganised into two front doors, as react.dev is: _Learn_, which teaches, and _Reference_, which answers.** Learn starts with a ten-minute quick start and a longer tutorial that builds one full-stack app across several pages, then explains how to think in K, then holds the existing language and app guides. Reference holds every keyword, annotation, element, style property, stdlib module, type and member, diagnostic, `k` command and flag, and project file, and most of it is generated. Examples sit between the two. The design topics and compiler docs stay out of the newcomer path, in a Contributing section.
+**The book is reorganised into two front doors, as react.dev is: _Learn_, which teaches, and _Reference_, which answers.** Learn starts with a ten-minute quick start and a longer tutorial that builds one full-stack app across several pages, then explains how to think in Kobra, then holds the existing language and app guides. Reference holds every keyword, annotation, element, style property, stdlib module, type and member, diagnostic, `k` command and flag, and project file, and most of it is generated. Examples sit between the two. The design topics and compiler docs stay out of the newcomer path, in a Contributing section.
 
-- **The site stays on mdBook, with a custom theme.** A K-built docs site is the long-term goal and has a staged migration path (below), but it waits until K can build it without special cases.
+- **The site stays on mdBook, with a custom theme.** A K-built docs site is the long-term goal and has a staged migration path (below), but it waits until Kobra can build it without special cases.
 - **Search is mdBook's built-in search now, then Pagefind,** a single binary run after `mdbook build`, plus a generated symbol index for exact API lookups. Nothing needs an account or a hosted search service.
 - **The docs can't silently drift from the toolchain.** Every claim that can be checked by a test is: every `k` sample compiles (built), samples marked as runnable also run, the tutorial's projects are compiled and tested at every step, reference pages are generated from the compiler's own registries and must match what's committed, links and anchors resolve, every public item, diagnostic, annotation and flag is documented, every command line in the book parses, and `Planned` notes are tied to features that the test knows are unbuilt. A user-visible change's changelog fragment names the book pages it changes, or says why none.
 - **Docs are versioned with the toolchain,** as [48-releases-and-versioning.md](48-releases-and-versioning.md#docs-versioning) decides: one directory per minor (`/0.6/`), `/` and `/latest/` for the newest, `/next/` for main; before 1.0 only the newest minor and `/next/` stay live.
@@ -33,17 +33,17 @@ Five parts, in this order in the sidebar, with the theme's header showing **Lear
 
 | Part | Reader | Promise |
 |---|---|---|
-| Learn | someone new to K | read in order; nothing is used before it's explained |
-| Guides (the current "The language" and "Building apps") | someone building with K | one topic per page, read in any order |
+| Learn | someone new to Kobra | read in order; nothing is used before it's explained |
+| Guides (the current "The language" and "Building apps") | someone building with Kobra | one topic per page, read in any order |
 | Examples | someone who learns from whole programs | every example is a project in `examples/`, compiled and tested |
 | Reference | anyone looking something up | complete, terse, searchable, mostly generated |
-| Contributing | people working on K itself | how the docs, design and compiler fit together |
+| Contributing | people working on Kobra itself | how the docs, design and compiler fit together |
 
 Learn and Guides are both teaching material, but they make different promises: Learn is a path, Guides are a library. The language and app chapters stay as they are (they are good reference-grade guides) and move behind Learn instead of being the first thing a newcomer meets.
 
 ### The quick start
 
-**One page, about ten minutes, a client-only app: a tip splitter.** The reader enters a bill, picks a tip percentage and the number of people, and sees what each person pays. It is small enough to read in one sitting and touches, once each, the things every K app has:
+**One page, about ten minutes, a client-only app: a tip splitter.** The reader enters a bill, picks a tip percentage and the number of people, and sees what each person pays. It is small enough to read in one sitting and touches, once each, the things every Kobra app has:
 
 1. `k new tip` and `k dev`, then the start page in the browser.
 2. `@State` for the bill, tip and people; `@Derived` for the share. Typing updates the result without any wiring.
@@ -53,7 +53,7 @@ Learn and Guides are both teaching material, but they make different promises: L
 6. One test with `render` and `screen.button(named:)`, run by `k check`.
 7. `k build` and running `dist/app` (or the static output: the app has no server code, so it is static-only, [38-deployment.md](38-deployment.md#static-only-apps)).
 
-It uses `Int` percentages and `Money` only if the money literal stays as simple as `24.50.usd` by then; otherwise `Double` with a formatter. The page ends with "You've built …", a recap list, and two links: the tutorial, and Thinking in K.
+It uses `Int` percentages and `Money` only if the money literal stays as simple as `24.50.usd` by then; otherwise `Double` with a formatter. The page ends with "You've built …", a recap list, and two links: the tutorial, and Thinking in Kobra.
 
 **As built (round 1(b)):** the project is `examples/learn/quick-start/` (named after its page rather than `tip/`, so every Learn page's project is found by its page's name), checked and built by `crates/k_cli/tests/examples.rs` like every example. The bill is a `textField` read with `Double.parse`, not a `numberField`, because `numberField` binds only an `Int`; the result is `Money`, built from cents and split with `allocated(into:)`. The app stays server-rendered, as `k new` makes it, so step 7 runs `dist/app`. Installation and editor setup are listed in the Learn part but keep their `getting-started/` paths until the redirects exist; `first-app.md` stays where it is, now using `k new`.
 
@@ -76,20 +76,20 @@ It uses `Int` percentages and `Money` only if the money literal stays as simple 
 | 9 | Test it | component, rpc and integration tests | `k.test`, fakes, `TestRemote`-style bindings |
 | 10 | Ship it | `k build`, configuration, the database, running `dist/app` | `config`, secrets, `schema.lock`, deployment |
 
-**Every step is a checked-in project:** `examples/learn/shelf/01-create/` through `10-ship/`, each a complete K project (`k.toml`, `App.k`, `src/`, lockfiles). The tip splitter is `examples/learn/tip/`. They live under `examples/`, as [48-releases-and-versioning.md](48-releases-and-versioning.md#docs-freshness-checks) requires, in their own `learn/` directory so the ten Shelf steps don't crowd the example list, and they are tested like every example (see [drift-proofing](#tutorial-projects)), and the page for step _N_ shows the files that changed since step _N−1_ as excerpts, so the reader can follow along and a reviewer sees code in the markdown diff.
+**Every step is a checked-in project:** `examples/learn/shelf/01-create/` through `10-ship/`, each a complete Kobra project (`k.toml`, `App.k`, `src/`, lockfiles). The tip splitter is `examples/learn/tip/`. They live under `examples/`, as [48-releases-and-versioning.md](48-releases-and-versioning.md#docs-freshness-checks) requires, in their own `learn/` directory so the ten Shelf steps don't crowd the example list, and they are tested like every example (see [drift-proofing](#tutorial-projects)), and the page for step _N_ shows the files that changed since step _N−1_ as excerpts, so the reader can follow along and a reviewer sees code in the markdown diff.
 
 **As built (round 1(b), steps 1–3):** step 1's project is diffed against a fresh `k new shelf`, and every later step against the one before it, by `crates/k_cli/tests/book_projects.rs`; lockfiles are left out of that diff, since `k build` writes them and `examples.rs` already checks the committed ones. A page shows a changed file as an excerpt (`// examples/learn/shelf/NN-name/…` as its first line, `// ...` between runs), and every added or changed line must be in one. Step 1 replaces the counter with a heading and a sentence, and so also replaces the generated test (one sentence on the page, pointing to step 3), because `examples.rs` requires every Learn project to run a test. `Book` has an `Int` `id` from step 2, used as the `for` key, since titles can repeat. Step 3 uses `@Form` (not in the table above, but a `Validatable` struct is only used through it), and clears the form after a book is added with `Form.reset()`, which `k.validation` gained for it ([15-forms-and-validation.md](15-forms-and-validation.md#the-forms-initial-value-and-its-value)). The tutorial index lists all ten steps, linking only the written ones.
 
 **As built (round 1(b), steps 4–6):**
 
 - **Step 4** declares the tokens it uses (colors for text, background, surface, border, primary and its text, three spaces, one radius) and a `variant dark matches .prefersDark`, with no switch: `k.ui.Theme` needs `@Inject`, which step 5 introduces, and the styles guide covers it. Styles have no test of their own, so its "Check it" only reruns the step 3 tests.
-- **Step 5's entity is `BookRecord`, not `Book`.** `Book` is the `Codable` struct the browser shows, and an entity can't cross the wire; renaming the struct would have changed every file of steps 2–4 on page 5. The `Record` suffix is the one `examples/shop/paybox` uses. `Book.id` becomes a `Uuid` (`Uuid.random()` on the server), since K has no generated integer keys, so the three hard-coded books go and the list starts empty. The migration is the one `k migrate new "create book records"` writes, unedited.
+- **Step 5's entity is `BookRecord`, not `Book`.** `Book` is the `Codable` struct the browser shows, and an entity can't cross the wire; renaming the struct would have changed every file of steps 2–4 on page 5. The `Record` suffix is the one `examples/shop/paybox` uses. `Book.id` becomes a `Uuid` (`Uuid.random()` on the server), since Kobra has no generated integer keys, so the three hard-coded books go and the list starts empty. The migration is the one `k migrate new "create book records"` writes, unedited.
 - **Step 5 has two services,** `BookApi implements BookProtocol` on the server and `BookService` in the browser, because only a service may inject a protocol (K4005). The form, not the page, calls `BookService.add`, so it can report the saved `Book` (with the server's id) through `added`. The call's failure is caught there with `catch .rpcFailure`, so `do`/`catch` and an error enum's cases move from step 6 to step 5 in the index's table; step 6 keeps `match` on the error in `failed`. The repository's `all()` arrives in step 5, for the test that checks the database, and is served by step 6's `list` rpc.
 - **Step 6 refreshes with `reload()`** rather than appending the reported book, so the list always shows what the server holds. Its `loading` block is only seen in tests until step 7 adds client-side navigation, since the first page is server-rendered with the books loaded; the page says so. A test of `failed` needs a fake protocol, which is step 9's subject.
 
 **As built (round 1(b), steps 7–10):**
 
-- **Step 7's page is `BookDetails at "/books/{id}"`,** in `books`: a page can't share the `Book` struct's name in its module, and the named URL keeps the `/books/…` the table above plans (written `{id}`, K's syntax, in the index). Notes and a rating are two `BookRecord` columns from a second, generated migration; `Book` gets them with defaults, because `rpc.lock` refuses a new required field (K8001), which the page explains in one sentence. The rating is an `Int` from 0 (not rated) to 5, picked with a `dropdown`; `get` and `review` throw a new `LookupError` (`notFound`), and `failed` sets `status(.notFound)`. `BookApi` gains a private `book(record:)`. The page's Try-its are a link with a wrongly typed parameter and removing `at` (K8007 from `routes.lock`).
+- **Step 7's page is `BookDetails at "/books/{id}"`,** in `books`: a page can't share the `Book` struct's name in its module, and the named URL keeps the `/books/…` the table above plans (written `{id}`, Kobra's syntax, in the index). Notes and a rating are two `BookRecord` columns from a second, generated migration; `Book` gets them with defaults, because `rpc.lock` refuses a new required field (K8001), which the page explains in one sentence. The rating is an `Int` from 0 (not rated) to 5, picked with a `dropdown`; `get` and `review` throw a new `LookupError` (`notFound`), and `failed` sets `status(.notFound)`. `BookApi` gains a private `book(record:)`. The page's Try-its are a link with a wrongly typed parameter and removing `at` (K8007 from `routes.lock`).
 - **Step 7 found a `k dev` bug:** a rebuild with an entity that has no migration was served (a new table) or failed with a code-generation message (a new column), while `k check` reported K8004. `k dev` and `k run` now count `schema.lock`'s errors (`k_codegen::schema_diagnostics`, the schema half of `project_diagnostics`) as build errors, before generating: `error: the project has N error(s)` and the last good build keeps serving (`crates/k_cli/tests/cli.rs`, `dev_reports_an_entity_without_a_migration`). `routes.lock` problems are left out, since a detected rename is recorded by the next `k build`; `k build` itself is unchanged.
 - **Step 8 keeps accounts in `src/accounts/`,** after `examples/notes`, cut down: one `Credentials` struct (an `EmailAddress` and an 8-character password) for both forms, `SignUpError` and `SignInError`, no rate limits and no availability `@Check`. `BookRecord.ownerId` is `AccountId?`, because the table has rows (K8004 asks for a default or an optional), so the books of earlier steps belong to nobody; the page says so. Tests sign in with `SessionManager` and a fixed `AccountId` declared in each group, at the top of every test.
 - **Step 9 changes only tests.** The `failed`-block test that step 6 lacked fakes `BookService` (`src/testing/OfflineBookService.k`, a test-only module), not `BookProtocol`: a protocol handler may not throw `rpcFailure` (K5506), and a test's in-process calls never fail with `.offline`. The step also adds rpc tests through `BookProtocol` (guards, another account's book, server-side validation with `expect throws`), the sign-up and sign-in forms with real accounts, and `TestClient` tests of the redirect, the title and the 404.
@@ -98,7 +98,7 @@ It uses `Int` percentages and `Money` only if the money literal stays as simple 
 
 Tests are written from step 3 onwards in a short "Check it" section of each page, rather than only in step 9: step 9 then adds the kinds of test a newcomer hasn't met (rpc fakes, integration through the server).
 
-### Thinking in K
+### Thinking in Kobra
 
 Short concept pages, in the spirit of react.dev's "Thinking in React", placed after the tutorial and before the guides. Each explains one idea, with a small example, and links to the guide that covers it fully:
 
@@ -262,7 +262,7 @@ The two diagnostics and CLI lines that stand for several pages are written out i
 
 **Moves keep old URLs working.** mdBook's `[output.html.redirect]` table maps every moved page (`getting-started/first-app.html` → `learn/quick-start.html`, `philosophy.html` → `learn/thinking/why-k.html`, …). A test checks that every page path that existed at the last release is either still a page or has a redirect, so a link someone saved never 404s.
 
-**Design topics and compiler docs aren't published in the book.** They link with repository paths (`../compiler/grammar.md`) and are written for people changing K. The Contributing section explains them and links to them by repository path, as the book's README already asks. Once the repository has a public URL, a second, small mdBook ("K internals", with a `SUMMARY.md` generated from `docs/design/README.md`'s table and `docs/compiler/`) can be published next to the book; that is optional and outside this plan.
+**Design topics and compiler docs aren't published in the book.** They link with repository paths (`../compiler/grammar.md`) and are written for people changing Kobra. The Contributing section explains them and links to them by repository path, as the book's README already asks. Once the repository has a public URL, a second, small mdBook ("Kobra internals", with a `SUMMARY.md` generated from `docs/design/README.md`'s table and `docs/compiler/`) can be published next to the book; that is optional and outside this plan.
 
 ## Style guide for Learn pages
 
@@ -283,8 +283,8 @@ The book's tone stays as it is: second person, present tense, plain sentences, n
 
 | | mdBook built-in (elasticlunr) | Pagefind | A K-built search (rpc or prebuilt index) |
 |---|---|---|---|
-| What runs | a JS index generated by mdBook, loaded whole on first search | a static, chunked index written by the `pagefind` binary after the build; a small JS UI | a K page that queries an rpc, or a prebuilt index shipped as a static file |
-| Toolchain cost | none, it's on | one more binary at docs-build time (Rust; `cargo install pagefind` or a release binary; no npm) | needs the K docs site |
+| What runs | a JS index generated by mdBook, loaded whole on first search | a static, chunked index written by the `pagefind` binary after the build; a small JS UI | a Kobra page that queries an rpc, or a prebuilt index shipped as a static file |
+| Toolchain cost | none, it's on | one more binary at docs-build time (Rust; `cargo install pagefind` or a release binary; no npm) | needs the Kobra docs site |
 | Index size | whole index downloaded; the generated diagnostics and stdlib pages make it grow linearly | fetched in small chunks as you type; scales to large sites | an rpc needs a running server, so the site stops being static |
 | Quality | word matching only; poor for `RemoteClient.at`-style names; no filtering by section | stemming, weighting, sub-results per heading, **filters** (Learn / Guides / Reference) and custom metadata | as good as we make it |
 | Offline / static hosting | yes | yes | prebuilt index: yes; rpc: no |
@@ -301,14 +301,14 @@ The book's tone stays as it is: second person, present tense, plain sentences, n
 ### Options
 
 1. **Stay on mdBook with a custom theme.** It is a Rust tool (`cargo install`), the book already builds warning-free on it, its hidden lines, includes, redirects and search are what we use, and the snippet test is built around its markdown. Its limits: one sidebar (no true top-level tabs), highlight.js 10 bundled (K highlighting is a separate script), and a theme that is Handlebars and CSS.
-2. **A K-built docs site.** The docs as a K app: pages rendered on the server at build time (static-only output, [38-deployment.md](38-deployment.md#static-only-apps)), K components for the sidebar, tabs, callouts and the playground, search from a prebuilt index. It is the best possible dogfooding: if K can't build a good docs site, that's a bug in K. It needs things K doesn't have yet: reading a directory of markdown files at build time and rendering markdown to a view, prerendering every page of a static site, and highlighting from the compiler's lexer.
+2. **A K-built docs site.** The docs as a Kobra app: pages rendered on the server at build time (static-only output, [38-deployment.md](38-deployment.md#static-only-apps)), Kobra components for the sidebar, tabs, callouts and the playground, search from a prebuilt index. It is the best possible dogfooding: if Kobra can't build a good docs site, that's a bug in Kobra. It needs things Kobra doesn't have yet: reading a directory of markdown files at build time and rendering markdown to a view, prerendering every page of a static site, and highlighting from the compiler's lexer.
 3. **Another static generator** (Docusaurus, VitePress, Astro Starlight). Rejected: they need npm, and the repository has none.
 
-### Decision: mdBook now, a K-built site when K can build it
+### Decision: mdBook now, a K-built site when Kobra can build it
 
-- **Phase 1 (now): mdBook with a custom theme.** Header tabs (Learn, Reference, Examples, Contributing) linking to each part, a landing page, callout styles for Planned, Open question, Try it and Recap, and a version switcher. K highlighting moves from `theme/k-highlight.js`'s copied keyword lists to the compiler's own lexer: an mdBook preprocessor (mdBook's preprocessor protocol is JSON on standard input and output) in the `xtask` crate, the same one [48-releases-and-versioning.md](48-releases-and-versioning.md#docs-freshness-checks) uses to substitute `{{k_version}}`, that tokenises every `k` block with `k_syntax` and emits highlighted HTML. Keywords can then never fall behind the grammar. The current script stays as the fallback until the preprocessor exists.
+- **Phase 1 (now): mdBook with a custom theme.** Header tabs (Learn, Reference, Examples, Contributing) linking to each part, a landing page, callout styles for Planned, Open question, Try it and Recap, and a version switcher. Kobra highlighting moves from `theme/k-highlight.js`'s copied keyword lists to the compiler's own lexer: an mdBook preprocessor (mdBook's preprocessor protocol is JSON on standard input and output) in the `xtask` crate, the same one [48-releases-and-versioning.md](48-releases-and-versioning.md#docs-freshness-checks) uses to substitute `{{k_version}}`, that tokenises every `k` block with `k_syntax` and emits highlighted HTML. Keywords can then never fall behind the grammar. The current script stays as the fallback until the preprocessor exists.
 - **Phase 2: the content format stays the source of truth.** Every page stays markdown with the book's conventions (hidden `~` lines, `k,ignore`, project-file comments, excerpts), and every generated page is generated as markdown. Nothing ties the content to mdBook except `SUMMARY.md` and `book.toml`, so changing the renderer later is a renderer change, not a rewrite.
-- **Phase 3: a K-built site, when these exist in K:** static-only builds that prerender many pages from data, build-time reading of project files (or a generator step that turns the markdown into K data), a markdown-to-view renderer in the stdlib or a package, and highlighting from the lexer. The docs app then lives in `docs/site/` as a K project, reads `docs/book/src`, and must render every page the mdBook build renders (a test compares the page lists and the text of each page). The switch happens only when the K site is at least as good on page weight, search and accessibility; until then mdBook is what's published.
+- **Phase 3: a K-built site, when these exist in Kobra:** static-only builds that prerender many pages from data, build-time reading of project files (or a generator step that turns the markdown into Kobra data), a markdown-to-view renderer in the stdlib or a package, and highlighting from the lexer. The docs app then lives in `docs/site/` as a Kobra project, reads `docs/book/src`, and must render every page the mdBook build renders (a test compares the page lists and the text of each page). The switch happens only when the Kobra site is at least as good on page weight, search and accessibility; until then mdBook is what's published.
 
 ## Drift-proofing
 
@@ -318,7 +318,7 @@ Each check is a `cargo test` (so it runs locally, needs no CI vendor, and fails 
 
 The checks below catch drift from now on; they don't find what has already drifted in prose. So before the reorganisation, **every page in `SUMMARY.md` is read against the compiler at one commit** (taken after the concurrent language changes have landed), and the audit leaves a record and new checks behind rather than only fixed pages.
 
-- **What is checked on each page, claim by claim:** commands, flags and their output (against `crates/k_cli/src/cli.rs`, and by running them on a scratch project); status words ("not yet", "currently", "Planned", "isn't built", "will"), each confirmed or turned into a `Planned` note with an id; behaviour the prose describes (what renders, what runs when, what fails and how), against the design topic and the test that pins it; every diagnostic code named, against `codes.rs`; every inline-code name that looks like a K symbol (`` `RemoteClient.at` ``, `` `@Load` ``), against the stdlib and annotation registries; hand-copied tables, against the registries; and example pages, against the projects in `examples/`.
+- **What is checked on each page, claim by claim:** commands, flags and their output (against `crates/k_cli/src/cli.rs`, and by running them on a scratch project); status words ("not yet", "currently", "Planned", "isn't built", "will"), each confirmed or turned into a `Planned` note with an id; behaviour the prose describes (what renders, what runs when, what fails and how), against the design topic and the test that pins it; every diagnostic code named, against `codes.rs`; every inline-code name that looks like a Kobra symbol (`` `RemoteClient.at` ``, `` `@Load` ``), against the stdlib and annotation registries; hand-copied tables, against the registries; and example pages, against the projects in `examples/`.
 - **Every finding is fixed in the page and classified:** *checkable* (a test or a `stale.txt` pattern would have caught it, and the audit adds it, so it can't recur), *pinnable* (the claim is true but no test pins it; the audit adds a `k,test` block or a runtime test, or records it as unpinned), or *judgement* (wording, order, missing explanation).
 - **The ledger** `docs/book/check/audit.toml` records, per page, the commit it was audited at and its unpinned claims. A test fails when a `SUMMARY.md` page has no entry, so a new page is audited when it is added, and the release lists pages not re-audited since the last minor whose design topic changed ([48](48-releases-and-versioning.md#docs-freshness-checks)).
 - **Known findings to start from:** the `k check`-runs-tests claim on `getting-started/first-app.md`, `apps/testing.md` and `reference/design-status.md` (above), and eight broken anchors in `docs/design` and `docs/compiler` (`44-channels.md`, `32-http-client.md`, `33-crypto.md` twice, `codegen.md`, `server.md` twice) that the link test will report.
@@ -332,7 +332,7 @@ Built: every ` ```k ` block compiles (`crates/k_sema/tests/book.rs`). Added:
 - **`k,test` blocks** run the block's `test` declarations with the test runner, with the chapter's project files; the book test fails when one of them fails. Concept pages use it to show behaviour with an assertion instead of prose ("this prints 3" becomes `expect total == 3`).
 - **`k,render` blocks**, followed by a ` ```html,output ` block: the component is rendered on the server (the `k.test` `render` path) and its HTML, normalised (whitespace, generated ids), must equal the output block. For the few pages that show what a view produces.
 
-K has no `print`, so "expected output" is expressed as tests and rendered HTML rather than as standard output.
+Kobra has no `print`, so "expected output" is expressed as tests and rendered HTML rather than as standard output.
 
 ### Command transcripts
 
@@ -368,12 +368,12 @@ Hand-written explanation stays possible on generated pages: the generator copies
 
 ### The web platform page
 
-**Which browser APIs K wraps is a generated reference page, `reference/web-platform.md`, from one data file, `docs/book/data/web-apis.toml`** (decided 2026-11-12, at the owner's request for a place that tracks what K supports of the JavaScript and browser platform). One row per API, named as its spec names it, grouped by area: a status (`supported`, `partial`, `planned` with its tier or feature id, `not-planned` with why), the K declarations that cover it, where they run, the real-browser tests that check it in Chromium and Firefox, the design heading that decides it, and a one-line note for gaps and engine differences. The page shows a summary of counts per area, then each area's table.
+**Which browser APIs Kobra wraps is a generated reference page, `reference/web-platform.md`, from one data file, `docs/book/data/web-apis.toml`** (decided 2026-11-12, at the owner's request for a place that tracks what Kobra supports of the JavaScript and browser platform). One row per API, named as its spec names it, grouped by area: a status (`supported`, `partial`, `planned` with its tier or feature id, `not-planned` with why), the Kobra declarations that cover it, where they run, the real-browser tests that check it in Chromium and Firefox, the design heading that decides it, and a one-line note for gaps and engine differences. The page shows a summary of counts per area, then each area's table.
 
-- **Data, not prose,** because three things can drift and each can be checked: the K API (it must resolve in the stdlib), the runtime (every file of `crates/k_runtime/js/runtime` is claimed by a row or listed as internal, so a new binding can't land without the page), and the engine claims (each names a `#[test]` of `chrome.rs` or `firefox.rs`). `crates/k_sema/tests/web_platform.rs` checks them and regenerates the tables with `K_BLESS=1`, as the design-status table is.
-- **No new support claims.** Statuses come from [45's inventory](45-web-platform.md#inventory) and the topics it links. A Tier 3 entry is `planned` with tier 3; an entry 45 calls "covered elsewhere" is `supported` through the K API that covers it when that API is built (History through the router), and `not-planned` when it is covered by another mechanism (server-sent events by streams and channels).
+- **Data, not prose,** because three things can drift and each can be checked: the Kobra API (it must resolve in the stdlib), the runtime (every file of `crates/k_runtime/js/runtime` is claimed by a row or listed as internal, so a new binding can't land without the page), and the engine claims (each names a `#[test]` of `chrome.rs` or `firefox.rs`). `crates/k_sema/tests/web_platform.rs` checks them and regenerates the tables with `K_BLESS=1`, as the design-status table is.
+- **No new support claims.** Statuses come from [45's inventory](45-web-platform.md#inventory) and the topics it links. A Tier 3 entry is `planned` with tier 3; an entry 45 calls "covered elsewhere" is `supported` through the Kobra API that covers it when that API is built (History through the router), and `not-planned` when it is covered by another mechanism (server-sent events by streams and channels).
 - **WebKit gets no column** until the real-browser suite drives it ([45's open questions](45-web-platform.md#open-questions)); Safari behaviour in a note is from the engines' documentation. A link to the page sits in the stdlib overview, the page-and-device guide and the JavaScript interop page's "What isn't available".
-- **Rejected:** a hand-written page with a test that only parses it (the table would be the data, in a harder format to check); an mdBook preprocessor (the book has none yet, and the bless flow already exists); generating the rows from the stdlib's `@Platform` declarations (most rows are about APIs K doesn't wrap, which no declaration names).
+- **Rejected:** a hand-written page with a test that only parses it (the table would be the data, in a harder format to check); an mdBook preprocessor (the book has none yet, and the bless flow already exists); generating the rows from the stdlib's `@Platform` declarations (most rows are about APIs Kobra doesn't wrap, which no declaration names).
 
 ### Coverage
 
@@ -440,13 +440,13 @@ Nothing is published until the owner chooses. The built site is static HTML (plu
 | GitHub Pages (or the code host's equivalent) | free with a public repository; deploy from CI; versioned folders are plain directories |
 | Cloudflare Pages / Netlify | free tiers; preview builds per PR; needs an account |
 | Object storage behind a CDN (S3 + CloudFront, R2, …) | most control; needs an account and some setup |
-| Self-hosted, served by a K app | the dogfooding route once Phase 3 exists; needs a server to run |
+| Self-hosted, served by a Kobra app | the dogfooding route once Phase 3 exists; needs a server to run |
 
-**Decision needing sign-off** (listed with the other hosting decisions in [48-releases-and-versioning.md](48-releases-and-versioning.md#owner-decisions), recommended there: GitHub Pages if the source is on GitHub, PR previews as a CI artifact): the host, the domain, and whether PR previews are wanted. Until then the site is built locally (`cargo xtask docs build`, or `mdbook build docs/book` for one version) and in tests.
+**Decided** (with the other hosting decisions in [48-releases-and-versioning.md](48-releases-and-versioning.md#owner-decisions)): GitHub Pages (2026-11-09), at `https://slavkobojanic.github.io/kobra/` with no custom domain (2026-11-23). The site's root also serves `install.sh`, `install.ps1` and `index.json`, so the book's installation page, the quick start and the README tell users to run `curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh` (`irm https://slavkobojanic.github.io/kobra/install.ps1 | iex` on Windows). Whether PR previews are wanted is still open. Until Pages is switched on the site is built locally (`cargo xtask docs build`, or `mdbook build docs/book` for one version) and in tests.
 
 ## Interactive playground (later)
 
-**A page where you edit K and see it compile and run, with no install,** as react.dev's sandboxes do. The compiler front end is pure Rust with no system dependencies (`k_syntax` depends on `rowan`, `k_sema` on `rowan` and `toml`), so it builds for `wasm32-unknown-unknown`. The stdlib is already embedded as data.
+**A page where you edit Kobra and see it compile and run, with no install,** as react.dev's sandboxes do. The compiler front end is pure Rust with no system dependencies (`k_syntax` depends on `rowan`, `k_sema` on `rowan` and `toml`), so it builds for `wasm32-unknown-unknown`. The stdlib is already embedded as data.
 
 | Stage | What works | Cost (one person) |
 |---|---|---|
@@ -467,7 +467,7 @@ Downloads are several megabytes of wasm, loaded only on playground pages. Learn 
 1. The link-and-anchor test (`book_links.rs`) over the book, `docs/design` and `docs/compiler`: it fails on the eight known broken anchors; fix them.
 2. The command-line-parses test (`book_commands.rs`) and `docs/book/check/stale.txt` with the entries above: they fail on the three `k check`-runs-tests pages; fix them.
 3. `k_sema::features` with `planned` rows only, `Planned (id)` notes in the book test, the probes, and the generated Planned table of `design-status.md`.
-4. The inline-symbol test: inline-code text in prose that parses as a qualified K name or an annotation must resolve in the stdlib or annotation registry (allowlist for deliberate non-symbols).
+4. The inline-symbol test: inline-code text in prose that parses as a qualified Kobra name or an annotation must resolve in the stdlib or annotation registry (allowlist for deliberate non-symbols).
 5. The ledger test (every `SUMMARY.md` page has an `audit.toml` entry), then **the audit itself**, in the batches of documentation.md §5, against one commit after the concurrent work lands. Each finding is fixed and, when checkable, becomes a `stale.txt` pattern or a test in the same change. Done against `0dd7625` and its working tree; `stale.txt` now also reads the example apps' READMEs, which make the same claims as the example chapters. The audit found the book claiming behaviour the compiler doesn't have yet, mostly warnings and quick fixes; each became a `Planned (id)` row of `k_sema::features` or was reworded, and the four places where the code and the design disagree are listed in documentation.md §5 for a decision. Claims of quick fixes that don't exist were the other repeated finding, so a test now requires a sentence that gives a diagnostic a quick fix to name its code, and a corpus case to pin that fix.
 6. `crates/k_cli/tests/version.rs` (48's step 1), because Learn pages show `k = "…"` and install commands; `{{k_version}}` substitution in `book.rs`.
 
@@ -484,7 +484,7 @@ Downloads are several megabytes of wasm, loaded only on playground pages. Learn 
 
 1. Generated reference pages, one failing `book_reference.rs` test each, then the generator and `K_BLESS=1`: annotations, elements, style properties, keywords, operators, the CLI, the `k.toml` table; the diagnostics split per family with `SUMMARY.md` markers; coverage checks; `symbols.json`.
 2. `k,render` blocks.
-3. The full reorganisation: the redirect test over every current page, the moves and the new `SUMMARY.md`, Thinking in K, `examples/index.md`, the glossary, the Contributing pages.
+3. The full reorganisation: the redirect test over every current page, the moves and the new `SUMMARY.md`, Thinking in Kobra, `examples/index.md`, the glossary, the Contributing pages.
 4. Design status lines and their test.
 
 ### Round 3: release machinery, local
@@ -511,11 +511,11 @@ Downloads are several megabytes of wasm, loaded only on playground pages. Learn 
 
 - **A path and a library are different products.** Today a newcomer meets Installation, then "Your first app" asking them to write five files by hand, then a 378-line tour, then the full language. React's Learn section works because it promises an order and keeps it; the existing chapters are good as guides and keep that role.
 - **Checked docs stay correct; unchecked docs drift.** The parts of the book that are tested (samples, generated pages) are right; the stale parts found while writing this were all prose or hand-copied tables. So the plan generates what the compiler knows as data and tests what readers will type or see.
-- **mdBook is enough for now and costs nothing new**; a K-built site is better dogfooding, but building it before K can build it well would mean special cases that make K look worse, not better.
+- **mdBook is enough for now and costs nothing new**; a K-built site is better dogfooding, but building it before Kobra can build it well would mean special cases that make Kobra look worse, not better.
 - **Search must be good at names**, which full-text engines aren't; a symbol index from the generators is cheap and makes the reference usable.
 
 ## Open questions
 
 - Whether the tip splitter uses `Money` (depends on how simple money input and formatting are by then).
-- Whether the "K internals" book (design topics and compiler docs) is published at all, or left to the code host's markdown rendering.
+- Whether the "Kobra internals" book (design topics and compiler docs) is published at all, or left to the code host's markdown rendering.
 - How long to keep old minor versions' docs live after 1.0.

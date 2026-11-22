@@ -1,4 +1,4 @@
-" The K language server for Vim, through vim-lsp
+" The Kobra language server for Vim, through vim-lsp
 " (https://github.com/prabirshrestha/vim-lsp): `k lsp` over standard input
 " and output for `k` buffers, rooted at the nearest directory with `k.toml`.
 "

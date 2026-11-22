@@ -144,7 +144,7 @@ K3025: Move `status(_:)` into a `metadata` block inside `failed`.
 K3026: Compute the value from inputs that don't depend on it.
 K3027: Add `title("…")` to the page's `metadata` block (the quick fix does this), or give its layout or the app a default `title`.
 K3028: Shorten the description to 160 characters or fewer; search results cut off the rest.
-K3101: Use a K element name (`link` for `a`, `paragraph` for `p`) or a component's name.
+K3101: Use a Kobra element name (`link` for `a`, `paragraph` for `p`) or a component's name.
 K3102: Pass the required named argument, such as `description:` on `image`.
 K3103: Use an attribute or prop the element or component defines; the quick fix suggests the closest one.
 K3104: Set the attribute once; to combine classes, pass a list: `.class([.a, .b])`.
@@ -248,7 +248,7 @@ K5511: Open the channel and use its `state`, `messages`, `send` and `close` from
 K5512: Build the `Channel(sending:receiving:)` in the handler of the channel rpc and return it; a client test uses `TestChannel` instead.
 K5513: Open the channel from an `@Effect`, which runs only in the browser, not from a `@Load`.
 K5514: Declare one rpc per concrete type, or wrap the variants in an enum the rpc takes or returns.
-K6001: Use only fields, literals, parameters and the query operators the compiler translates; filter in K after loading if needed.
+K6001: Use only fields, literals, parameters and the query operators the compiler translates; filter in Kobra after loading if needed.
 K6002: Use a column type (`String`, `Int`, `Bool`, `Double`, `Decimal`, `Money`, `Date`, `Uuid`, an enum without payloads, …) or a `@Relation`.
 K6003: Rename the entity, or set another table name.
 K6004: Name only the tables, columns and cases the earlier migrations leave, with the schema builder's calls and literal arguments; bind a repeated string with `let name = "…"`, a plain literal.

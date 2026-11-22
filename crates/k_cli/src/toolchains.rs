@@ -6,7 +6,7 @@
 //!
 //! | Path | What |
 //! |---|---|
-//! | `toolchains/<version>/` | an installed toolchain: `k` (`k.exe`), `LICENSE`, `README.md` |
+//! | `toolchains/<version>/` | an installed toolchain: `k` (`k.exe`), `README.md`, `LICENSE-MIT`, `LICENSE-APACHE` |
 //! | `bin/k` | a copy of the default toolchain's `k`: the one on the `PATH` |
 //! | `default` | the default toolchain's version, one line |
 //! | `index.json` | the toolchain index as last fetched, for yanked notes offline |
@@ -194,7 +194,7 @@ fn fetch_index(home: &Path) -> Result<Index, Failure> {
 fn target() -> Result<&'static str, Failure> {
     index::host_target().ok_or_else(|| {
         (
-            "K releases no toolchain for this platform; build `k` from source".to_owned(),
+            "Kobra releases no toolchain for this platform; build `k` from source".to_owned(),
             1,
         )
     })

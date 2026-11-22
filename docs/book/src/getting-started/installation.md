@@ -1,51 +1,41 @@
 # Installation
 
-K ships as **one self-contained binary, `k`**. It contains the compiler, the test runner, the development
-server, the migration tool and the server runtime. Installing K needs no Node.js, no npm and no other
-JavaScript tooling, and a K app never depends on them at build time or at runtime.
+Kobra ships as **one self-contained binary, `k`**. It contains the compiler, the test runner, the development
+server, the migration tool and the server runtime. Installing Kobra needs no Node.js, no npm and no other
+JavaScript tooling, and a Kobra app never depends on them at build time or at runtime.
 
-## Building from source
+## Installing Kobra
 
-Prebuilt releases aren't published yet, so today you build `k` from its repository. The toolchain is
-written in Rust, so you need a stable Rust toolchain from [rustup.rs](https://rustup.rs).
-
-```bash
-git clone <the K repository> k
-cd k
-cargo install --path crates/k_cli --locked
-```
-
-`cargo install` builds the `k` binary and places it in `~/.cargo/bin`, which rustup already put on
-your `PATH`. Check that it works:
-
-```bash
-k --help
-```
-
-To work on the toolchain itself rather than with it, see the repository's `README.md`, which explains
-how to build, test and lint the compiler.
-
-## Installing a release
-
-When releases are published, the docs site serves an install script, and installing K is one line. On
-Linux (x86_64 or arm64, with glibc 2.31 or newer) and macOS:
+On Linux (x86_64 or arm64, with glibc 2.31 or newer) and macOS, in a terminal:
 
 ```sh
-curl -fsSL https://<docs site>/install.sh | sh
+curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-irm https://<docs site>/install.ps1 | iex
+irm https://slavkobojanic.github.io/kobra/install.ps1 | iex
 ```
 
-The script picks the archive for your machine, checks it against the release's `SHA256SUMS`, unpacks
-it into `~/.k/toolchains/<version>/` and makes it the default, `~/.k/bin/k`. It prints the line that
-puts `~/.k/bin` on your `PATH`; it never edits your shell's profile itself. Running it again changes
-nothing, and `--version 0.1.0` (or `K_VERSION=0.1.0`) installs that version instead of the newest one.
+The script downloads the newest release from
+[GitHub Releases](https://github.com/slavkobojanic/kobra/releases), picks the archive for your machine,
+checks it against the release's `SHA256SUMS`, unpacks it into `~/.k/toolchains/<version>/` and makes it
+the default, `~/.k/bin/k`. It prints the line that puts `~/.k/bin` on your `PATH`; it never edits your
+shell's profile itself. Running it again changes nothing, and `--version 0.1.0` (or `K_VERSION=0.1.0`)
+installs that version instead of the newest one:
+
+```sh
+curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh -s -- --version 0.1.0
+```
+
+Until the first stable release is out, the script installs the newest release candidate and says so.
 Linux distributions built on musl, such as Alpine, aren't supported: use a glibc distribution, or the
-toolchain container image.
+toolchain container image, `ghcr.io/slavkobojanic/kobra`. Then check that it works:
+
+```bash
+k --version
+```
 
 From then on, `k` keeps itself and your projects' toolchains up to date:
 
@@ -56,6 +46,21 @@ k toolchain list            # what is installed, the default, and this project's
 ```
 
 [The k command](../reference/cli.md#toolchains) lists every toolchain command.
+
+## Building from source
+
+To build `k` yourself, for an unsupported platform or to work on the toolchain, you need a stable Rust
+toolchain from [rustup.rs](https://rustup.rs):
+
+```bash
+git clone https://github.com/slavkobojanic/kobra
+cd kobra
+cargo install --path crates/k_cli --locked
+```
+
+`cargo install` builds the `k` binary and places it in `~/.cargo/bin`, which rustup already put on
+your `PATH`. To work on the toolchain itself rather than with it, see the repository's `README.md`,
+which explains how to build, test and lint the compiler.
 
 ## Editor support
 

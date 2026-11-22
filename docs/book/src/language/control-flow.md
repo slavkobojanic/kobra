@@ -1,6 +1,6 @@
 # Control flow
 
-K has four main control-flow constructs: `if`, `match`, `guard` and `for`. All of them work the same in
+Kobra has four main control-flow constructs: `if`, `match`, `guard` and `for`. All of them work the same in
 ordinary code and in [views](../apps/views.md).
 
 <!-- The declarations the samples in this chapter use; checked, not rendered.
@@ -138,7 +138,7 @@ and `not`.
 
 ### `if` is an expression
 
-**K has no ternary operator.** `if` is an expression, so the same construct produces values:
+**Kobra has no ternary operator.** `if` is an expression, so the same construct produces values:
 
 ```k
 ~func example(done: Bool, isCompact: Bool) {
@@ -388,4 +388,4 @@ while delay < 1.minutes {
 ~}
 ```
 
-Most loops in K code are `for` loops over collections; `while` is for the rest.
+Most loops in Kobra code are `for` loops over collections; `while` is for the rest.

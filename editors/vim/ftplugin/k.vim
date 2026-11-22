@@ -1,4 +1,4 @@
-" Buffer settings for K: comments and the canonical indentation of `k fmt`.
+" Buffer settings for Kobra: comments and the canonical indentation of `k fmt`.
 if exists("b:did_ftplugin")
   finish
 endif

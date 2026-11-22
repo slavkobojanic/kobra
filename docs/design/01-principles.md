@@ -4,18 +4,18 @@ These principles decide individual syntax questions. When a new decision comes u
 
 ## Explicit over brief
 
-Agents write most code now, and humans review it. Code is read far more than it is written, so K favors explicit wording over terseness.
+Agents write most code now, and humans review it. Code is read far more than it is written, so Kobra favors explicit wording over terseness.
 
 ## Keywords over symbols
 
 - Use English keywords where other languages use symbols: `bind quantity` instead of `$quantity`, `.expanded when isExpanded` instead of a ternary.
 - **There are no ternaries.** Use `if` expressions: `let label = if done { "Done" } else { "Pending" }`.
-- Symbols are kept only where they are universal or carry K's core mechanisms:
+- Symbols are kept only where they are universal or carry Kobra's core mechanisms:
   - `@` for annotations
   - `?` for optional types, `?.` for optional chaining
   - `=>` for lambdas
   - `.name` for implicit member expressions (see [08-types.md](08-types.md))
-  - `{ }` for "a K expression goes here", in strings and in styles
+  - `{ }` for "a Kobra expression goes here", in strings and in styles
 - CSS syntax is kept inside `style` blocks, apart from property names (see [06-styles.md](06-styles.md)).
 
 ## One obvious way
@@ -77,7 +77,7 @@ This rule covers HTML elements, components, pages and types annotated `@Builder`
 
 ## Compile time over runtime
 
-Whatever can be resolved statically is: dependency injection, URLs, class references, Protobuf field numbers, reactive dependency hints. A mistake that would be a runtime bug elsewhere is a compile error in K.
+Whatever can be resolved statically is: dependency injection, URLs, class references, Protobuf field numbers, reactive dependency hints. A mistake that would be a runtime bug elsewhere is a compile error in Kobra.
 
 - **Validated literals are checked at compile time.** `Url("https://…")`, `Uuid("…")` and `EmailAddress("…")` take only a string literal and are never optional. Text known only at runtime goes through `Type.parse(…)`, which returns an optional. See [20-standard-library.md](20-standard-library.md).
 - **A distinction the type system can make, it makes,** rather than a runtime check or a heuristic warning: a `Mac` can't be compared with `==` ([33-crypto.md](33-crypto.md)), and an email address can't be invalid once it is an `EmailAddress` ([31-email.md](31-email.md)).

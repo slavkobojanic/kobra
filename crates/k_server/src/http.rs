@@ -621,7 +621,7 @@ fn worker_thread(
                 if let Some(listener) = inspect.take()
                     && let Some(sessions) = engine.inspector_sessions()
                 {
-                    crate::inspector::serve(listener, sessions, "K server".to_owned());
+                    crate::inspector::serve(listener, sessions, "Kobra server".to_owned());
                 }
                 if let Some(s) = started.take() {
                     let _ = s.send(Ok(()));

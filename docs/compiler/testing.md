@@ -1,6 +1,6 @@
 # Testing
 
-K is built test-first: tests for a stage are written before its implementation, and they must cover edge
+Kobra is built test-first: tests for a stage are written before its implementation, and they must cover edge
 cases exhaustively. This document explains every kind of test, how to run it, and exactly how to add
 cases. Most of it can be followed without any implementation in place.
 
@@ -25,7 +25,7 @@ Contents:
 |---|---|---|
 | Unit | `#[cfg(test)] mod tests` inside each source file | One function or type in isolation |
 | Integration | `crates/<crate>/tests/*.rs`, modules of the crate's one test binary `it` (`tests/main.rs`, §2.4) | A crate's public API |
-| Golden corpus | `tests/corpus/<suite>/**/*.k` + expectation files | Exact output of a compiler stage for a K source |
+| Golden corpus | `tests/corpus/<suite>/**/*.k` + expectation files | Exact output of a compiler stage for a Kobra source |
 | Property | `crates/<crate>/tests/properties.rs`, `invariants.rs` | Invariants over generated inputs (proptest) |
 | Differential | `crates/k_server/tests/differential.rs`, `crates/k_db/tests/sql_properties.rs`, `crates/k_codegen/tests/persistence_properties.rs`, `crates/k_server/tests/literals.rs` | Generated programs compiled and run in V8 agree with a reference, across builds and between server and client rendering; SQL never holds a value (§5.6); the compiler's checked-literal parsers (`k_sema::literals`) give exactly what the runtime's `parseEmail`, `parseUrl` and `parseUuid` give, on fixed and generated inputs |
 | Fuzz | `fuzz/fuzz_targets/*.rs` | No panics, no invariant violations on arbitrary and generated inputs (libFuzzer) |
@@ -604,7 +604,7 @@ func total(items: List<Item>) -> Money {
 
 | Kind | Query | Value format |
 |---|---|---|
-| `type:` | `Analysis::type_at` | K type syntax ([sema.md §2](sema.md#2-public-api)): prelude types by simple name, others fully qualified: `List<shop.CartItem>`, `String?`, `(Int) async throws k.http.HttpError -> Bool`, `{error}` |
+| `type:` | `Analysis::type_at` | Kobra type syntax ([sema.md §2](sema.md#2-public-api)): prelude types by simple name, others fully qualified: `List<shop.CartItem>`, `String?`, `(Int) async throws k.http.HttpError -> Bool`, `{error}` |
 | `resolves:` | `Analysis::resolve_at` | one of the forms below |
 | `side:` | `Analysis::side_of` (on a top-level declaration's name) | `server-only`, `client-only`, `shared` |
 
@@ -809,7 +809,7 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
   builds ship (`EngineOptions::compact_runtime`), so a compaction that changes what the runtime means fails
   here. `cargo test -p k_server --test runtime_js -- signals.test` runs one file.
 - **Server tests**: `server-app.test.js` drives `k:runtime/app` with hand-written specs; the isolate has
-  K's ops, so sessions, rate limits and `.server` state work as in a server (each test's isolate has a
+  Kobra's ops, so sessions, rate limits and `.server` state work as in a server (each test's isolate has a
   fresh, private process state). `outbound.test.js` drives the server's I/O services
   (`FetchHttpClient`, `SmtpEmailProvider`, the job queues) over stand-ins for their ops, passed as
   their `transport` arguments; the ops themselves are tested in Rust (`tests/outbound.rs`).
@@ -922,7 +922,7 @@ async fn duplicates_map_to_the_unique_field() {
   a `.env`, and a fresh SQLite file migrated at startup (seeded with `scripts/demo-catalog.sql` for
   `shop`).
 - **The tab** (`tests/browser/sim.js`, an engine of its own): the fake DOM of `k:testing` plus the globals
-  a K client reads (`location`, `history`, `localStorage`, `document.cookie`, `matchMedia`,
+  a Kobra client reads (`location`, `history`, `localStorage`, `document.cookie`, `matchMedia`,
   `crypto.randomUUID`, fake timers that fire only on `sim.advance(ms)`). `Tab::open` fetches the page from
   the server, puts its `<body>` into the DOM, records the container's element nodes and markup, and
   imports the generated client entry, which hydrates it.
@@ -1269,7 +1269,7 @@ twice) is part of `check_all`; the inputs that once violated it are `FORMER_DUPL
 
 - **arbitrary text**: any Unicode string, and any byte string decoded lossily (invalid UTF-8 becomes
   U+FFFD, a non-ASCII error character);
-- **K-shaped text**: fragments of real and broken K syntax concatenated (`FRAGMENTS`), which reaches the
+- **K-shaped text**: fragments of real and broken Kobra syntax concatenated (`FRAGMENTS`), which reaches the
   string, interpolation and style lexer modes. When a construct is added, add its fragments;
 - **generated programs**: the structure-aware generator `crates/k_syntax/tests/support/kgen.rs` (§5.3)
   fed with proptest bytes; programs generated in *valid* mode must parse with **no diagnostics**;
@@ -1401,16 +1401,16 @@ a support module that the property tests and the fuzz targets (§6) share, under
 stage 2 typed generator, §5.5) gained a **runnable mode**, `tgen::generate_runnable`, for them.
 
 **Outcomes.** `coracle::run` runs `run()` of a script's entry module (the `run` corpus' protocol, §3.10)
-in a fresh isolate. `returns`, `throws` and `panics` are K outcomes. Because `run()` reports any
+in a fresh isolate. `returns`, `throws` and `panics` are Kobra outcomes. Because `run()` reports any
 JavaScript exception as `panics <message>`, a panic is re-run by calling the entry function directly to
-read the exception's class: only a `KPanic` is a K outcome. A `TypeError`, a `ReferenceError`, a module
+read the exception's class: only a `KPanic` is a Kobra outcome. A `TypeError`, a `ReferenceError`, a module
 that fails to load (a syntax error in generated code) or anything else is `Unexpected`, which is always a
 code generation or runtime bug. A time-out is a failure for the generators below, which only write
 programs that terminate.
 
 | Property | Input | Invariant |
 |---|---|---|
-| `typed_programs_generate_deterministically_and_run` | `tgen::generate_runnable` | `check_codegen`; the development build runs to a K outcome; the release build (renamed locals, compact printing) logs the same lines and ends the same way, unless the development build panicked with an integer overflow (release builds don't check `Int` `+ - *`, [codegen.md §5](codegen.md)) |
+| `typed_programs_generate_deterministically_and_run` | `tgen::generate_runnable` | `check_codegen`; the development build runs to a Kobra outcome; the release build (renamed locals, compact printing) logs the same lines and ends the same way, unless the development build panicked with an integer overflow (release builds don't check `Int` `+ - *`, [codegen.md §5](codegen.md)) |
 | `closed_expressions_agree_with_the_reference` | `exprgen::generate` | as above, and `main` returns exactly the reference values, written **inline** (all literals, which the code generator may fold) and **opaque** (every literal behind an identity function, which it can't); a panic is the reference's first panic in evaluation order |
 | `codable_values_round_trip_and_decode_like_the_reference` | `codablegen::generate` | `Json.encode` writes the reference JSON; decoding it gives an equal value (`==`) that encodes the same; every mutated text decodes to the reference decoder's value, `malformed` or `mismatch` |
 | `server_html_hydrates_to_the_client_render` | `viewgen::generate` | the server HTML parses back to itself (escaping is complete); the client render is the same HTML; hydration leaves the same HTML and **keeps every server node** (it may only add the empty text node an empty dynamic text has); after a props change the hydrated DOM equals the client-rendered DOM and a fresh server render |
@@ -1436,7 +1436,7 @@ alphabet has quotes, backslashes, braces, markup, two-byte, three-byte and astra
 that combines into a larger grapheme cluster.
 
 **The reference wire format** (`codablegen`, [28-rpc-wire-format.md](../design/28-rpc-wire-format.md),
-[codegen.md §5.1](codegen.md)): fields by K name; payload-free cases as their name; payload cases as
+[codegen.md §5.1](codegen.md)): fields by Kobra name; payload-free cases as their name; payload cases as
 `{"case": name, label: …}`; `nil` as `null`; `Map<String, T>` as an object; decoding ignores unknown keys,
 reads a missing or `null` optional as `nil`, and accepts as an `Int` any JSON number with a safe-integer
 value (`1.0` and `1e2` included: JavaScript can't tell them from `1` and `100`); a number beyond the
@@ -1472,7 +1472,7 @@ hostile identifiers (`order`, `a"b`, `Robert'); DROP TABLE t;--`, `$1`, …) and
   change exactly the rows of a three-valued-logic reference (SQL `NULL`, `x IN ()` false even for `NULL`,
   case-sensitive `LIKE` with its escapes).
 
-`crates/k_codegen/tests/persistence_properties.rs` closes the loop from K: generated repositories filter,
+`crates/k_codegen/tests/persistence_properties.rs` closes the loop from Kobra: generated repositories filter,
 search (`contains`, `startsWith`, `endsWith`), sort and limit with hostile constants and captured
 parameters, and no statement of the database manifest holds a string literal, a number other than a
 source `limit`, or any constant of the program; the server JavaScript names statements by number and
@@ -1584,7 +1584,7 @@ must load in a small part of a short run. The seeds are chosen per target:
 |---|---|---|
 | `lex`, `parse`, `parse_roundtrip`, `structured` | every `tests/corpus/**/*.k` file | `-max_len=8192` |
 | `check` | about 140 files: the median-sized single-file case of each `sema` directory two levels down, and every `regressions` case of `sema`, `parser` and `lexer`, each at most 2 KiB | 2 KiB (`CHECK_MAX_INPUT`) |
-| `check_structured`, `check_typed` | 16 random inputs of 64 to 1,024 bytes (their bytes drive a generator, so K source is no better a seed than noise) | 1 KiB (`GENERATOR_MAX_INPUT`) |
+| `check_structured`, `check_typed` | 16 random inputs of 64 to 1,024 bytes (their bytes drive a generator, so Kobra source is no better a seed than noise) | 1 KiB (`GENERATOR_MAX_INPUT`) |
 | `lsp_edits` | 16 random inputs of 64 to 1,024 bytes (the bytes pick a document and drive the edits) | 2 KiB (`LSP_MAX_INPUT`) |
 | `codegen`, `codegen_run` | 16 random inputs of 256 to 4,096 bytes | `-max_len=4096` |
 | `http_request`, `rpc_json` | `fuzz/seeds/<target>/` | `-max_len=2048` |
@@ -1684,11 +1684,11 @@ libFuzzer stops and writes the input to `fuzz/artifacts/<target>/crash-<hash>` (
 
 1. Reproduce: `cargo +nightly fuzz run <target> fuzz/artifacts/<target>/crash-<hash>`.
 2. Minimize: `cargo +nightly fuzz tmin <target> fuzz/artifacts/<target>/crash-<hash>`. For
-   `structured`, the artifact is generator bytes; the panic message prints the generated K source, which
+   `structured`, the artifact is generator bytes; the panic message prints the generated Kobra source, which
    is what you minimize (by hand or with the `parse_roundtrip` target).
 3. Triage. For `structured`, a valid-mode diagnostic may be a generator bug: check the source against
    [grammar.md](grammar.md) and fix `kgen.rs` if the generator wrote invalid syntax.
-4. Record the minimized K source as a corpus regression case **before** fixing the bug (§7), under
+4. Record the minimized Kobra source as a corpus regression case **before** fixing the bug (§7), under
    `tests/corpus/<suite>/regressions/fuzz/` (for example `tests/corpus/parser/regressions/fuzz/`).
    Every top-level directory of `tests/corpus` is a suite, so fuzz regressions live inside the suite they
    exercise, not in a separate top-level directory. Write the expectation files by hand from the grammar
@@ -1741,7 +1741,7 @@ Every fixed bug gets a test that fails without the fix:
 - For runtime or server bugs, add the test next to the code it fixes, with a comment naming the bug.
 - Findings of adversarial testing that need a generated app (rpc decoding and validation, client
   routing and hydration, keyed rows, XSS sinks, sessions, slow clients) are in
-  `crates/k_server/tests/regressions/main.rs`, one test per finding, serving the K projects in
+  `crates/k_server/tests/regressions/main.rs`, one test per finding, serving the Kobra projects in
   `crates/k_server/tests/regressions/projects/`; runtime-only findings are in
   `crates/k_runtime/js/tests/regressions.test.js` (`test.pending`) and language-semantics findings in
   `tests/corpus/run/regressions/`. An open finding runs through `pending(…)` (or has a `.pending` file):
@@ -1794,7 +1794,7 @@ development secret on both sides.
 
 The same file's `commands::` module covers **`k toolchain` and `k self update`** ([48-releases-and-versioning.md](../design/48-releases-and-versioning.md#commands), [release.md §12](release.md#12-implementation-plan) step 4) against a fake release built by `tests/support/release.rs` (`index.json`, `download/v<version>/k-<version>-<target>.tar.gz` holding a fake `k` script, `SHA256SUMS`) and served on loopback by `tests/support/static_host.rs`, with `K_TOOLCHAIN_INDEX` pointing at it; nothing reaches a real host, and without the variable `k` refuses to download. It checks that `install` fetches, verifies and unpacks the named version, a minor's newest release, and without an argument the project's toolchain (`k.lock`'s, else the newest the requirement allows, else outside a project the newest stable, never a candidate unless named), and that delegation then runs it; that a digest or size mismatch installs nothing; that an install killed halfway through a download (from a host that stalls after part of the body) leaves no toolchain, and the next install works; that yanked releases are skipped unless named exactly, and are marked in `list` and in `K8201`'s note; `list`, `remove` (never the default) and `default` (a copy in `$K_HOME/bin`); `self update`; and a newer index format and a version without this target's archive. The index format, the choice of a release and the archive readers (tar with pax and GNU names, zip stored and deflated, links and `..` refused, macOS metadata skipped) are unit tests of `src/index.rs` and `src/archive.rs`.
 
-`crates/k_cli/tests/install_script.rs` covers **the install scripts** ([release.md §12](release.md#12-implementation-plan) step 11) against a fake release on loopback laid out like GitHub Releases (`latest/download/`, `download/v<version>/`). `install.sh` runs under `sh` with fake `uname` and `ldd` first on the `PATH`, so every Unix target is tried on one machine: it installs the archive for `uname` into `$K_HOME/toolchains/<version>` and makes it the default, prints the `PATH` line (only when `$K_HOME/bin` isn't on it), fails clearly on musl, an unsupported system or processor and Windows, refuses an archive whose digest differs from `SHA256SUMS`, is idempotent, and takes `--version` or `K_VERSION`. The `install.ps1` test runs where `pwsh` is installed (CI's Windows job), with a zip made by PowerShell itself, and says it was skipped elsewhere.
+`crates/k_cli/tests/install_script.rs` covers **the install scripts** ([release.md §12](release.md#12-implementation-plan) step 11) against a fake release on loopback laid out like GitHub Releases (`latest/download/`, `download/v<version>/`). `install.sh` runs under `sh` with fake `uname` and `ldd` first on the `PATH`, so every Unix target is tried on one machine: it installs the archive for `uname` into `$K_HOME/toolchains/<version>` and makes it the default, prints the `PATH` line (only when `$K_HOME/bin` isn't on it), fails clearly on musl, an unsupported system or processor and Windows, refuses an archive whose digest differs from `SHA256SUMS`, is idempotent, and takes `--version` or `K_VERSION`; with no stable release (no `latest/download/`) it installs the newest release candidate the index (`K_TOOLCHAIN_INDEX`) lists, skipping a yanked one, else the newest nightly, and without an index says there is no stable release and names `--version`. The `install.ps1` test runs where `pwsh` is installed (CI's Windows job), with a zip made by PowerShell itself, and says it was skipped elsewhere.
 
 `crates/k_cli/tests/deploy.rs` checks **the deployment files** of `examples/shop` without Docker or a
 cluster. It builds the workspace in a copy (whose `rpc.lock` files must equal the committed ones), reads
@@ -1823,7 +1823,7 @@ runs an **HTTP request script** against it. Two kinds of case:
 
 | Kind | Where | Server bundle |
 |---|---|---|
-| K project | `tests/e2e/<name>/` with `k.toml`, `requests.http`, optional `expected.pending` | analysed (must check cleanly), compiled by `k_codegen` (`Development`), client assets served, split checked; served with the development environment of `k run` (the manifest's config resolved from the project's `.env` only, never the test runner's environment) and the manifest's session-free endpoints as `forgery_exempt` |
+| Kobra project | `tests/e2e/<name>/` with `k.toml`, `requests.http`, optional `expected.pending` | analysed (must check cleanly), compiled by `k_codegen` (`Development`), client assets served, split checked; served with the development environment of `k run` (the manifest's config resolved from the project's `.env` only, never the test runner's environment) and the manifest's session-free endpoints as `forgery_exempt` |
 | bundle fixture | `crates/k_server/tests/http/<name>/` with `server.js`, `requests.http`, optional `manifest.json` (`{"rpcPaths": [...], "publicOrigin": "..."}`) and `assets/` | the hand-written `server.js` as the entry module; tests the HTTP front and the worker loop without codegen |
 
 **The request script format** (`requests.http`, parsed by `k_server::testing::parse_script`):
@@ -1877,7 +1877,7 @@ it receives: `FakeHttp` (canned `FakeRoute`s by method and path, optionally dela
 `404 no fake route`) and `FakeSmtp` (enough ESMTP for a client without TLS; it accepts every message
 except to `reject@…`, answered `550`, and `defer@…`, answered `451`, or follows a fixed `SmtpBehavior`).
 `GET /_fake/requests` on a `FakeHttp` answers its recorded requests as JSON, and `GET /_fake/mail` the
-messages of the `FakeSmtp` attached with `with_mail`, so K code can read them through its `HttpClient`.
+messages of the `FakeSmtp` attached with `with_mail`, so Kobra code can read them through its `HttpClient`.
 
 An e2e project with a **`fakes.toml`** gets them for its run; their addresses replace `{fake.http}` and
 `{fake.smtp.port}` in its `.env`:
@@ -1920,7 +1920,7 @@ through `ServerOptions::channels`.
   found, unless `K_REQUIRE_CHROME=1`. `crates/k_cli/tests/firefox.rs` runs the stdlib's crypto,
   web-platform and media checks (`engines.rs`, shared with `chrome.rs`) on Firefox over WebDriver BiDi,
   skipped without Firefox unless `K_REQUIRE_FIREFOX=1`.
-- **Example apps:** each app under `examples/` has its own K tests and is built and smoke-tested by the
+- **Example apps:** each app under `examples/` has its own Kobra tests and is built and smoke-tested by the
   e2e suite (§8.1). `k test` runs both sides of them (§8.4), and every example's own tests pass:
   `todos`, `weather`, `notes`, `huddle`, `kanban`, and every member of the workspaces `shop` and `stack`.
   `examples.rs` also builds huddle's `dist/app` and talks to a room over a raw WebSocket.
@@ -2022,7 +2022,7 @@ sources, and edits are made to open documents only, never to the examples on dis
 `tests/support/driver.rs`): exit codes, requests after `shutdown`, malformed frames, synchronization with the
 disk and watched files, loose projects, definition into the stdlib, and go-to-definition at every identifier
 of every example, which must answer a declaration spelled like the identifier.
-`crates/k_lsp/tests/properties.rs` feeds random edits (UTF-16 ranges, sometimes outside the document, K
+`crates/k_lsp/tests/properties.rs` feeds random edits (UTF-16 ranges, sometimes outside the document, Kobra
 fragments, non-ASCII text) and requests (some cancelled) through the server and checks one well-formed
 response per request and that the published diagnostics converge on a fresh check of the edited text; the
 `lsp_edits` fuzz target runs the same driver. `crates/k_lsp/tests/editors.rs` checks the editor grammars
@@ -2049,7 +2049,7 @@ K_COMPOSE=1 cargo test -p k_cli --test it -- compose:: --test-threads 1
   without Chrome unless `K_REQUIRE_CHROME=1` (§4.4).
 - **Every stack checks** `/_k/health` (`ready`; kanban has no server, so its image's own health check,
   which `--wait` waits for, stands in), the home page, and at the end that every container is running
-  and was never restarted (`restart: unless-stopped` hides a crash from `--wait`) and that no K app
+  and was never restarted (`restart: unless-stopped` hides a crash from `--wait`) and that no Kobra app
   logged an error.
 - **Secrets** are generated for the run in a scratch directory below the test target directory, never in
   `secrets/`: the shop's by `scripts/init-secrets.sh <dir>` (with `K` set to the test's `k` binary for
@@ -2163,12 +2163,12 @@ cargo bench -p k_codegen                             # code generation
 ```
 
 `crates/k_syntax/benches/syntax.rs` measures, in lines/s and bytes/s, lexing and parsing of realistic
-generated K (`lex`, `parse`: 1k, 10k and 100k lines; `parse_only`: the parser and tree sink alone), of one
+generated Kobra (`lex`, `parse`: 1k, 10k and 100k lines; `parse_only`: the parser and tree sink alone), of one
 typical 300-line file (`typical_file`), and of fifteen pathological families at about 1 MB each
 (`pathological_lex`, `pathological_parse`: deep nesting at and past the limit, very long lines and strings,
 huge and deeply nested interpolations, an error on every line, comments, non-ASCII text, long member and
 operator chains). All input comes from the deterministic generator in `crates/k_syntax/benches/workload/`,
-whose output is itself tested (`crates/k_syntax/tests/workload.rs`: realistic input is valid K for many
+whose output is itself tested (`crates/k_syntax/tests/workload.rs`: realistic input is valid Kobra for many
 seeds, covers every declaration kind, and each pathological family has its documented shape).
 
 `crates/k_sema/benches/sema.rs` measures semantic analysis (`AnalysisHost` + `diagnostics()`, parsing
@@ -2182,7 +2182,7 @@ deterministic.
 
 `crates/k_codegen/benches/codegen.rs` measures code generation over the same generated projects:
 lowering, printing and bundling of an already checked 1k, 10k and 100k-line project (`emit`, in lines of
-K per second) and a cold build, check included (`build`).
+Kobra per second) and a cold build, check included (`build`).
 
 **Budget check.** `scripts/bench-check.sh` runs the ignored `perf_budget` tests of every area in a release
 build, one test at a time, and fails when any budget is missed (`--syntax`, `--sema`, `--codegen`,

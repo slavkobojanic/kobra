@@ -234,7 +234,7 @@ Why fixed rules?
 - Remote-call logic (optimistic updates, caching, retries, syncing results into state) lives in one
   place.
 - Component tests only need to fake services.
-- The rules aren't configurable, so every K codebase has the same architecture.
+- The rules aren't configurable, so every Kobra codebase has the same architecture.
 
 ### Platform interfaces
 

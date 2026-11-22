@@ -85,7 +85,7 @@ A `loading` block the same size as the `view` (a skeleton) avoids layout shift. 
 
 ## Why
 
-- **It reuses `loading`,** an existing idea in K: a declared view for "not ready yet". A client-rendered component is a component whose data isn't ready until the browser runs. Authors already write `loading` for `@Load`, and it already means the right thing.
+- **It reuses `loading`,** an existing idea in Kobra: a declared view for "not ready yet". A client-rendered component is a component whose data isn't ready until the browser runs. Authors already write `loading` for `@Load`, and it already means the right thing.
 - **It makes the hydration problems go away instead of solving them.** Rendering `loading` on both sides during the pass means ids, instance keys and claimed nodes line up without reserving id ranges or skipping paths. The swap happens after the pass, when nothing is being claimed any more.
 - **The boundary is per declaration,** like the server/client boundary of services ([10-services.md](10-services.md#serverclient-boundary)). There's no inline `clientOnly { }` view block: an annotation on a component names the boundary and keeps it in one place, and moving a part of a view into a component to annotate it is a small refactor.
 - **It is a finer version of a choice the language already offers** (`@Rendering(.client)` on the app) and of a warning it already gives (`K4013`), not a new concept.
@@ -98,7 +98,7 @@ Server-only components would render with server-only data and never ship JS, in 
 - After the first load, pages render in the browser, so a server component would need an rpc that returns rendered HTML or a serialized tree on every navigation and every input change.
 - Every prop crossing the boundary would have to be `Codable`, and handlers and bindings couldn't cross at all.
 - Client components inside a server component would need their own placeholder and hydration protocol.
-- It would split components into two kinds with different rules, while K draws the server/client boundary per declaration through services, protocols and `@Load`. Those already give server-only data to any component without shipping the server code.
+- It would split components into two kinds with different rules, while Kobra draws the server/client boundary per declaration through services, protocols and `@Load`. Those already give server-only data to any component without shipping the server code.
 
 None of the examples needs this. It can be reconsidered if bundle size from large, static, data-heavy views becomes a measured problem.
 

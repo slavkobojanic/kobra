@@ -1,5 +1,5 @@
 /// Marks a standard-library declaration whose implementation is provided by
-/// the compiler or the runtime instead of a K body.
+/// the compiler or the runtime instead of a Kobra body.
 ///
 /// A `@Native` function or computed property has no body, and a `@Native`
 /// initializer has an empty body `{}` because the grammar requires one. A

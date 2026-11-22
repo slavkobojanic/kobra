@@ -1,9 +1,15 @@
 {
-  "name": "k-language",
-  "displayName": "K",
-  "description": "K language support: syntax highlighting and the K language server (`k lsp`).",
+  "name": "kobra",
+  "displayName": "Kobra",
+  "description": "Kobra language support: syntax highlighting and the Kobra language server (`k lsp`).",
   "version": "0.1.0",
-  "publisher": "k-lang",
+  "publisher": "slavkobojanic",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/slavkobojanic/kobra"
+  },
+  "homepage": "https://slavkobojanic.github.io/kobra/",
   "private": true,
   "engines": {
     "vscode": "^1.85.0"
@@ -20,7 +26,7 @@
       {
         "id": "k",
         "aliases": [
-          "K",
+          "Kobra",
           "k"
         ],
         "extensions": [
@@ -37,7 +43,7 @@
       }
     ],
     "configuration": {
-      "title": "K",
+      "title": "Kobra",
       "properties": {
         "k.server.path": {
           "type": "string",
@@ -57,7 +63,7 @@
             "verbose"
           ],
           "default": "off",
-          "description": "Traces the communication between VS Code and the K language server in the output panel."
+          "description": "Traces the communication between VS Code and the Kobra language server in the output panel."
         }
       }
     },
@@ -72,7 +78,7 @@
     "commands": [
       {
         "command": "k.restartServer",
-        "title": "K: Restart Language Server"
+        "title": "Kobra: Restart Language Server"
       }
     ]
   },

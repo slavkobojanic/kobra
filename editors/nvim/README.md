@@ -1,6 +1,6 @@
-# K for Neovim
+# Kobra for Neovim
 
-Filetype detection, syntax highlighting and the K language server (`k lsp`) for Neovim. The server is the
+Filetype detection, syntax highlighting and the Kobra language server (`k lsp`) for Neovim. The server is the
 compiler's own analysis, so diagnostics, quick fixes, navigation, rename, hover, completion, signature help,
 symbols and inlay hints match `k check` exactly.
 

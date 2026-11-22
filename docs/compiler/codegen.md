@@ -79,8 +79,8 @@ Rules that hold for every part:
 - **Deterministic output.** The same program and options produce byte-identical files: declarations are
   emitted in a fixed order (module path, then source order), hashes are content hashes, nothing depends
   on the clock, the environment or hash-map iteration order.
-- **Readable output.** Development output is indented ES2022 that maps line-for-line onto the K source
-  where possible; generated helper names start with `$` so they never collide with K names.
+- **Readable output.** Development output is indented ES2022 that maps line-for-line onto the Kobra source
+  where possible; generated helper names start with `$` so they never collide with Kobra names.
 
 ---
 
@@ -147,14 +147,14 @@ Output { client, server, server_entry, manifest }
 
 ## 4. Names and modules
 
-- **One K module → one JS module per side.** `shop.cart` becomes `k:/app/shop/cart.js` on the server and
+- **One Kobra module → one JS module per side.** `shop.cart` becomes `k:/app/shop/cart.js` on the server and
   `shop/cart.js` (then hashed) on the client. A module's file on one side contains only that side's
   declarations ([§16](#16-the-clientserver-split)), so a module with no client declarations has no client
   file.
 - **Top-level declarations** are exported under their simple name. Imports between modules are named
-  imports generated from resolutions (`import { CartService } from "./cart.js"`); K's one-declaration
+  imports generated from resolutions (`import { CartService } from "./cart.js"`); Kobra's one-declaration
   imports map one to one.
-- **Reserved words.** A K identifier that is a JS reserved word or a global the output relies on
+- **Reserved words.** A Kobra identifier that is a JS reserved word or a global the output relies on
   (`delete`, `new`, `class`, `this`, `arguments`, `eval`, `undefined`, `NaN`, `Infinity`, `Object`,
   `Array`, `Map`, `Set`, `Symbol`, `Promise`, `JSON`, `Math`, `globalThis`, `$k`) gets a `$` suffix:
   `func delete()` is `delete$`. Members keep their names (property access is safe), except in object
@@ -174,7 +174,7 @@ Output { client, server, server_entry, manifest }
   static method of its class. A function's resolution names it with its labels and a property's
   without, so `Shelf.label()` is the method and `Shelf.label` the property.
 - **Default arguments** are JS default parameters: an omitted argument in the middle of a call is passed
-  as `undefined`, which K values never are. Defaults are evaluated in the callee, after the earlier
+  as `undefined`, which Kobra values never are. Defaults are evaluated in the callee, after the earlier
   parameters, as in the source.
 
 ---
@@ -184,7 +184,7 @@ Output { client, server, server_entry, manifest }
 The table extends [architecture.md §7.1](architecture.md#71-value-representation), which stays the
 summary.
 
-| K | JavaScript | Notes |
+| Kobra | JavaScript | Notes |
 |---|---|---|
 | `Int` | `number`, always a safe integer | `+ - *` are wrapped in `$k.checkInt(…)` in development and test builds; release builds check only `/` and `%` (`$k.intDiv`, `$k.intRem`, which panic on zero). Integer `/` truncates toward zero. **Decision:** `number` on both sides (not `bigint`), so client and server compute identically; architecture §17 keeps the question open for later. |
 | `Double` | `number` | Interpolation prints the shortest round-trip form with at least one decimal (`2.0`, `0.1`): `$k.formatDouble`. |
@@ -205,14 +205,14 @@ summary.
 | `Uuid`, `Url`, `EmailAddress` | `string` (validated at construction) | A literal (`Uuid("…")`) was checked by `k_sema` with a port of the same parser (K2404), so it is emitted as its normalized text, a string constant: a lower-case UUID, an address with its domain lower-cased and its name unquoted unless it needs quotes (`native.rs`, `construct`). Runtime text becomes one only through the runtime's parsers (`parseUuid`, `parseUrl`, `parseEmail`), which `T.parse` and the codecs share. **Decision:** a `Url` from runtime text is an absolute `http`, `https`, `ws` or `wss` URL with a host, never `javascript:` or another script scheme, so a parsed or decoded `Url` is always safe as a link target. |
 | `TimeZone`, `TimeOfDay` | `string`: the IANA name; `HH:MM` | A `TimeOfDay("…")` literal is its text as a constant, checked by K2404; `hour`/`minute` are `$k.timeOfDayHour`/`$k.timeOfDayMinute`, `parse` is `$k.parseTimeOfDay`, the same on both sides ([runtime.md §12](runtime.md#12-native-stdlib-bodies), `codegen/lang/time-of-day-is-text`). |
 | `Bytes` | `Uint8Array` | |
-| functions, lambdas | functions, arrow functions | An `async` K function is an `async` JS function with the hidden `$c` parameter. |
+| functions, lambdas | functions, arrow functions | An `async` Kobra function is an `async` JS function with the hidden `$c` parameter. |
 | `Secret<T>` | `$k.Secret` wrapping the value | `toString`/`toJSON` give `Secret(•••)`; server-only. |
 | `Void` | `undefined` as a return value only | Never stored. |
 
 ### 5.1 JSON (`Codable`)
 
 Every `Codable` type gets a generated **codec pair** `T$encode(value) -> json` / `T$decode(json) -> value`
-following [28-rpc-wire-format.md](../design/28-rpc-wire-format.md): field names are K names, payload-free
+following [28-rpc-wire-format.md](../design/28-rpc-wire-format.md): field names are Kobra names, payload-free
 enum cases are their names, payload cases `{"case": "outOfStock", "available": 3}`, optionals are `null`,
 `Date` RFC 3339, `Money` as in design 34. Decoding validates (types, required fields, enum names, unknown
 fields are ignored) and returns a typed `DecodingError` instead of throwing a JS exception. Codecs are
@@ -338,7 +338,7 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
 - **A typed error is the enum value itself, thrown with `throw`.** `try f()` is just `f()`; the marker is
   for readers and the checker.
 - **Panics are `$k.KPanic` instances.** Every generated `catch` starts with
-  `if ($k.isPanic(e)) throw e;`, so K code never catches a panic, then dispatches on the tag:
+  `if ($k.isPanic(e)) throw e;`, so Kobra code never catches a panic, then dispatches on the tag:
 
   ```js
   try {
@@ -397,9 +397,9 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
   (sema.md §9.2). `Log` takes a `String`, so an `Error` is logged through interpolation, which prints its
   text.
 - **The catch variable is `e`** (`$eN` when a local or temporary already uses `e`), and it is reserved
-  while its handler is lowered: a K local declared inside the handler, `catch let e` included, is
+  while its handler is lowered: a Kobra local declared inside the handler, `catch let e` included, is
   renamed `e$1`, so `catch (e) { const e = e; }` can't happen. The SSR `ErrorBoundary` handler picks
-  its catch variable the same way, as its fallback may read a K local `e`.
+  its catch variable the same way, as its fallback may read a Kobra local `e`.
 - **Non-K exceptions** (a JS `TypeError` from a bug in the runtime or interop) are wrapped into a panic at
   the boundary that catches them (`$k.toPanic(e)`), never matched as typed errors.
 - `try … else { fallback }` → a `try`/`catch` that returns the fallback for every non-panic error.
@@ -411,7 +411,7 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
 
 ## 8. Async and cancellation
 
-- An `async` K function becomes an `async` JS function whose **first parameter is the cancellation
+- An `async` Kobra function becomes an `async` JS function whose **first parameter is the cancellation
   context `$c`** (an `AbortSignal`, or `null` outside any cancellable run). Every call to an async function
   passes the caller's `$c`; effects, loads and handlers create one per run
   ([runtime.md §3.4](runtime.md#34-async-effects-and-cancellation)).
@@ -419,7 +419,7 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
   `(T) async -> Bool`) is wrapped where it converts (`Body::coerce`): `($c, $a0) => f($a0)`, so it is
   called as every async function value is, with the context first. A lambda takes its expected type, so
   it is async already.
-- **A cancelled `await` never resumes.** Every `await e` in K is printed as `await $k.guard($c, e)`, which
+- **A cancelled `await` never resumes.** Every `await e` in Kobra is printed as `await $k.guard($c, e)`, which
   returns a promise that settles like `e` while `$c` is not aborted and never settles after it is.
   (`guard` is elided for awaits whose promise is produced by a runtime primitive that already honours
   `$c`: `rpc`, `sleep`.)
@@ -431,8 +431,8 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
   it while `$c` is live and otherwise throws `$k.CANCELLED`. Every `catch` that a `do`/`catch` or a
   `try … else` prints starts with `if ($k.isPanic(e)) throw e;` followed by `$k.live($c);`, and so does
   the body of each `for await` iteration (`$k.live($c);` first). `CANCELLED` is a panic, so it passes
-  every generated `catch` untouched: no K code runs once the run is cancelled, and there is nothing to
-  catch. K has no `defer` or `finally`; an owner's `onCleanup` blocks are its cleanup and still run.
+  every generated `catch` untouched: no Kobra code runs once the run is cancelled, and there is nothing to
+  catch. Kobra has no `defer` or `finally`; an owner's `onCleanup` blocks are its cleanup and still run.
   Bodies without a cancellation context (`$c` is `null`) print `await $k.guard(null, e)` without the
   check.
 - **Stopping is silent.** The runtime drops `CANCELLED` wherever a stopped run ends: an effect's and a
@@ -493,7 +493,7 @@ export function Counter(props, ctx) {
 
 - **Props are getters** (`props.label()`), so a parent's signal flows into the child without re-running
   the child. Chained options are getters too; an option that wasn't set returns its default (evaluated
-  once, in the child, like a K default).
+  once, in the child, like a Kobra default).
 - **`@Binding`** props are `{ get, set }` pairs; `bind user.address.city` creates a pair over the path
   store; `Binding(get:set:)` is the same pair from lambdas.
 - **`@State`** → `signal` (or a path store for structs and collections), **`@Derived`** → `computed`,
@@ -521,24 +521,24 @@ export function Counter(props, ctx) {
   component unmounts: the component's lifetime `$life` (`const $life = $k.lifetime();`, declared first in
   the client renderer whenever its body refers to it). An async function handler is
   `() => save($life)`, an inline one that awaits `() => (async ($c) => { … })($life)`.
-- **Async values called with their K arguments alone are bound to their owner.** A prop of function
+- **Async values called with their Kobra arguments alone are bound to their owner.** A prop of function
   type, an `@Emits` handler (`changed?.(v)`) and `form.handle(_:)`'s action are called without a
   cancellation context, so an async function of the component used as such a value is
   `$k.own(buy, $life)`, and an async lambda written for one is `$k.own(async ($c, v) => { … }, ctx)`,
   where `ctx` is `$c` inside a run and `$life` elsewhere. `$k.own(f, c)` is `(...a) => f(c, ...a)`
   whose stopped call never settles, so the child that drops the promise of `emit` reports nothing. The
   work belongs to the component that wrote the function, not to the child that calls it. A lambda passed
-  to a K function's parameter is not bound: that parameter is called with the caller's `$c` first
+  to a Kobra function's parameter is not bound: that parameter is called with the caller's `$c` first
   (`retry($c, async ($c) => { … })`), and so is a component's async function named there, which is
   passed as it is (`each($c, show)`), not as `$k.own(show, $life)`, whose call would take the caller's
-  `$c` for its first K argument.
+  `$c` for its first Kobra argument.
 - **Function values handed to a service are bound to the component** ([design 03, "What a component
   leaves behind"](../design/03-reactivity.md#what-a-component-leaves-behind)). In a component's client
   renderer, an argument of function type to a method of a service, native ones such as `Clock`
   included, is `$k.bound(f, $life, mode)`: `bus.listen($k.bound(async ($c) => { … }, $life, 2))`,
   `clock.after(1000, $k.bound(() => { … }, $life, 0))`. `mode` is 0 for a synchronous `Void` function,
   1 for one with a value, 2 and 3 for the async ones; it says what a call after the component is
-  disposed does ([runtime.md §3.4](runtime.md#34-async-effects-and-cancellation)). `f` keeps K's calling
+  disposed does ([runtime.md §3.4](runtime.md#34-async-effects-and-cancellation)). `f` keeps Kobra's calling
   convention, so the service calls it as it calls any function value.
 - **A method value keeps its receiver**: `todos.clearCompleted` used as a handler is
   `todos.clearCompleted.bind(todos)` (an arrow over a receiver that isn't a plain path).
@@ -668,7 +668,7 @@ export function Counter$ssr(props, ctx, out) {
 
 - Static parts are emitted as raw strings that the compiler escaped at build time; **every dynamic value
   goes through `out.text` or `out.attribute`**, which escape ([runtime.md §11](runtime.md#11-ssr)). There
-  is no raw-HTML construct in K, so no other path exists.
+  is no raw-HTML construct in Kobra, so no other path exists.
 - Blocks emit `OPEN` and `CLOSE` markers around their content; adjacent dynamic texts emit `SEPARATOR`;
   dynamic attributes are emitted inline with the static ones. A declaration with `@Load` frames the view
   (or its `failed` block) it rendered with `OPEN`/`CLOSE`, the range of the client's branch over the
@@ -735,7 +735,7 @@ metadata or view of the component is lowered on the server, and nothing is writt
   `font-size`, `font`; `surfaceHover` → `--k-color-surface-hover`). A `font` token's
   `Font(family: "Inter", size: 16px)` prints as the value of the `font` shorthand, size, family, then a
   generic fallback stack: `--k-font-body: 16px "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
-  "Helvetica Neue", Arial, sans-serif;` (the K string literal is the CSS string; the stack is serif or
+  "Helvetica Neue", Arial, sans-serif;` (the Kobra string literal is the CSS string; the stack is serif or
   monospace instead when the family's name says `Serif` or `Mono`/`Code`), in `:root` and in variants
   alike, so `font: .body` is valid CSS and a family that isn't installed never falls back to Times. No
   `@font-face` is emitted: there is no font asset pipeline yet (`css::fallback_stack`,
@@ -1109,7 +1109,7 @@ Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md) and
   is the plain object `{ sending, closed, receiving }` (`closed` `undefined` when left out), which the
   server runtime pumps ([server.md §20](server.md#20-channels)). `Stream.merge(a, b)` is
   `$k.streamMerge(a, b)` on both sides; `filter`, `map` and `prefix(while:)` are `$k.streamFilter`,
-  `$k.streamMap` and `$k.streamPrefix` (`prefix(through:)` is `$k.streamPrefix(s, f, 1)`, told apart by its label), whose function is an async K function value (`f($c, v)`), called
+  `$k.streamMap` and `$k.streamPrefix` (`prefix(through:)` is `$k.streamPrefix(s, f, 1)`, told apart by its label), whose function is an async Kobra function value (`f($c, v)`), called
   by the stream with its own `AbortSignal`, aborted when the stream is closed.
 - **Remote clients** ([40-workspaces-and-services.md](../design/40-workspaces-and-services.md)). The
   server emits `P$remote` for every protocol the app calls in another service and doesn't implement
@@ -1364,7 +1364,7 @@ hash): `CompressOptions::smallest()`, mangling with top-level names, `CodegenOpt
 - **Failure.** A chunk oxc can't parse (a code generator bug) ships as printed, unminified; a test
   (`crates/k_codegen/tests/release.rs`) minifies every example.
 - *Deferred:* short aliases for names exported across chunks (`TodoRow`, `renderEffect` in import
-  lists); the whole program is known, so K could pick them, for about 2–4% more.
+  lists); the whole program is known, so Kobra could pick them, for about 2–4% more.
 
 ### 17.3 Wire keys are quoted
 
@@ -1405,7 +1405,7 @@ document of `/`. Every profile emits them.
 
 ## 18. Source maps
 
-Every generated JavaScript chunk, every server module that holds K code and the development stylesheet
+Every generated JavaScript chunk, every server module that holds Kobra code and the development stylesheet
 map back to the `.k` files (v3, ECMA-426). Decisions and the user-facing story:
 [13-tooling.md, "Debugging"](../design/13-tooling.md#debugging).
 
@@ -1413,20 +1413,20 @@ map back to the `.k` files (v3, ECMA-426). Decisions and the user-facing story:
   `loc` being a file id and byte offset (the start of the node's first non-trivia token). The printer
   prints them transparently and records a `Mark` (output byte offset, `loc`, optional name) where each
   starts (`print_module_mapped`); `sourcemap.rs` turns the marks into lines and UTF-16 columns in one pass
-  over the text, and K offsets into lines and columns through each file's line starts. Code that inspects
+  over the text, and Kobra offsets into lines and columns through each file's line starts. Code that inspects
   emitted statements looks through the wrappers (`Stmt::peel`, `js::peel`), so the printed text is
   unchanged by them (the Test-profile corpus proves it).
-- **What maps:** every lowered K statement (`Body::stmt`, and through `Body::mapped` the last expression
+- **What maps:** every lowered Kobra statement (`Body::stmt`, and through `Body::mapped` the last expression
   of a value block or lambda); a lambda's tail expression; a view binding (`$k.renderEffect` and the
   binding inside it: text, attributes, classes, styles); an event handler's `$k.on`; a component field
   (its `$k.signal`/`$k.computed`/`let`); a `@Derived` initializer inside its `computed`; a `@Load`
   initializer inside the load's `run`. Templates, imports, containers and the route table are glue and
   stay unmapped.
-- **Sources** are project-relative paths below `/_k/src/` (client) or `k:/_k/src/` (server); stdlib K
-  code is below `$std/` and on the `ignoreList`. Development maps embed the K text (`sourcesContent`);
+- **Sources** are project-relative paths below `/_k/src/` (client) or `k:/_k/src/` (server); stdlib Kobra
+  code is below `$std/` and on the `ignoreList`. Development maps embed the Kobra text (`sourcesContent`);
   release maps don't.
-- **Names.** Where a local's JavaScript spelling differs from its K name (`arguments$`, `item$1`), the
-  printer records the K name (`js::k_name`) at the binding and each use, in the map's `names`. Names that
+- **Names.** Where a local's JavaScript spelling differs from its Kobra name (`arguments$`, `item$1`), the
+  printer records the Kobra name (`js::k_name`) at the binding and each use, in the map's `names`. Names that
   start with `$` are generated and never named. No `scopes` field yet (13-tooling.md).
 - **Development client:** each page chunk and `shared` is named after its text *and* its map
   (`stem.<hash>.js`, so an edit that only moves lines still busts the cache), ends with
@@ -1434,10 +1434,10 @@ map back to the `.k` files (v3, ECMA-426). Decisions and the user-facing story:
   chunks and the `app` entry get an identity map whose one source (`/_k/runtime/<stem>.js`, embedded) is
   on the `ignoreList` (and `x_google_ignoreList`). The stylesheet maps each rule's selector and each
   declaration to the style block (`app.<hash>.css.map`, `/*# sourceMappingURL= */`).
-- **Release client:** `client_files` leaves each chunk's K map next to it; `link` minifies with oxc,
+- **Release client:** `client_files` leaves each chunk's Kobra map next to it; `link` minifies with oxc,
   whose map points at the readable chunk, and **composes** the two (`sourcemap::compose`): each oxc
-  segment maps to what the K map says at its readable position, and takes the K name of the binding
-  oxc renamed. Chunks without K code keep oxc's map with its source ignore-listed. Every chunk ends with
+  segment maps to what the Kobra map says at its readable position, and takes the Kobra name of the binding
+  oxc renamed. Chunks without Kobra code keep oxc's map with its source ignore-listed. Every chunk ends with
   `//# sourceMappingURL=<stem>.<hash>.js.map` and is named after its bytes (§17). Linking renames chunk
   names in place (same length) and `shorten` shortens class names inside the readable chunks before
   minifying, which can move a column on such a line; lines stay exact.
@@ -1521,7 +1521,7 @@ dist/
 
 | Area | Budget |
 |---|---|
-| Lowering + printing, single-threaded | ≥ 200,000 lines of K per second (≈ 7 MB/s) |
+| Lowering + printing, single-threaded | ≥ 200,000 lines of Kobra per second (≈ 7 MB/s) |
 | Cold `k build`, 100,000-line project, 8 cores | ≤ 2.5 s including checking ([architecture.md §12](architecture.md#12-performance-budgets)); codegen ≤ 0.6 s of it |
 | Generated client JS for a page | ≤ 1.5× the size of the equivalent hand-written signals code, before compression |
 | Warm re-emit after a body edit | only the edited declaration's module per side is re-emitted (no whole-program pass) |

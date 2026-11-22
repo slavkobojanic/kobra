@@ -1,6 +1,6 @@
 # The app declaration
 
-Every K application has an `App.k` at the project root, next to `k.toml`. It holds exactly one
+Every Kobra application has an `App.k` at the project root, next to `k.toml`. It holds exactly one
 declaration, introduced by the **`app`** keyword, and it contains only the choices the compiler can't
 infer.
 

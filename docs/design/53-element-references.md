@@ -100,7 +100,7 @@ A row of a list that needs its own reference becomes a component, which holds th
 | A client-side navigation shows another page | the focus moves to the new page's first level-1 heading (`tabindex="-1"`), so a screen reader announces the page | **yes** |
 | An item was added; an editor or form closed; a dialog was dismissed | the app moves it with a reference: back to the field, to the button that opened the editor, to the new item | no, explicit |
 
-- **Why the failed submit is automatic:** WCAG 3.3.1 and every form guideline ask for it, it has one right answer (the first error), and K already knows the fields and their errors. An app that wants otherwise has no reason to.
+- **Why the failed submit is automatic:** WCAG 3.3.1 and every form guideline ask for it, it has one right answer (the first error), and Kobra already knows the fields and their errors. An app that wants otherwise has no reason to.
 - **Why the rest is explicit:** after "Add", the right target is the field (todos) or the new item (a list editor); after closing an editor it is the control that opened it, which may have been re-created. A rule the framework guesses would be wrong for half the apps, and a wrong focus move is worse than none.
 - **Scroll restoration on navigation is the router's** ([12-routing.md](12-routing.md#navigation)), not a reference's: back and forward restore the position, a new page starts at the top (or at its URL's `#fragment`), and a reload keeps the position. The same page updated in place with other parameters keeps the focus and the scroll, so a search field that writes the query never loses either.
 
@@ -173,12 +173,12 @@ Built tests first, as designed above, with these decisions:
 - **A field plus an attribute** names an element with ordinary, checked names: a typo is a compile error, renaming works, and the IDE finds every use, which string ids can't give.
 - **Owned by the component, attached once, never in a loop:** a reference always means one element, so an operation can never pick the wrong one, and a list's rows hold their own as components.
 - **Deferred to the end of the handler:** the case that matters most, "open it and focus it", works without the app knowing about render timing.
-- **Few operations:** focus, blur and scrolling are what accessibility needs; measuring elements is `resized`'s ([45](45-web-platform.md#element-events)), and anything else would be DOM access K deliberately doesn't give.
+- **Few operations:** focus, blur and scrolling are what accessibility needs; measuring elements is `resized`'s ([45](45-web-platform.md#element-events)), and anything else would be DOM access Kobra deliberately doesn't give.
 
 ## Alternatives rejected
 
 - **String ids** (`.id("title")` and `focus(id:)`): unchecked, collide between two instances of a component, and invite treating the DOM as an API.
-- **Callback refs** (`.ref { el in … }`, as in React): hand app code a DOM element, which K has no type for.
+- **Callback refs** (`.ref { el in … }`, as in React): hand app code a DOM element, which Kobra has no type for.
 - **A reference in `@State`, or passed to children as a prop** (`forwardRef`): a reference that travels can name an element of another component's view, which no check can follow; a child that offers a focus target can take a `@Prop` saying when to focus, as kanban's `CardView` does.
 - **Typed references by element kind** (`ElementRef<TextField>` for `select()`): one more type parameter for one operation; `focus(selectingText:)` covers it.
 - **Moving the focus automatically whenever its element is removed:** the right target depends on the app; see [focus the framework moves](#focus-the-framework-moves).

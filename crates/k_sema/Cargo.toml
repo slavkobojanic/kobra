@@ -3,13 +3,15 @@ name = "k_sema"
 # Integration tests are modules of tests/main.rs (one binary, `it`), not one
 # binary per file: docs/design/13-tooling.md, "One test binary per crate".
 autotests = false
-description = "Semantic analysis for K: modules, name resolution, types and the language's static rules."
+description = "Semantic analysis for Kobra: modules, name resolution, types and the language's static rules."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
 
-# The standard library's K sources (stdlib/**/*.k) are embedded with
+# The standard library's Kobra sources (stdlib/**/*.k) are embedded with
 # include_str!; `cargo package` would need them listed, but the workspace
 # is not published.
 

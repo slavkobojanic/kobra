@@ -1,4 +1,4 @@
-// The K extension: starts `k lsp` and connects it to VS Code through
+// The Kobra extension: starts `k lsp` and connects it to VS Code through
 // vscode-languageclient. Highlighting comes from syntaxes/k.tmLanguage.json;
 // everything else (diagnostics, quick fixes, navigation, rename, hover,
 // completion, signature help, symbols and inlay hints) comes from the
@@ -36,7 +36,7 @@ let status;
  */
 async function start(started) {
   if (status) {
-    status.text = "K: starting…";
+    status.text = "Kobra: starting…";
     status.busy = true;
   }
   try {
@@ -48,7 +48,7 @@ async function start(started) {
   }
   const info = started.initializeResult && started.initializeResult.serverInfo;
   if (status) {
-    status.text = info && info.version ? `K ${info.version}` : "K";
+    status.text = info && info.version ? `Kobra ${info.version}` : "Kobra";
     status.detail = "toolchain (k lsp)";
     status.severity = vscode.LanguageStatusSeverity.Information;
   }
@@ -57,7 +57,7 @@ async function start(started) {
 /**
  * Creates (without starting) the client for the configured `k` executable:
  * `k.server.path lsp` over stdio, with `k.server.extraEnv` added to the
- * environment, for K files on disk.
+ * environment, for Kobra files on disk.
  * @returns {LanguageClient}
  */
 function createClient() {
@@ -84,7 +84,7 @@ function createClient() {
       ],
     },
   };
-  return new LanguageClient("k", "K Language Server", { run, debug: run }, clientOptions);
+  return new LanguageClient("k", "Kobra Language Server", { run, debug: run }, clientOptions);
 }
 
 /**
@@ -96,7 +96,7 @@ function createClient() {
 async function activate(context) {
   client = createClient();
   status = vscode.languages.createLanguageStatusItem("k.toolchain", { language: "k" });
-  status.name = "K toolchain";
+  status.name = "Kobra toolchain";
   status.command = { command: "k.restartServer", title: "Restart" };
   context.subscriptions.push(
     status,
@@ -117,11 +117,11 @@ async function activate(context) {
     await start(client);
   } catch (error) {
     if (status) {
-      status.text = "K: not running";
+      status.text = "Kobra: not running";
       status.severity = vscode.LanguageStatusSeverity.Error;
     }
     vscode.window.showErrorMessage(
-      `Couldn't start the K language server (\`${vscode.workspace.getConfiguration("k").get("server.path") || "k"} lsp\`): ${error}. ` +
+      `Couldn't start the Kobra language server (\`${vscode.workspace.getConfiguration("k").get("server.path") || "k"} lsp\`): ${error}. ` +
         "Install `k` or set `k.server.path`.",
     );
   }

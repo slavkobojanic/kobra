@@ -15,7 +15,7 @@ language yet.
 
 ## Interpolation
 
-Inside a string, `{ }` holds a K expression, and its value is inserted into the text:
+Inside a string, `{ }` holds a Kobra expression, and its value is inserted into the text:
 
 ```k
 ~let price = 12.00.usd
@@ -30,7 +30,7 @@ let total = "Total: {price * quantity}"
 let status = "You are {if isSignedIn { "signed in" } else { "a guest" }}"
 ```
 
-This is the same `{ }` that means "a K expression goes here" everywhere in K, including in
+This is the same `{ }` that means "a Kobra expression goes here" everywhere in Kobra, including in
 [styles](../apps/styles.md). Any expression works, including calls, member access and `if`
 expressions, as long as it stays on one line.
 

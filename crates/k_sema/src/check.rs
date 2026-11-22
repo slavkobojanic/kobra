@@ -1520,7 +1520,7 @@ fn conformance(cx: &Cx<'_, '_>, decl: DeclId) {
                 codes::NOT_AN_INTERFACE,
                 *range,
                 format!(
-                    "`{}` is not an interface: K has no inheritance",
+                    "`{}` is not an interface: Kobra has no inheritance",
                     p.decl_name(iface)
                 ),
             );

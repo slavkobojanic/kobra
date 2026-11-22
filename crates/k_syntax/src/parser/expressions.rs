@@ -300,8 +300,12 @@ fn ternary(p: &mut Parser<'_>, lhs: CompletedMarker) -> CompletedMarker {
     let m = lhs.precede(p);
     let span = p.span(p.current_range());
     p.report(
-        Diagnostic::new(codes::TERNARY, span, "there is no ternary operator in K")
-            .with_help("use `if condition { a } else { b }`"),
+        Diagnostic::new(
+            codes::TERNARY,
+            span,
+            "there is no ternary operator in Kobra",
+        )
+        .with_help("use `if condition { a } else { b }`"),
     );
     p.bump();
     if p.enter() {

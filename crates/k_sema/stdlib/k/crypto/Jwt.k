@@ -1,6 +1,6 @@
-/// JSON Web Tokens (RFC 7519) for talking to systems outside K, such as an
+/// JSON Web Tokens (RFC 7519) for talking to systems outside Kobra, such as an
 /// identity provider's ID token (`docs/design/33-crypto.md`, "JWS and JWT,
-/// for interop"). K's own sessions are cookies. The algorithm comes from
+/// for interop"). Kobra's own sessions are cookies. The algorithm comes from
 /// the key's type, never from the token, and `issuer`, `audience` and
 /// `now` are required; `now` comes from an injected `Clock`, so tests
 /// control expiry with `TestClock`.

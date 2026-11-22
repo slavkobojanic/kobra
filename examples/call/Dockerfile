@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Call's image: the K toolchain checks and builds the app, and only its
+# Call's image: the Kobra toolchain checks and builds the app, and only its
 # single executable, dist/app, is copied into a minimal runtime image
 # (docs/design/38-deployment.md). compose.yaml builds it:
 #
@@ -13,7 +13,7 @@
 # The toolchain to build with: compiled from this repository's source by
 # default, so nothing needs an account or a published image. With a
 # published toolchain image, pass
-# --build-arg K_TOOLCHAIN=ghcr.io/k-lang/k:0.1.0 and the source stage is
+# --build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0 and the source stage is
 # skipped.
 ARG K_TOOLCHAIN=k-toolchain-from-source
 ARG RUST_VERSION=1.99

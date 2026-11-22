@@ -1,6 +1,6 @@
 # Compiler Architecture
 
-This document describes the architecture of the whole K toolchain: the `k` binary, the compiler, the
+This document describes the architecture of the whole Kobra toolchain: the `k` binary, the compiler, the
 JavaScript runtime and the server runtime. It is the source of truth for compiler internals; the language
 itself is specified in [`docs/design`](../design) and its syntax in [grammar.md](grammar.md). Related
 documents: [sema.md](sema.md), [codegen.md](codegen.md), [runtime.md](runtime.md), [server.md](server.md),
@@ -358,7 +358,7 @@ The batch driver (`k check`) and tests use the same `AnalysisHost`; there is no 
 
 ### 7.1 Value representation
 
-| K | JavaScript |
+| Kobra | JavaScript |
 |---|---|
 | `Int` | `number` within the safe-integer range. Overflow and division by zero panic in debug and test builds; release builds check division by zero only. Integer `/` truncates. |
 | `Double` | `number` |
@@ -488,7 +488,7 @@ request; on the client they only decide whether to navigate or redirect, never t
 ### 8.6 RPC client
 
 Generated stubs call `rpc(path, message, signal)`: `POST` with JSON bodies ([§9.3](#93-rpc)). Typed
-errors are decoded back into K enum values and thrown, so client `catch` stays exhaustive. Requests share
+errors are decoded back into Kobra enum values and thrown, so client `catch` stays exhaustive. Requests share
 an `AbortSignal` with the effect or load that issued them.
 
 ### 8.7 Size budget
@@ -516,7 +516,7 @@ bound for brotli ([runtime.md §2](runtime.md#2-modules-api-and-size-budget)).
 - Isolates start from a **V8 snapshot** containing the runtime and the application bundle, created by
   `k build`, so cold start is fast.
 - **Decision:** no deno extension crates. Isolates get what V8 provides plus a small bootstrap
-  (`console`, `queueMicrotask`, `AbortController`, `TextEncoder`/`TextDecoder`) and K's ops (logging,
+  (`console`, `queueMicrotask`, `AbortController`, `TextEncoder`/`TextDecoder`) and Kobra's ops (logging,
   requests, database, config, timers, crypto, fetch); there is no ambient I/O
   ([server.md §3–4](server.md#3-process-model)). This keeps the binary and the attack surface small and
   every effect on the world visible as an op.
@@ -544,7 +544,7 @@ hyper request
   containers); see [server.md §1](server.md#1-status-and-scope).
 - SSR streams HTML: the shell and layouts flush first, then each loading boundary as its data resolves.
   (v0 renders the whole document, then sends it.)
-- A panic becomes a 500 response; in development it includes the K stack trace (mapped through source
+- A panic becomes a 500 response; in development it includes the Kobra stack trace (mapped through source
   maps), in production a request id only.
 
 ### 9.3 RPC
@@ -558,7 +558,7 @@ deferred.
   message; otherwise a generated message whose fields are the parameters (an rpc without parameters
   takes `{}`). `Content-Type: application/json`.
 - **Response body:** a struct return value is the message; any other return type is wrapped as
-  `{"value": ...}`. JSON field names are the K field names.
+  `{"value": ...}`. JSON field names are the Kobra field names.
 - **Errors** use the Connect error format, `{"code": "...", "message": "...", "details": [...]}`:
 
   | Cause | Connect code | HTTP |
@@ -770,14 +770,14 @@ Few, well-known crates. Adding one requires a line here.
 | `proptest` | property tests (dev) | in use |
 | `criterion` | benchmarks (dev) | in use |
 | `libfuzzer-sys` | fuzz targets (nightly, outside workspace) | in use |
-| `arbitrary` | structure-aware K program generator shared by fuzz targets and property tests (dev) | in use |
+| `arbitrary` | structure-aware Kobra program generator shared by fuzz targets and property tests (dev) | in use |
 | `salsa` | incremental query engine | rejected: hand-rolled queries ([sema.md §3.1](sema.md#31-decision-hand-rolled-salsa-style-layered-queries)) |
 | `serde`, `serde_json` | manifests, ops, RPC JSON, app archive, `k test` results | in use (k_codegen, k_server, k_db, k_corpus, k_cli) |
 | `toml` (parse only) | `schema.lock`; `storage.lock` (the payload check); `fakes.toml` of e2e projects (dev) | in use (k_db, k_sema; k_server tests) |
 | `yaml-rust2` (no default features) | reading `examples/shop`'s `docker-compose.yml` and Kubernetes manifests in `k_cli`'s `tests/deploy.rs` (dev); pure Rust, YAML 1.2 | in use (k_cli tests) |
 | `tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes` | HTTP server, async drivers | in use (k_server, k_db) |
 | `deno_core`, `deno_error` | V8 embedding, ops | in use (k_server) |
-| deno web extensions | web APIs in isolates | rejected: a small bootstrap and K ops instead ([§9.1](#91-process-model)) |
+| deno web extensions | web APIs in isolates | rejected: a small bootstrap and Kobra ops instead ([§9.1](#91-process-model)) |
 | `rusqlite` (bundled, statement cache, `collation` for `k_decimal`), `tokio-postgres` | database drivers | in use (k_db) |
 | `flate2` | gzip for the runtime size-budget test (dev); the gzip and deflate streams of toolchain archives for `k toolchain install` (`k_cli` `archive.rs`, whose tar and zip readers are its own) | in use (k_runtime, k_cli) |
 | `getrandom` | the OS CSPRNG for session ids and OAuth state (already in the tree through deno_core) | in use (k_server) |

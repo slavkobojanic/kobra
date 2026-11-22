@@ -1,6 +1,6 @@
 # Packages
 
-Third-party K code is shared as **git-based packages**, like Go modules. A package's name is a URL that
+Third-party Kobra code is shared as **git-based packages**, like Go modules. A package's name is a URL that
 prefixes its module paths, and its versions are git tags.
 
 ```bash
@@ -16,7 +16,7 @@ import github.com/acme/charts.LineChart
 - **Versions are git tags.** `k add` records the dependency in `k.toml`, and `k.lock` records the exact
   commit and a content hash for every package. Builds are reproducible, and a re-tagged release is
   detected.
-- **Packages are distributed as K source**, not as compiled JavaScript. The compiler type-checks and
+- **Packages are distributed as Kobra source**, not as compiled JavaScript. The compiler type-checks and
   tree-shakes them, and enforces layering and the server/client boundary on them exactly as on your own
   code. A package can't smuggle a database call into your client bundle.
 - **A package's `public` declarations, and their non-private members, are its API.** Module-private
@@ -72,7 +72,7 @@ resolving module paths, so import syntax won't change.
 
 ## No npm
 
-**K has no npm support and no JavaScript interop in user code.** All application code is K, so the
+**Kobra has no npm support and no JavaScript interop in user code.** All application code is Kobra, so the
 compiler's guarantees (types, layering, the server/client boundary, reactivity) hold everywhere, with no
 untyped holes. The standard library wraps the web platform instead: HTTP, storage, WebSockets, canvas,
 clipboard, media, crypto, workers and the rest. Only the standard library can call JavaScript, through an

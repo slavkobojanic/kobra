@@ -309,11 +309,11 @@ rpc signUp(request: SignUpRequest) async throws SignUpError {
 
 ## Request forgery
 
-K's defences against cross-site request forgery are on by default and can't be turned off:
+Kobra's defences against cross-site request forgery are on by default and can't be turned off:
 
 - **RPC routes accept only `application/json`, and require the `Connect-Protocol-Version` header.**
   Anything else is refused with `415` before guards run. A cross-site `<form>` can't send either, and a cross-site `fetch` that tries needs a CORS preflight,
-  which K never grants for rpc routes.
+  which Kobra never grants for rpc routes.
 - **Every request that carries the session cookie and isn't `GET` or `HEAD`** must have an `Origin`
   header matching `K_PUBLIC_ORIGIN`, or `Sec-Fetch-Site: same-origin`, or it is refused with `403`.
 - **A `GET` or `HEAD` handler on an endpoint page that uses the session must not change state:** no
@@ -335,7 +335,7 @@ OAuth providers themselves are deferred by the design.
 ## Passkeys
 
 A passkey is a key pair the person's device keeps for your site and unlocks with a fingerprint, a face
-or the device's PIN. K's passkeys are WebAuthn with no third party: the relying party is your app (its
+or the device's PIN. Kobra's passkeys are WebAuthn with no third party: the relying party is your app (its
 id is the host of `K_PUBLIC_ORIGIN`), and nothing is fetched from a vendor. Two stdlib services split the
 work, one per side, and your app stores the credentials in an entity of its own:
 
@@ -405,7 +405,7 @@ signs the account in:
   or not, so fetch new options after every attempt.
 - **Store a `PasskeyCredential`'s fields in your own entity,** with the credential id `@Unique`: an
   entity column can't hold a struct. Every field is base64url text, a number or a flag.
-- **Attestation is `"none"`.** K never checks which make of device holds the key: that would need a
+- **Attestation is `"none"`.** Kobra never checks which make of device holds the key: that would need a
   vendor's metadata service, and synced passkeys don't attest anyway.
 - **One `do` catches the device's errors and the server's.** `PasskeyError` (the sheet was
   dismissed, the browser has no WebAuthn) and your rpc's error enum are different types, and each

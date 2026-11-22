@@ -58,7 +58,7 @@ Both are plain structs built with their memberwise initializers, so they cost no
 - **The type arguments come from the binding,** as for `StorageKey`, or are written out (`Collection<Uuid, UnsavedEdit>(name: …)`, [RA-23](../compiler/grammar.md)).
 - **Every argument is a string literal.** A computed `name:` or `collection:` is `K2403`, as for a `StorageKey`'s name; a computed `key:` or `field:` is `K2411`.
 - **They are declared as a constant or a field,** where the compiler finds them. A `Collection(…)` or `CollectionIndex(…)` anywhere else in non-test code (a local `let`, an argument) is `K2411`: the browser's database and `storage.lock` would never hear of it.
-- **`Value` is a struct, and `key:` names one of its stored fields** (by its K name, not a `@JsonKey`) whose type is exactly `Key`. The key field isn't optional: every value has a key.
+- **`Value` is a struct, and `key:` names one of its stored fields** (by its Kobra name, not a `@JsonKey`) whose type is exactly `Key`. The key field isn't optional: every value has a key.
 - **`field:` names a stored field of `Value` whose type is `Field` or `Field?`.** A value whose indexed field is `nil` isn't in that index (IndexedDB doesn't index a missing key), so it is found by `get` and `all` but not by `find` or `range`.
 - **Key and index fields have a key type:** `String`, `Int`, `Uuid`, `Date`, or an enum without payloads. Any other type (a struct such as `NoteId`, `Bool`, `Double`, a list) is `K2411`, with the list. They are ordered as IndexedDB orders keys: numbers before text; `Int` numerically, `Date` chronologically (stored as epoch milliseconds), text by UTF-16 code units, an enum by its case name.
 - **Names are unique in the app's non-test code.** A second collection with the same name, or a second index on the same collection and field, is `K2410` at the later one's literal (file path order), with a label at the earlier one. Tests may redeclare a collection or index to inspect what a service stored, as they may a storage key.
@@ -105,7 +105,7 @@ public interface Collections {
 
 ## In the browser
 
-- **One database per app,** `k-collections:<namespace>` with the storage namespace of `storage.lock` ([36](36-local-storage.md#keys)), so two K apps on one origin don't share stores. One object store per collection, named after it.
+- **One database per app,** `k-collections:<namespace>` with the storage namespace of `storage.lock` ([36](36-local-storage.md#keys)), so two Kobra apps on one origin don't share stores. One object store per collection, named after it.
 - **A stored record is `{k, i, v}`:** `v` is the value's `Codable` JSON form ([28](28-rpc-wire-format.md)) as text, `k` the key field's IndexedDB key, `i` an object with the IndexedDB key of **every field of the value that has a key type**, indexed or not (absent for `nil`). Recording them all is what lets an older tab's writes appear in an index a newer build added: the older build doesn't know the index, but it knows the field. The store's key path is `k` and each index's is `i.<field>`. Keys are derived from the JSON form (a `Date` is parsed back to epoch milliseconds, so it orders chronologically, which its RFC 3339 text with optional milliseconds doesn't). Storing the JSON form rather than the runtime value keeps one encoding for every stored format, and makes "doesn't decode" the same check as for local storage and rpc.
 - **Each operation is one transaction,** `readonly` for reads and `readwrite` for writes, opened and completed within the call. A transaction can't span an `await` of other work (IndexedDB commits it when its requests are done), so a read-modify-write is two calls; see [open questions](#open-questions).
 
@@ -133,7 +133,7 @@ type = "notes.UnsavedEdit"
 indexes = ["savedAt"]
 ```
 
-- **`declaration`** is the qualified name of the constant or field; **`key`** the key field's K name; **`type`** the value type, written as for keys; **`indexes`** the indexed fields, sorted. `[types."…"]` records the value type's shape as for keys.
+- **`declaration`** is the qualified name of the constant or field; **`key`** the key field's Kobra name; **`type`** the value type, written as for keys; **`indexes`** the indexed fields, sorted. `[types."…"]` records the value type's shape as for keys.
 - **Tables are sorted:** keys, then collections, then key names, then jobs, each by name, then types.
 - **`KeyStore`'s key names are recorded too** (`[keyNames.<name>]` with `declaration` and the key `type`, [33](33-crypto.md#decided-while-implementing)), since the keys a browser keeps are stored data like values: a renamed `KeyName` is `K8010` unless it is marked `@Breaking("reason")`, and another key type is `K8010` even then, as a collection's key field is `K8009`.
 - **The lock follows the code:** an entry the program no longer declares is dropped, a new one is added, `declaration` follows a rename, and an entry an `@Breaking` declaration changed records the new shape. A lock that doesn't change isn't rewritten. An app with no key, collection or job and no lock gets none.
@@ -215,13 +215,13 @@ Built tests first, as designed above, with these decisions and changes:
 - **Exposing IndexedDB's own model** (object stores, key paths, `onupgradeneeded`, version numbers): the hard parts would be the app's, untyped, and untestable without a browser.
 - **Indexes listed on the collection** (`Collection(name:key:indexes: ["savedAt"])`) with lookups by field name: the field's type couldn't type the lookup's value, so every lookup would need its own compiler check. A `CollectionIndex<Field, Value>` is typed by the ordinary generic rules.
 - **A version number on each collection, recorded in `storage.lock`:** it would make an older tab's open fail (`VersionError`) after any upgrade, and a forgotten bump would leave a new index missing. Comparing the database with the schema needs no number.
-- **Storing the runtime value by structured clone:** fast, but K's values (`Date`, enums, money) aren't plain objects with stable shapes, and decoding couldn't be checked the way `Codable` checks it.
+- **Storing the runtime value by structured clone:** fast, but Kobra's values (`Date`, enums, money) aren't plain objects with stable shapes, and decoding couldn't be checked the way `Codable` checks it.
 - **Separate `CollectionReadError` and `CollectionWriteError`:** the cases are local storage's exactly.
-- **A write transaction around a closure** (`collections.transaction { … }`): IndexedDB commits as soon as a closure awaits anything else, so the closure would have to be synchronous, which K's async interfaces can't express yet.
+- **A write transaction around a closure** (`collections.transaction { … }`): IndexedDB commits as soon as a closure awaits anything else, so the closure would have to be synchronous, which Kobra's async interfaces can't express yet.
 
 ## Open questions
 
-- **Read-modify-write in one transaction:** an `update(_ key:in:change:)` taking a synchronous closure, once K can say "this closure doesn't await".
+- **Read-modify-write in one transaction:** an `update(_ key:in:change:)` taking a synchronous closure, once Kobra can say "this closure doesn't await".
 - **Transactions over several collections**, for writes that must happen together.
 - **Unique indexes** (`CollectionIndex(…, unique: true)`, a write that would duplicate throwing a new case).
 - **Compound and multi-entry indexes** (`[tag, savedAt]`, an index over a `List<String>` field).

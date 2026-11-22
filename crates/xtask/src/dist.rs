@@ -4,9 +4,10 @@
 //! on a maintainer's machine.
 //!
 //! * [`archive`]: `k-<version>-<target>.tar.gz` (`.zip` on Windows) holding
-//!   `k-<version>-<target>/` with `k` (`k.exe`), `README.md` and, once the
-//!   repository has one, `LICENSE`. Entries carry a fixed time, so the same
-//!   binary gives the same archive.
+//!   `k-<version>-<target>/` with `k` (`k.exe`), `README.md` and the two
+//!   licence files, `LICENSE-MIT` and `LICENSE-APACHE` (the project is
+//!   `MIT OR Apache-2.0`). Entries carry a fixed time, so the same binary
+//!   gives the same archive.
 //! * [`checksums`]: `SHA256SUMS`, one `<sha256>  <file>` line per archive,
 //!   the format the install scripts and `sha256sum -c` read.
 //! * [`add_release`]: the release's entry in `index.json`, the toolchain
@@ -179,12 +180,17 @@ fn zip(top: &str, entries: &[Entry]) -> std::io::Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Packs `binary` for `target` into `out`, with `root`'s `README.md` (and
-/// `LICENSE` when there is one); returns the archive's path.
+/// The files of the repository root every archive carries next to `k`.
+pub const SHIPPED: [&str; 3] = ["README.md", "LICENSE-MIT", "LICENSE-APACHE"];
+
+/// Packs `binary` for `target` into `out`, with `root`'s [`SHIPPED`] files;
+/// returns the archive's path.
 ///
 /// # Errors
 ///
-/// When a file can't be read or the archive written.
+/// When one of the [`SHIPPED`] files is missing (a toolchain is never
+/// released without its licence), a file can't be read or the archive
+/// written.
 pub fn archive(
     root: &Path,
     version: &Version,
@@ -199,15 +205,20 @@ pub fn archive(
         bytes: read(binary)?,
         exec: true,
     }];
-    for name in ["README.md", "LICENSE"] {
+    for name in SHIPPED {
         let path = root.join(name);
-        if path.is_file() {
-            entries.push(Entry {
-                name: name.to_owned(),
-                bytes: read(&path)?,
-                exec: false,
-            });
+        if !path.is_file() {
+            return Err(format!(
+                "{} is missing: every archive carries {}",
+                path.display(),
+                SHIPPED.join(", ")
+            ));
         }
+        entries.push(Entry {
+            name: name.to_owned(),
+            bytes: read(&path)?,
+            exec: false,
+        });
     }
     let top = format!("k-{version}-{target}");
     let bytes = if windows {

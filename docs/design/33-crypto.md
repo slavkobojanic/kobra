@@ -160,7 +160,7 @@ public config ExportSigningConfig {
 ```
 
 - **A secret or private key field must be `Secret<K>`.** A bare `Ed25519PrivateKey` field is a compile error with a quick fix that wraps it. That keeps the rule in [25-config-and-secrets.md](25-config-and-secrets.md#where-values-come-from) that only `Secret` fields accept `NAME_FILE`, so a key can arrive as a Docker or Kubernetes secret file, and the startup report never prints it.
-- **`Secret<K>` has K's operations** (`sign`, `seal`, `open`, `agree`, `wrap`, `unwrap`), the way `Hmac` accepts a `Secret<String>`. A configured key therefore needs no `reveal()`: `await config.signingKey.sign(manifest)`.
+- **`Secret<K>` has Kobra's operations** (`sign`, `seal`, `open`, `agree`, `wrap`, `unwrap`), the way `Hmac` accepts a `Secret<String>`. A configured key therefore needs no `reveal()`: `await config.signingKey.sign(manifest)`.
 - Public-key fields are plain values. They aren't secret, but they are still server-only, like every config ([25-config-and-secrets.md](25-config-and-secrets.md#injection)).
 - **`k keys new ed25519`** (also `x25519`, `p256-ecdsa`, `aes-gcm`) prints a new private key as a JWK for the environment and its public JWK, so nobody needs an external tool to make a key.
 
@@ -178,7 +178,7 @@ let photoBytes = try await key.open(sealed)
 | `key.seal(_ value: T, context: Bytes = Bytes()) async -> Sealed<T>` | encrypts `value` with a fresh random nonce. `T` is `Bytes`, encrypted as is, or any `Codable`, encrypted as its JSON. |
 | `key.open(_ sealed: Sealed<T>, context: Bytes = Bytes()) async throws OpenError -> T` | checks and decrypts |
 | `Sealed<T>` | the ciphertext. It implements `Codable` (as text), `Equatable` and `Hashable`. |
-| `sealed.bytes`, `Sealed<T>.parse(bytes:)`, `"{sealed}"`, `Sealed<T>.parse(_ text:)` | the wire forms, for storing outside K |
+| `sealed.bytes`, `Sealed<T>.parse(bytes:)`, `"{sealed}"`, `Sealed<T>.parse(_ text:)` | the wire forms, for storing outside Kobra |
 
 ```k
 public enum OpenError implements Error, Equatable {
@@ -221,7 +221,7 @@ let wrappingKey = await AesGcmKey.derive(fromPassphrase: typed, salt: salt)
 
 - **The salt carries its work factor,** so raising the default later doesn't break existing vaults. A salt below 100,000 iterations parses as `nil`, except in `.test` ([Testing](#testing)).
 - **How this relates to `Password`:** `Password` (Argon2id) is the server's way to check a sign-in password and is never available in the browser. `derive(fromPassphrase:)` makes a key on whichever side holds the passphrase, usually the browser, and that key never leaves it. They must not share a passphrase. If the sign-in password also unlocked the vault, the server that receives it at sign-in could derive the vault key. The book's end-to-end chapter says so, and the notes example uses a separate vault passphrase.
-- **Argon2id in the browser is rejected for now:** Web Crypto doesn't provide it, and K ships no WebAssembly or JavaScript cryptography ([Alternatives](#alternatives-rejected)).
+- **Argon2id in the browser is rejected for now:** Web Crypto doesn't provide it, and Kobra ships no WebAssembly or JavaScript cryptography ([Alternatives](#alternatives-rejected)).
 
 ## Key wrapping
 
@@ -254,7 +254,7 @@ guard await publicKey.verify(signature, of: manifest.bytes) else {
 
 - **A signature type matches its key type.** Verifying an `Ed25519Signature` with an `EcdsaP256PublicKey` is a type error.
 - **`verify` returns `Bool`,** like `mac.matches`, and is written with `guard`. Not verifying is visible in review, because the code that uses the message sits after the `guard`.
-- **Ed25519 is the default.** ECDSA P-256 is there for interop (JWT `ES256`, Web Push VAPID, the platforms that only speak P-256), and RSA for verifying tokens from identity providers that still sign with it. K never signs with RSA.
+- **Ed25519 is the default.** ECDSA P-256 is there for interop (JWT `ES256`, Web Push VAPID, the platforms that only speak P-256), and RSA for verifying tokens from identity providers that still sign with it. Kobra never signs with RSA.
 
 ## Key agreement
 
@@ -289,7 +289,7 @@ Most apps that use key agreement want "encrypt this so only the holder of that p
 
 ## JWS and JWT, for interop
 
-K's own sessions are cookies ([26-auth-and-sessions.md](26-auth-and-sessions.md)), and K services call each other with rpcs ([40-workspaces-and-services.md](40-workspaces-and-services.md)). JWTs are for **talking to systems outside K**: an identity provider's ID token, a webhook that signs with JWS, or an API that wants a signed assertion.
+Kobra's own sessions are cookies ([26-auth-and-sessions.md](26-auth-and-sessions.md)), and Kobra services call each other with rpcs ([40-workspaces-and-services.md](40-workspaces-and-services.md)). JWTs are for **talking to systems outside Kobra**: an identity provider's ID token, a webhook that signs with JWS, or an API that wants a signed assertion.
 
 ```k
 public struct BillingClaims implements Codable {
@@ -311,7 +311,7 @@ let claims: BillingClaims = try await Jwt.verify(
 | `Jwt.verify(_ token: String, key:, issuer: String, audience: String, now: Date, leeway: Duration = 1.minutes) async throws JwtError -> Claims` | checks the signature, `exp` (required), `nbf`, `iss` and `aud`, then decodes the payload as `Claims` |
 | `Jwt.sign(_ claims: Claims, key:, keyId: String? = nil, expiresIn: Duration, now: Date) async -> String` | issues a compact JWT with `iat` and `exp` set |
 | `Jws.verify(_ compact: String, key:) async throws JwtError -> Bytes`, `Jws.sign(_ payload: Bytes, key:)` | the signature layer alone, for JWS that isn't a JWT |
-| `JwkSet.parse(_ json: String) -> JwkSet?` | a JWKS document, such as an identity provider's `jwks_uri`. It keeps only public signature keys K supports. |
+| `JwkSet.parse(_ json: String) -> JwkSet?` | a JWKS document, such as an identity provider's `jwks_uri`. It keeps only public signature keys Kobra supports. |
 
 **The algorithm comes from the key's type, never from the token:**
 
@@ -535,8 +535,8 @@ No API here asks the user for permission except `KeyStore.requestPersistence()`,
 
 ## Implementation
 
-- **Browser:** Web Crypto (`crypto.subtle`), which provides AES-GCM, HKDF, PBKDF2, ECDSA on P-256, RSA verification, Ed25519 and X25519 in the browsers K targets. HPKE and JWS are composed from those calls in the stdlib's own JavaScript. No cryptographic primitive is implemented in JavaScript.
-- **Server:** the server is plain `deno_core` with K's own ops, not Deno's Web Crypto extension. The new primitives are Rust ops next to `op_k_hmac` and the Argon2 ops. They use `ring` for AES-GCM, HKDF, PBKDF2, Ed25519, ECDSA P-256 and RSA verification. `ring` is already compiled in as rustls's crypto provider, so this adds no new code to the binary. Static X25519 agreement keys use `x25519-dalek`, from the RustCrypto family `sha2` and `argon2` already come from, because `ring`'s agreement keys are ephemeral only. Web Push's ephemeral P-256 ECDH and AES-128-GCM ([45](45-web-platform.md#push-tier-2)) are `ring` calls inside `WebPush`, not public API, like coturn's HMAC-SHA1 ([46](46-media-and-rtc.md#stun-and-turn-without-third-party-accounts)).
+- **Browser:** Web Crypto (`crypto.subtle`), which provides AES-GCM, HKDF, PBKDF2, ECDSA on P-256, RSA verification, Ed25519 and X25519 in the browsers Kobra targets. HPKE and JWS are composed from those calls in the stdlib's own JavaScript. No cryptographic primitive is implemented in JavaScript.
+- **Server:** the server is plain `deno_core` with Kobra's own ops, not Deno's Web Crypto extension. The new primitives are Rust ops next to `op_k_hmac` and the Argon2 ops. They use `ring` for AES-GCM, HKDF, PBKDF2, Ed25519, ECDSA P-256 and RSA verification. `ring` is already compiled in as rustls's crypto provider, so this adds no new code to the binary. Static X25519 agreement keys use `x25519-dalek`, from the RustCrypto family `sha2` and `argon2` already come from, because `ring`'s agreement keys are ephemeral only. Web Push's ephemeral P-256 ECDH and AES-128-GCM ([45](45-web-platform.md#push-tier-2)) are `ring` calls inside `WebPush`, not public API, like coturn's HMAC-SHA1 ([46](46-media-and-rtc.md#stun-and-turn-without-third-party-accounts)).
 - **The `k test` containers use the Rust ops for both sides.** The browser container there has no Web Crypto ([21-testing.md](21-testing.md#which-side-a-test-runs-on)). The stdlib's crypto module has two backends behind one internal interface, `subtle` and `ops`, and a differential test ties them together (below).
 
 ## Testing
@@ -622,7 +622,7 @@ test VaultService {
 **API as built, where it differs from the text above**
 
 - **`context` defaults to `"".utf8`,** not `Bytes()`, which doesn't exist.
-- **`publicKey.fingerprint()` is an `async` method,** not a property: Web Crypto's SHA-256 is asynchronous, and K ships no JavaScript SHA-256.
+- **`publicKey.fingerprint()` is an `async` method,** not a property: Web Crypto's SHA-256 is asynchronous, and Kobra ships no JavaScript SHA-256.
 - **`EcdsaP256PublicKey.parse(raw:)` checks the length and the `0x04` prefix only,** synchronously; a point off the curve is refused at `verify`, which returns `false`. Checking the curve equation synchronously would need the curve's arithmetic in JavaScript in the browser.
 - **ECDSA signatures aren't deterministic in tests:** the signing nonce comes from the operating system on `ops`, as from the platform in browsers. Everything else `generate()`, `seal` and salts draw is seeded from the test's name, through the kit's existing ChaCha20 stream (`crypto.getRandomValues` in `k test`).
 - **`TestKeys` key `n` of a kind** is derived from the SHA-256 of `k.test.TestKeys/<kind>/<n>`. It is a `@Native class` of `k.test` with `aesGcm`, `ed25519`, `ecdsaP256` and `x25519`.
@@ -633,9 +633,9 @@ test VaultService {
 **Tests**
 
 - Rust unit tests of each primitive in `crypto.rs` (NIST/GCM spec AES-256-GCM, RFC 5869, RFC 7914's PBKDF2-SHA256, RFC 8032, RFC 7748, RFC 6979's P-256 key and signature, FIPS 180 digests, edge cases).
-- `crypto-vectors.json`, run by `crypto-vectors.js` on `ops` (`crypto.test.js`, `runtime_js`) and on `subtle` in one real-Chrome test (`k_cli` `chrome::crypto_subtle_matches_the_vectors_and_the_ops_backend`): AES-256-GCM, HKDF, Ed25519, X25519, P-256, and RFC 9180 base mode from the CFRG's `test-vectors.json` for DHKEM(X25519, HKDF-SHA256) and HKDF-SHA256 with AES-128-GCM and AES-256-GCM (the RFC's own appendix has no AES-256 vector for X25519; AES-128 is supported by the internal HPKE functions only for that vector). **Wycheproof subset:** AES-GCM with 256-bit keys and 96-bit nonces (every valid and invalid case), X25519 (40 valid cases and 20 low-order ones, whose all-zero result is refused), Ed25519 (every valid and invalid case), ECDSA P-256 SHA-256 in P1363 form (40 valid cases and every invalid one) and HKDF-SHA256 (40). **Left out:** Wycheproof's "acceptable" cases (behaviour the libraries may differ on), other nonce and key sizes K never uses, the DER ECDSA file, PBKDF2 (Wycheproof has none), and the RFC 9180 cases for other modes and suites.
+- `crypto-vectors.json`, run by `crypto-vectors.js` on `ops` (`crypto.test.js`, `runtime_js`) and on `subtle` in one real-Chrome test (`k_cli` `chrome::crypto_subtle_matches_the_vectors_and_the_ops_backend`): AES-256-GCM, HKDF, Ed25519, X25519, P-256, and RFC 9180 base mode from the CFRG's `test-vectors.json` for DHKEM(X25519, HKDF-SHA256) and HKDF-SHA256 with AES-128-GCM and AES-256-GCM (the RFC's own appendix has no AES-256 vector for X25519; AES-128 is supported by the internal HPKE functions only for that vector). **Wycheproof subset:** AES-GCM with 256-bit keys and 96-bit nonces (every valid and invalid case), X25519 (40 valid cases and 20 low-order ones, whose all-zero result is refused), Ed25519 (every valid and invalid case), ECDSA P-256 SHA-256 in P1363 form (40 valid cases and every invalid one) and HKDF-SHA256 (40). **Left out:** Wycheproof's "acceptable" cases (behaviour the libraries may differ on), other nonce and key sizes Kobra never uses, the DER ECDSA file, PBKDF2 (Wycheproof has none), and the RFC 9180 cases for other modes and suites.
 - The same Chrome test runs the differential: 400 random inputs each way, sealed, signed with Ed25519 and ECDSA, and enveloped by one side and opened and verified by the other (Web Crypto against an in-process isolate on `ops`).
-- Golden files for the wire formats (`crates/k_server/tests/crypto_wire.rs`), which also open each golden value again; a run corpus case (`tests/corpus/run/stdlib/crypto-key-types.k`) for RFC vectors through the K API; sema corpus cases for the type rules; and `k test` on `crates/k_cli/tests/fixtures/sealing` for seeded randomness, fast salts, `TestKeys`, `OpenError` and `Secret<K>`.
+- Golden files for the wire formats (`crates/k_server/tests/crypto_wire.rs`), which also open each golden value again; a run corpus case (`tests/corpus/run/stdlib/crypto-key-types.k`) for RFC vectors through the Kobra API; sema corpus cases for the type rules; and `k test` on `crates/k_cli/tests/fixtures/sealing` for seeded randomness, fast salts, `TestKeys`, `OpenError` and `Secret<K>`.
 
 **Round 2: key formats, configured keys, JOSE, `KeyStore` and the notes vault.** It finished the features left Planned above except `web-push`, built later in [50-push.md](50-push.md) (`crypto-key-formats`, `crypto-config-keys`, `jwt`, `key-store` and `notes-vault` left the feature table).
 
@@ -644,7 +644,7 @@ test VaultService {
 - **One DER reader and writer in `crypto.js`, no primitive:** SPKI and PKCS #8 (`OneAsymmetricKey` version 1 or 2, RFC 5958) are parsed with a small TLV reader that refuses non-minimal lengths, and written with fixed algorithm identifiers. Ed25519 and X25519 PKCS #8 are the 48-byte form; a P-256 one is written as Web Crypto and OpenSSL write it (`ECPrivateKey` with the public key, without the curve parameters) and read with or without either.
 - **A public JWK with a private part (`d`) is `nil`,** and a private JWK or PKCS #8 v2 that names a public key must name the key's own (`x` for Ed25519 and X25519; P-256's point is checked by the wrapped form). `alg`, `use` and `key_ops` are checked when present; an X25519 public JWK may carry any `key_ops` (Web Crypto writes `[]`).
 - **`RsaPublicKey` is base64url of its SPKI DER,** so its `Codable`, `==` and `fingerprint()` (the SHA-256 of the DER) need nothing special. Parsing a JWK goes through DER, so both forms meet the same checks: 2,048 to 8,192 bits (`ring`'s range), an odd exponent of at least 3 and at most four bytes. It has `verify(_:of:)` (RSASSA-PKCS1-v1_5) and `verifyPss(_:of:)` (PSS, MGF1-SHA-256, a 32-byte salt) instead of one member with a padding argument: one call each in JWT terms (`RS256`, `PS256`). `RsaSignature` takes 256 to 1,024 bytes. The `ops` backend is one new op, `op_k_crypto_rsa_verify`, on `ring`'s `RsaPublicKeyComponents`; `subtle` imports the key as a JWK.
-- **Public keys have `jwk` and `pem` properties,** and secret keys import with `parse(jwk:)` and `parse(pem:)` (an `AesGcmKey` has no PEM). **`Exportable.parse(raw:/jwk:/pem:)`** gets `K`'s name from the expected type, as `unwrap` does (`native.rs`); `exportJwk()` and `exportPem()` return a `Secret<String>`. **`exportPem()` of an `Exportable<AesGcmKey>` panics** instead of not compiling: `Exportable<K>` has no conditional members in K.
+- **Public keys have `jwk` and `pem` properties,** and secret keys import with `parse(jwk:)` and `parse(pem:)` (an `AesGcmKey` has no PEM). **`Exportable.parse(raw:/jwk:/pem:)`** gets `K`'s name from the expected type, as `unwrap` does (`native.rs`); `exportJwk()` and `exportPem()` return a `Secret<String>`. **`exportPem()` of an `Exportable<AesGcmKey>` panics** instead of not compiling: `Exportable<K>` has no conditional members in Kobra.
 - **The new `parse` overloads renamed the natives:** `Ed25519PublicKey$parse` is now `$parse$raw`, next to `$parse$jwk` and `$parse$pem` (overloads carry their labels, codegen.md §16).
 
 *Runtime*
@@ -697,7 +697,7 @@ test VaultService {
 - A constant-time comparison is only useful if it is the obvious way. A separate `Mac` type makes it the only way, enforced by the type checker. The new types apply the same idea to every misuse the Web Crypto API leaves to runtime checks or documentation: wrong key for the operation, reused nonces, raw DH output used as a key, extractable keys by default, and the algorithm taken from a token.
 - Async digests match the platform API they are built on, instead of hiding a blocking call or a thread pool in the runtime.
 - A UUID literal form that is checked at compile time keeps fixtures and seed data readable without a failable call.
-- **Few algorithms, each with one reason.** AES-256-GCM for symmetric encryption, Ed25519 for signatures, X25519 and HPKE for public-key encryption. P-256 and RSA verification are for interop. Every one of them is native in browsers and in `ring`, so K ships no cryptographic code of its own on either side.
+- **Few algorithms, each with one reason.** AES-256-GCM for symmetric encryption, Ed25519 for signatures, X25519 and HPKE for public-key encryption. P-256 and RSA verification are for interop. Every one of them is native in browsers and in `ring`, so Kobra ships no cryptographic code of its own on either side.
 - **Exportability in the type** turns the browser's best defence against key theft by injected script (non-extractable keys) into the default, and makes the exception visible in review.
 - Reusing `Secret` for exported material and configured keys means the leak rules, the redaction and the `_FILE` convention already in place cover keys with no new mechanism.
 
@@ -706,10 +706,10 @@ test VaultService {
 - **Exposing `crypto.subtle` as it is.** Algorithm names are strings, key usages are arrays and misuse fails at run time. That is the API this layer exists to replace.
 - **XChaCha20-Poly1305.** Its 192-bit nonce removes the random-nonce limit, but Web Crypto doesn't have it. The browser would need a JavaScript or WebAssembly implementation, with no constant-time guarantee and a bundle cost, plus a second implementation to keep in step. AES-GCM's 2³² limit, with HKDF-derived subkeys beyond it, is the documented trade.
 - **Caller-supplied nonces,** even as an "advanced" overload. One reuse under GCM reveals the authentication key. Protocols that fix their nonces are built inside the stdlib (HPKE is one).
-- **Argon2id or scrypt in the browser** through WebAssembly. They are better passphrase KDFs, but K ships no third-party code to the browser ([17-javascript-interop.md](17-javascript-interop.md)). PBKDF2 with a stored work factor can be upgraded once the platform offers more.
+- **Argon2id or scrypt in the browser** through WebAssembly. They are better passphrase KDFs, but Kobra ships no third-party code to the browser ([17-javascript-interop.md](17-javascript-interop.md)). PBKDF2 with a stored work factor can be upgraded once the platform offers more.
 - **A generic `Key<Algorithm, Role>`.** It expresses the same rules, but its error messages read worse, and flat names are searchable and match the platform's documentation.
 - **An `extractable: Bool` parameter,** as in Web Crypto. Export of a non-extractable key would fail at run time. `Exportable<K>` makes it a compile error.
-- **Deno's Web Crypto extension on the server.** It would bring a second JavaScript Web Crypto layer and a larger dependency set into a runtime that otherwise exposes only K's ops. It also wouldn't help the `k test` browser container, which needs the ops anyway.
+- **Deno's Web Crypto extension on the server.** It would bring a second JavaScript Web Crypto layer and a larger dependency set into a runtime that otherwise exposes only Kobra's ops. It also wouldn't help the `k test` browser container, which needs the ops anyway.
 - **RSA signing and encryption, AES-CBC and CTR, SHA-1.** They are legacy choices. Verifying RSA signatures is the one RSA operation interop still needs.
 
 ## Open questions
@@ -719,4 +719,4 @@ test VaultService {
 - Resolved by [51-passkeys.md](51-passkeys.md): passkeys keep a credential's public key as its COSE key text rather than as `EcdsaP256PublicKey` or `Ed25519PublicKey` (a credential may be any of three algorithms, RS256 among them, and only the verifier reads it), and their signatures are checked by `ring` inside `k_server::passkey`, not through `k.crypto`.
 - **A caching `JwksClient`** for identity providers, with OAuth.
 - Resolved while reconciling with 45 and 46: `persist()` became the `@UserAction` `requestPersistence()`, because Firefox prompts for it; the public ECDH P-256 types were cut (their one use, Web Push, is internal), which also drops the `p256` crate; and the browser-side vector and differential tests run in the real-browser suite rather than `browser.rs`, which drives a fake DOM.
-- **Older browsers without Ed25519 or X25519 in Web Crypto:** K either refuses to run there, with a clear message, or gives these keys no fallback. This follows the browser baseline in [38-deployment.md](38-deployment.md).
+- **Older browsers without Ed25519 or X25519 in Web Crypto:** Kobra either refuses to run there, with a clear message, or gives these keys no fallback. This follows the browser baseline in [38-deployment.md](38-deployment.md).

@@ -31,7 +31,7 @@ component CartBadge {
 ## Injection
 
 - **Injection is resolved at compile time.** The compiler builds the dependency graph. A cycle or a missing implementation is a compile error. There is no runtime reflection.
-- **Fields are injected with `@Inject`.** Spring prefers constructor injection for testability, but K tests override bindings with `use` rules ([21-testing.md](21-testing.md)), so the more readable form is used.
+- **Fields are injected with `@Inject`.** Spring prefers constructor injection for testability, but Kobra tests override bindings with `use` rules ([21-testing.md](21-testing.md)), so the more readable form is used.
 - **Injected fields are always private** to the declaration that injects them ([16-modules.md](16-modules.md)).
 
 ## Initialization: `init()`
@@ -130,7 +130,7 @@ Why:
 
 - Remote-call logic (optimistic updates, caching, retries, syncing results into state) lives in one place.
 - Component tests only need to mock services.
-- The rules are fixed, not configurable, so every K codebase has the same architecture.
+- The rules are fixed, not configurable, so every Kobra codebase has the same architecture.
 
 ## Server/client boundary
 

@@ -110,6 +110,13 @@ fn a_bump_moves_every_version_string_version_rs_checks() {
     let new = Version::parse(&format!("{}.{}.0", old.major, old.minor + 1)).unwrap();
     let tool = tool(root);
     assert_eq!(tool, "k");
+    // The toolchain image is the project's (`ghcr.io/<owner>/kobra`), not
+    // the tool's name.
+    let image = xtask::project::Project::read(root)
+        .image_name()
+        .unwrap()
+        .to_owned();
+    assert_eq!(image, "kobra");
     let changes = bump(root, &new).unwrap();
     for c in &changes {
         fs::write(root.join(&c.path), &c.text).unwrap();
@@ -171,10 +178,11 @@ fn a_bump_moves_every_version_string_version_rs_checks() {
                     problems.push(format!("{rel}:{}: {t}", n + 1));
                 }
             }
-            if line.contains(&format!("/{tool}:{new}")) {
+            if line.contains(&format!("/{image}:{new}")) {
                 tags += 1;
             }
-            if line.contains(&format!("/{tool}:{old}")) || line.contains(&format!("{tool} {old}")) {
+            if line.contains(&format!("/{image}:{old}")) || line.contains(&format!("{tool} {old}"))
+            {
                 problems.push(format!("{rel}:{}: still names {old}: {t}", n + 1));
             }
             if rel.ends_with(".md") && t.starts_with(&format!("{tool} = \"{}\"", old.minor_text()))

@@ -1,6 +1,6 @@
 # Diagnostics
 
-Every problem the K toolchain reports about user input is a structured diagnostic. This document lists the
+Every problem the Kobra toolchain reports about user input is a structured diagnostic. This document lists the
 rules all diagnostics follow and every registered code with its **primary span convention**: exactly
 which source text the primary span covers. The conventions are normative, because `.diag` golden files
 (see [testing.md](testing.md)) assert spans exactly.
@@ -125,7 +125,7 @@ primary span is a gap; a junk run that starts at the beginning of a line names i
 
 Suggested parser messages: K0100 ``expected `)`, found `,` `` (the found part is `end of line` or
 `end of file` when the span is a gap); K0101 ``unclosed delimiter `(` ``; K0102 `expected a line break
-before this`; K0103 `semicolons are not used in K; end the statement with a line break`; K0104 ``` `&&` is
+before this`; K0103 `semicolons are not used in Kobra; end the statement with a line break`; K0104 ``` `&&` is
 not an operator; write `and` ```; K0112 ``unknown unit `pz` ``; K0134 `nesting exceeds the limit of 400
 levels`.
 
@@ -207,7 +207,7 @@ cases for checks that don't exist yet are marked pending.
 | K2011 | `assignment-to-let` | error | The assigned place (left side of `=`, or the receiver of a mutating call); label: the `let`. | Change `let` to `var` when the binding is local (maybe-incorrect). |
 | K2012 | `bool-literal-comparison` | warning | The comparison expression. | `x` or `not x` (machine-applicable). |
 | K2013 | `invalid-operands` | error | The binary or prefix expression. Covers `==`/`!=` without `Equatable` or across types, `<` without `Comparable`, arithmetic on non-numbers, `Int` with `Double` (no implicit conversions), a length times a length, and `-` on a `Bool`. Operands of `and`/`or`/`not` that aren't `Bool` are K2001 at the operand instead; arithmetic across unit dimensions is K2101. | — |
-| K2014 | `not-an-interface` | error | The type in the `implements` clause (or `where` predicate) that names a struct, class, enum or built-in type: K has no inheritance. | — |
+| K2014 | `not-an-interface` | error | The type in the `implements` clause (or `where` predicate) that names a struct, class, enum or built-in type: Kobra has no inheritance. | — |
 | K2015 | `interface-member-mismatch` | error | The implementing member's name token; label: the requirement's name, `required here`. | — |
 | K2016 | `stored-field-in-extension` | error | The field's name token. | — |
 | K2017 | `unwrap-required` | error | The optional receiver of the `.` member access. | ``Use `?.` ``: replace the `.` with `?.` (maybe-incorrect). |
@@ -312,7 +312,7 @@ Messages and detail lines for this range that the corpus pins exactly:
 
 | Code | Name | Severity | Primary span | Fix |
 |---|---|---|---|---|
-| K3101 | `unknown-element` | error | The element name token. | Replace an HTML name with its K element (maybe-incorrect). |
+| K3101 | `unknown-element` | error | The element name token. | Replace an HTML name with its Kobra element (maybe-incorrect). |
 | K3102 | `missing-element-argument` | error | As K2003. | Insert the label (maybe-incorrect). |
 | K3103 | `unknown-attribute` | error | The name after `.`. | The closest attribute (maybe-incorrect). |
 | K3104 | `duplicate-attribute` | error | The second chained name; label: the first. | — |

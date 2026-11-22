@@ -138,7 +138,7 @@ public config PushConfig {
 - **`VapidWebPush` is the one implementation,** bound with no `use` rule, like `SmtpEmailProvider`. It reads `PushConfig`, which a build lists in `dist/app config` only when the app reaches `WebPush`.
 - **The key is optional, so `k dev` needs no setup.** Without `K_PUSH_PRIVATE_KEY`, `serverKey` is `nil` (the page hides its "Notify me") and `send` throws `.notConfigured`. A deployment that pushes sets it, usually from a file (`K_PUSH_PRIVATE_KEY_FILE`).
 - **The request is RFC 8030 with RFC 8291 and RFC 8292:** `POST` to the endpoint with `TTL` (`timeToLive` in whole seconds), `Content-Encoding: aes128gcm`, and `Authorization: vapid t=<JWT>, k=<public key>`. The JWT is ES256 with `aud` the endpoint's origin, `exp` twelve hours ahead and `sub` the contact when set. One token per push service is reused until an hour before it expires.
-- **The message is a `SystemNotification` as JSON,** with `opens` already turned into the page's path (`{"title", "body", "tag", "url"}`), because the worker runs no app code and can't call `Page$href`. It is padded to nothing: K adds no length hiding, which RFC 8291 leaves to the sender.
+- **The message is a `SystemNotification` as JSON,** with `opens` already turned into the page's path (`{"title", "body", "tag", "url"}`), because the worker runs no app code and can't call `Page$href`. It is padded to nothing: Kobra adds no length hiding, which RFC 8291 leaves to the sender.
 - **The endpoint must be `https`,** except `http` to a loopback address, which is what the stdlib's own tests' fake push service listens on. Anything else is `.invalidSubscription` before a byte is sent.
 - **`WebPushError.expired` is the only signal that a subscription is gone;** there is no feedback channel. The app deletes the stored subscription on it, as the job above does.
 
@@ -240,7 +240,7 @@ Built tests first, as designed above, with these decisions and changes:
 
 - **Firebase Cloud Messaging or another hosted sender:** an account, a vendor SDK and a third party that sees every message.
 - **Unencrypted or "tickle" pushes** (an empty push, then the worker fetches the message): the worker would need the session and app code, and every push would cost a request back to the server.
-- **Running app code in the service worker** (a K `onPush` handler): a second runtime, bundle and set of rules for code that can't touch the page, for a feature that only needs to show a notification.
+- **Running app code in the service worker** (a Kobra `onPush` handler): a second runtime, bundle and set of rules for code that can't touch the page, for a feature that only needs to show a notification.
 - **`subscribe` as the prompt:** see above; it would have to come before the rpc that fetches the key, which makes the key a page-load concern.
 - **Exposing ECDH P-256 and AES-128-GCM in `k.crypto`:** no app use beyond push, and two more ways to encrypt that aren't `Sealed`.
 

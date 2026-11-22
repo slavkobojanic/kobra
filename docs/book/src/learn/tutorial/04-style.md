@@ -9,7 +9,7 @@ the repository as `examples/learn/shelf/04-style`.
 
 ## Name the colors and sizes
 
-A design uses the same few colors and sizes everywhere. In K they're written once, as tokens in the app's
+A design uses the same few colors and sizes everywhere. In Kobra they're written once, as tokens in the app's
 theme, and every style refers to them by name. `k new` wrote a theme with three tokens, and the page has
 used two of them since step 1: `padding: .lg` and `font: .body`. Replace `src/theme/AppTheme.k` with a
 fuller one:
@@ -51,7 +51,7 @@ public theme AppTheme {
   value. `color muted: Color = #78716C` makes `.muted` a color any style can use.
 - The kinds are different types. A `Spacing` is a length for gaps and padding, a `Radius` for rounded
   corners, so a style can't use a color where a size belongs.
-- `text` and `background` are the colors of the page itself. K uses them for the page's text and
+- `text` and `background` are the colors of the page itself. Kobra uses them for the page's text and
   background without a style of yours.
 - `variant dark { … }` is another set of values for tokens the theme already has. It can't add new
   ones. `matches .prefersDark` turns it on when the system is set to dark mode, so the app follows the
@@ -226,7 +226,7 @@ without changing the system: open DevTools, press Ctrl+Shift+P (Cmd+Shift+P on a
 **Emulate CSS prefers-color-scheme: dark**.
 
 Every style you wrote uses tokens, so each one follows the variant without a change: the rows' lines,
-the fields and the button all use the dark values. K also tells the browser the page is dark, so its
+the fields and the button all use the dark values. Kobra also tells the browser the page is dark, so its
 scrollbars and built-in controls turn dark too.
 
 **Try it:** add a token to the variant only. Add `accent = #FDE68A` as the last line of

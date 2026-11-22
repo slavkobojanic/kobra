@@ -18,7 +18,7 @@ maximumAttempts = 4    // compile error: maximumAttempts is a let
 
 ## Type annotations
 
-K infers types from initial values. Write the type when there is no initial value, when the inferred
+Kobra infers types from initial values. Write the type when there is no initial value, when the inferred
 type isn't the one you want, or when the declaration is part of an API:
 
 ```k

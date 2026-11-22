@@ -1,6 +1,6 @@
 # Components
 
-A component is a reusable piece of UI. In K it is **a single declaration** whose body holds its inputs,
+A component is a reusable piece of UI. In Kobra it is **a single declaration** whose body holds its inputs,
 state, functions, view and styles: Vue's single-file component, without the XML sections.
 
 ```k

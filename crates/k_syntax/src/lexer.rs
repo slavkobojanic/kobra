@@ -738,7 +738,7 @@ impl<'a> Lexer<'a> {
             }
             let name = self.text.get(name_start..end).unwrap_or("");
             diagnostic = diagnostic.with_help(format!(
-                "K has no `$` sigil; to pass a two-way binding, write `bind {name}`"
+                "Kobra has no `$` sigil; to pass a two-way binding, write `bind {name}`"
             ));
         }
         self.diagnostic(diagnostic);

@@ -1,7 +1,7 @@
 # Project layout
 
-Every K project, app or package, has the same layout. There is no setting to move the source directory,
-no build script and no tool configuration, so once you know one K project you know where everything is in
+Every Kobra project, app or package, has the same layout. There is no setting to move the source directory,
+no build script and no tool configuration, so once you know one Kobra project you know where everything is in
 all of them.
 
 ```text
@@ -24,7 +24,7 @@ dist/            build output (git-ignored)
 
 ## `k.toml`
 
-The manifest holds only what can't be expressed in K code:
+The manifest holds only what can't be expressed in Kobra code:
 
 ```toml
 [package]

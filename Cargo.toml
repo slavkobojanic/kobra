@@ -1,4 +1,4 @@
-# The K toolchain workspace.
+# The Kobra toolchain workspace.
 #
 # Every crate lives under `crates/`. The layout, the responsibilities of each
 # crate and the dependency rules between them are documented in
@@ -16,6 +16,26 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
 publish = false
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/slavkobojanic/kobra"
+homepage = "https://slavkobojanic.github.io/kobra/"
+
+# The project's name and where it is published: the one source for them
+# (docs/design/48-releases-and-versioning.md, "Owner decisions"). The docs
+# build fills the install scripts in from it, and
+# crates/k_cli/tests/version.rs checks that the workflows, the Dockerfiles,
+# the editor extension and the docs name the same places.
+[workspace.metadata.project]
+# The language's name, in prose. The command stays `k` and source files `.k`.
+name = "Kobra"
+# The GitHub repository; its Releases host the archives.
+repository = "https://github.com/slavkobojanic/kobra"
+# The docs site (GitHub Pages): the book, install.sh, install.ps1, index.json.
+site = "https://slavkobojanic.github.io/kobra/"
+# The toolchain image.
+image = "ghcr.io/slavkobojanic/kobra"
+# The VS Code extension, `<publisher>.<name>`.
+extension = "slavkobojanic.kobra"
 
 [workspace.dependencies]
 # Internal crates.

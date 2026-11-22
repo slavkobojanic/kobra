@@ -946,7 +946,7 @@ impl Checker<'_, '_, '_> {
             Diagnostic::new(
                 codes::KEBAB_CASE_CSS_KEYWORD,
                 self.span(range),
-                format!("CSS keywords are camel case in K: `{text}` is written `{camel}`"),
+                format!("CSS keywords are camel case in Kobra: `{text}` is written `{camel}`"),
             )
             .with_fix(Fix::replace(
                 format!("Replace `{text}` with `{camel}`"),

@@ -1,6 +1,6 @@
 # Memos
 
-A voice memo recorder written entirely in K: press **Record**, watch the microphone's level, pause and resume, stop, and the memo is stored on the server and appears in a list where it plays, downloads and deletes. Data lives in SQLite. It needs no account and no external server.
+A voice memo recorder written entirely in Kobra: press **Record**, watch the microphone's level, pause and resume, stop, and the memo is stored on the server and appears in a list where it plays, downloads and deletes. Data lives in SQLite. It needs no account and no external server.
 
 It is the example of `k.media` ([`docs/design/46-media-and-rtc.md`](../../docs/design/46-media-and-rtc.md)): capturing the microphone with a permission that is a value, recording to a `File`, a live level meter, and playing a recording back, with every part tested against hermetic doubles.
 

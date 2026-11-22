@@ -1,7 +1,7 @@
 # Types
 
-K is statically and strongly typed. Every value has a type known at compile time, and types are erased
-when K compiles to JavaScript, so they cost nothing at runtime.
+Kobra is statically and strongly typed. Every value has a type known at compile time, and types are erased
+when Kobra compiles to JavaScript, so they cost nothing at runtime.
 
 ## Core types
 
@@ -124,7 +124,7 @@ let displayName = nickname ?? "friend"
 ~}
 ```
 
-There is no force-unwrap operator. K has no `!`, and no way to pretend an optional is present.
+There is no force-unwrap operator. Kobra has no `!`, and no way to pretend an optional is present.
 
 ## Type inference
 
@@ -204,7 +204,7 @@ a value itself, an optional's value and a list's elements. A `Map<String, Card>`
 ## Implicit member expressions
 
 A leading `.name` resolves against **the type expected at that spot**. This one rule is behind much of
-K's readable syntax:
+Kobra's readable syntax:
 
 ```k,ignore
 let c: Color = .primary                  // Color.primary
@@ -239,7 +239,7 @@ anything more than a quick pair, declare a [struct](declarations.md#structs) wit
 
 ## Declaring your own types
 
-K has a small set of kinds of type, each with a distinct job:
+Kobra has a small set of kinds of type, each with a distinct job:
 
 | Kind | Use it for |
 |---|---|

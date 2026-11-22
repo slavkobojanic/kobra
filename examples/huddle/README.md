@@ -1,6 +1,6 @@
 # Huddle
 
-A small team chat written in K: sign in with a name, pick or create a room, and talk. Messages arrive live in every tab over a **channel**, survive a dropped connection, and are stored in SQLite (Postgres in production). Each room shows who is in it and who is typing, and the lobby shows how many messages you haven't read in each room, across every replica of the app. A room's creator moderates it, and a room may have a password.
+A small team chat written in Kobra: sign in with a name, pick or create a room, and talk. Messages arrive live in every tab over a **channel**, survive a dropped connection, and are stored in SQLite (Postgres in production). Each room shows who is in it and who is typing, and the lobby shows how many messages you haven't read in each room, across every replica of the app. A room's creator moderates it, and a room may have a password.
 
 It is a teaching example for channels ([`docs/design/44-channels.md`](../../docs/design/44-channels.md)), the typed, two-way connection between a browser tab and its server, and for Web Push ([`docs/design/50-push.md`](../../docs/design/50-push.md)): a room's **Notify me of new messages** tells you about new messages while no tab is open.
 

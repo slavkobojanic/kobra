@@ -1,4 +1,4 @@
-# libFuzzer dictionary for K: keywords, contextual keywords, operators and
+# libFuzzer dictionary for Kobra: keywords, contextual keywords, operators and
 # lexer-mode switches. Use with: cargo +nightly fuzz run <target> -- -dict=fuzz/k.dict
 # (paths are relative to the repository root).
 "and"

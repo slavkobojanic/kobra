@@ -7,9 +7,9 @@
 //! # Comments start with `#`; blank lines are ignored.
 //! error[K0002] 3:13-3:14: unterminated string literal
 //! warning[K3204] 7:5-7:12
-//! error[K0104] 2:6-2:8: K uses `and`, not `&&`
+//! error[K0104] 2:6-2:8: Kobra uses `and`, not `&&`
 //!   label 2:1-2:3: condition starts here
-//!   note: K spells logical operators as words
+//!   note: Kobra spells logical operators as words
 //!   help: write `a and b`
 //!   fix "Replace `&&` with `and`"
 //!     edit 2:6-2:8 "and"
@@ -606,9 +606,9 @@ mod tests {
     const SAMPLE: &str = "\
 # comment
 
-error[K0104] 2:6-2:8: K uses `and`, not `&&`
+error[K0104] 2:6-2:8: Kobra uses `and`, not `&&`
   label 2:1-2:3: condition starts here
-  note: K spells logical operators as words
+  note: Kobra spells logical operators as words
   help: write `a and b`
   fix \"Replace `&&` with `and`\"
     edit 2:6-2:8 \"and\"
@@ -623,7 +623,7 @@ error[K0002] 1:1-1:2:
         assert_eq!(entries[0].code, "K0104");
         assert_eq!(
             entries[0].message.as_deref(),
-            Some("K uses `and`, not `&&`")
+            Some("Kobra uses `and`, not `&&`")
         );
         assert_eq!(entries[0].details.len(), 4);
         assert!(
@@ -669,7 +669,7 @@ error[K0002] 1:1-1:2:
         let source = "if a && b {}\n";
         let file = FileId::new(0);
         let at = Span::new(file, TextRange::new(5.into(), 7.into()));
-        let d = Diagnostic::new(codes::SYMBOLIC_AND, at, "K uses `and`, not `&&`")
+        let d = Diagnostic::new(codes::SYMBOLIC_AND, at, "Kobra uses `and`, not `&&`")
             .with_fix(Fix::replace("Replace `&&` with `and`", at, "and"));
         entries_for(&[d], source)
     }
@@ -680,7 +680,7 @@ error[K0002] 1:1-1:2:
         assert_eq!(entries[0].span.to_string(), "1:6-1:8");
         assert_eq!(
             render(&entries),
-            "error[K0104] 1:6-1:8: K uses `and`, not `&&`\n  fix \"Replace `&&` with `and`\"\n    edit 1:6-1:8 \"and\"\n"
+            "error[K0104] 1:6-1:8: Kobra uses `and`, not `&&`\n  fix \"Replace `&&` with `and`\"\n    edit 1:6-1:8 \"and\"\n"
         );
     }
 

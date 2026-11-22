@@ -1,7 +1,7 @@
-# A tour of K
+# A tour of Kobra
 
 This chapter builds a small full-stack feature, a guestbook, from the database table to the button.
-It moves quickly and skips details: the point is to show how the pieces of a K app fit together. Every
+It moves quickly and skips details: the point is to show how the pieces of a Kobra app fit together. Every
 topic it touches has its own chapter later.
 
 Here is the plan, from the bottom up:
@@ -152,7 +152,7 @@ service GuestbookApi implements GuestbookProtocol {
 
 `SignRequest` is `Validatable`, so the runtime validates every request **before** `sign` runs. A
 client that skips the form can't skip the rules. The handler itself never throws `rpcFailure`; only the
-runtime produces it. The current time comes from the injected `Clock` service: K has no ambient way to
+runtime produces it. The current time comes from the injected `Clock` service: Kobra has no ambient way to
 read it, so tests control it.
 
 ## The client service

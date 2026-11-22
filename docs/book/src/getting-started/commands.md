@@ -142,7 +142,7 @@ k fmt --check
 `k fmt` rewrites code into the canonical form: four-space indentation, one space where the rules say so,
 one blank line between view nodes and between declarations, sorted imports, and none of the redundant
 spellings that have a machine-applicable fix, such as `public` on a member. It has no options, so every
-K project looks the same. It keeps your line breaks and every comment.
+Kobra project looks the same. It keeps your line breaks and every comment.
 
 - With no path it formats the whole project, or the whole workspace from any directory inside one. A
   directory formats the `.k` files below it (build output and hidden directories aside); a file formats
@@ -187,7 +187,7 @@ k upgrade
 Moves the project to the running toolchain: it raises `k = "…"` in `k.toml` and the version in `k.lock`,
 moves the lockfiles to the toolchain's format and applies the fixes of the deprecations in between, then
 prints what it couldn't fix. Commit first: it refuses uncommitted changes unless you pass
-`--allow-dirty`. See [Upgrading K](../apps/upgrading.md).
+`--allow-dirty`. See [Upgrading Kobra](../apps/upgrading.md).
 
 ## `k build`
 

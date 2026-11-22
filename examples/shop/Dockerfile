@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# One Dockerfile for both apps of the workspace. The K toolchain checks and
+# One Dockerfile for both apps of the workspace. The Kobra toolchain checks and
 # builds every member, and only the chosen app's single executable,
 # dist/<app>/app, is copied into a minimal runtime image
 # (docs/design/38-deployment.md):
@@ -15,7 +15,7 @@
 # The toolchain to build with. By default it is compiled from this
 # repository's source, so nothing needs an account or a published image;
 # with a published toolchain image, pass
-# --build-arg K_TOOLCHAIN=ghcr.io/k-lang/k:0.1.0 and the source stage is
+# --build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0 and the source stage is
 # skipped.
 ARG K_TOOLCHAIN=k-toolchain-from-source
 ARG RUST_VERSION=1.99

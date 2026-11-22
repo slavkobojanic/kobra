@@ -11,7 +11,8 @@
 //! latest/download/…                       the newest stable's files (the host's "latest" alias)
 //! ```
 //!
-//! Each archive holds `k-<version>-<target>/{k,LICENSE,README.md}`, where
+//! Each archive holds
+//! `k-<version>-<target>/{k,LICENSE-MIT,LICENSE-APACHE,README.md}`, where
 //! `k` is the shell script the test gives.
 
 use std::fs;
@@ -105,7 +106,7 @@ impl FakeRelease {
     }
 
     /// Writes `k-<version>-<target>.tar.gz` holding `k` (the script
-    /// `k_script`, named `exe`), `LICENSE` and `README.md`, and adds it to
+    /// `k_script`, named `exe`), the licences and `README.md`, and adds it to
     /// its version's `SHA256SUMS`.
     pub fn archive(
         &mut self,
@@ -118,8 +119,9 @@ impl FakeRelease {
         let bytes = tar_gz(&[
             (&format!("{top}/"), b"", 0o755),
             (&format!("{top}/{exe}"), k_script.as_bytes(), 0o755),
-            (&format!("{top}/LICENSE"), b"MIT\n", 0o644),
-            (&format!("{top}/README.md"), b"# K\n", 0o644),
+            (&format!("{top}/LICENSE-MIT"), b"MIT\n", 0o644),
+            (&format!("{top}/LICENSE-APACHE"), b"Apache-2.0\n", 0o644),
+            (&format!("{top}/README.md"), b"# Kobra\n", 0o644),
         ]);
         let name = format!("{top}.tar.gz");
         let dir = self.root.join(format!("download/v{version}"));

@@ -53,9 +53,9 @@ Consequences worth knowing:
 - `try` and `await` must start the expression they cover: write `let x = try f() + 1`, not
   `let x = 1 + try f()`. Inside arguments and parentheses they are fine: `f(try g())`.
 
-## What K doesn't have
+## What Kobra doesn't have
 
-| Not in K | Use instead |
+| Not in Kobra | Use instead |
 |---|---|
 | `a ? b : c` | `if a { b } else { c }` |
 | `&&`, `\|\|`, `!` | `and`, `or`, `not` |

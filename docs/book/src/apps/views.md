@@ -1,6 +1,6 @@
 # Views and built-in elements
 
-A component's `view { }` block describes its UI. It isn't HTML or XML: it's K code, written with the same
+A component's `view { }` block describes its UI. It isn't HTML or XML: it's Kobra code, written with the same
 calls, trailing blocks and chained methods as everything else, and checked by the same type checker.
 
 <!-- The declarations the samples in this chapter use; checked, not rendered.
@@ -234,7 +234,7 @@ HTML's abbreviated names are replaced by **full English names in camel case**. E
 correct semantic HTML element. Writing an HTML name is a compile error with a hint, for example
 "`a` → did you mean `link`?".
 
-| HTML | K | Notes |
+| HTML | Kobra | Notes |
 |---|---|---|
 | `a` | `link(to: .page)` / `link(url: Url("https://…"))` | Internal links are typed pages |
 | `img` | `image(source:, description:)` | `alt` → `description`, required |

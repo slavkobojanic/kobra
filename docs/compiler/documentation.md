@@ -17,10 +17,10 @@ people changing the tests and generators. Items marked **Planned** aren't built.
 | `Planned (id)` / `Preview (id)` notes name rows of `k_sema::features` (`crates/k_sema/src/features.rs`) with the same status; every planned or preview row is named by a note, and the design-status page's Planned and Preview tables are generated from them | `book.rs` | — |
 | The Planned table of `reference/design-status.md` is generated from the notes, between `<!-- gen:planned … -->` and `<!-- /gen -->` | `book.rs` | `K_BLESS=1 cargo test -p k_sema --test it -- book::` |
 | No `docs/book/check/stale.txt` pattern occurs in prose or in `text`, `bash`, `sh`, `console` and `toml` blocks (the diagnostics page, which shows mistakes on purpose, is skipped) | `book.rs` | — |
-| Inline code that reads as a qualified K name (`RemoteClient.at`, `k.auth.Session`) or an annotation (`@Load`) resolves in the stdlib or the annotation registry; `docs/book/check/inline-names.txt` lists deliberate non-symbols, and an entry that resolves or is unused fails | `book.rs` | — |
+| Inline code that reads as a qualified Kobra name (`RemoteClient.at`, `k.auth.Session`) or an annotation (`@Load`) resolves in the stdlib or the annotation registry; `docs/book/check/inline-names.txt` lists deliberate non-symbols, and an entry that resolves or is unused fails | `book.rs` | — |
 | Every `k …` line in `bash`/`sh`/`console` blocks, and inline `` `k …` `` code outside Planned paragraphs, parses with `Cli::try_parse_from`; `# planned` lines must not | `crates/k_cli/tests/book_commands.rs` (includes `src/cli.rs` by path) | — |
 | Probes: a planned command (`k new`, `k fmt`, `k doc`, `k explain`, `k add`, `k proto export`) doesn't parse; when it does, the test lists the notes to remove | `book_commands.rs` (`PROBES`) | — |
-| `reference/web-platform.md` is generated from `docs/book/data/web-apis.toml`, between `<!-- gen:web-platform … -->` and `<!-- /gen -->`; every row's K API resolves in the stdlib, every file of `crates/k_runtime/js/runtime` is claimed by a row or listed under `[internal]`, and every Chromium or Firefox claim names a `#[test]` of `crates/k_cli/tests/chrome.rs` or `firefox.rs` (§6) | `crates/k_sema/tests/web_platform.rs` | `K_BLESS=1 cargo test -p k_sema --test it -- web_platform::` |
+| `reference/web-platform.md` is generated from `docs/book/data/web-apis.toml`, between `<!-- gen:web-platform … -->` and `<!-- /gen -->`; every row's Kobra API resolves in the stdlib, every file of `crates/k_runtime/js/runtime` is claimed by a row or listed under `[internal]`, and every Chromium or Firefox claim names a `#[test]` of `crates/k_cli/tests/chrome.rs` or `firefox.rs` (§6) | `crates/k_sema/tests/web_platform.rs` | `K_BLESS=1 cargo test -p k_sema --test it -- web_platform::` |
 | `k --version`, `editors/vscode/package.json`, the examples' `k = "…"`, toolchain image tags (examples, `38-deployment.md`, the book) and the book's `k = "…"` and `k X.Y.Z` agree with `Cargo.toml` (or are `{{k_version}}`) | `crates/k_cli/tests/version.rs` | — |
 
 ## 2. Planned checks and where they go
@@ -198,8 +198,8 @@ design topic or the code changes):
 
 ## 6. The web platform page
 
-`reference/web-platform.md` says which browser APIs K wraps, through which K API, where it runs, which
-engines the real-browser suite checks it in, and what K doesn't wrap and why. Its tables are generated
+`reference/web-platform.md` says which browser APIs Kobra wraps, through which Kobra API, where it runs, which
+engines the real-browser suite checks it in, and what Kobra doesn't wrap and why. Its tables are generated
 from `docs/book/data/web-apis.toml`; the prose above and below the `<!-- gen:web-platform … -->` markers
 is hand-written. The decision is in [49](../design/49-documentation.md#the-web-platform-page), and the
 statuses come from [45's inventory](../design/45-web-platform.md#inventory) and the topics it links:
@@ -222,5 +222,5 @@ Update the data, then regenerate the page with
   the heading that decides it (the test checks the heading exists) and a one-line `note`.
 
 The checks: rows are well formed (status, tier, side, required fields, design heading, guide page,
-planned feature id), K APIs resolve, runtime files are all accounted for, engine claims name tests, and
+planned feature id), Kobra APIs resolve, runtime files are all accounted for, engine claims name tests, and
 the page matches the data. They read files only and run in milliseconds.

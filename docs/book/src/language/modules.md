@@ -1,6 +1,6 @@
 # Modules and visibility
 
-K organizes code the way Java does: **a directory is a module**, and visibility is decided per module.
+Kobra organizes code the way Java does: **a directory is a module**, and visibility is decided per module.
 There is nothing to configure, and no file declares which module it belongs to.
 
 ## Modules come from directories

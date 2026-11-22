@@ -1,21 +1,21 @@
 # Philosophy
 
-Every language makes thousands of small decisions. K makes them by following a short list of
+Every language makes thousands of small decisions. Kobra makes them by following a short list of
 principles, so that new decisions stay consistent with old ones. Knowing these principles makes the
-rest of the language predictable: when you wonder how something is written in K, the answer usually
+rest of the language predictable: when you wonder how something is written in Kobra, the answer usually
 follows from one of them.
 
 ## Explicit over brief
 
 Code is read far more often than it is written, and today much of it is written by agents and read by
-humans. K therefore prefers explicit wording to terseness. A few extra characters are cheap; a
+humans. Kobra therefore prefers explicit wording to terseness. A few extra characters are cheap; a
 misunderstanding during review is not.
 
 ## Keywords over symbols
 
-K uses English keywords where other languages use symbols:
+Kobra uses English keywords where other languages use symbols:
 
-| Instead of | K writes |
+| Instead of | Kobra writes |
 |---|---|
 | `$quantity` (two-way binding) | `bind quantity` |
 | `isOpen ? "Close" : "Open"` | `if isOpen { "Close" } else { "Open" }` |
@@ -30,13 +30,13 @@ let label = if done { "Done" } else { "Pending" }
 ~}
 ```
 
-Symbols survive only where they are universal (`+`, `==`, `<`) or carry one of K's core mechanisms:
+Symbols survive only where they are universal (`+`, `==`, `<`) or carry one of Kobra's core mechanisms:
 
 - `@` for annotations
 - `?` for optional types and `?.` for optional chaining
 - `=>` for lambdas
 - `.name` for implicit member expressions
-- `{ }` for "a K expression goes here", in strings and in styles
+- `{ }` for "a Kobra expression goes here", in strings and in styles
 
 Inside `style` blocks, CSS syntax is kept as it is, apart from camelCase property names and keyword
 values (`justifyContent: spaceBetween`).
@@ -44,8 +44,8 @@ values (`justifyContent: spaceBetween`).
 ## One obvious way
 
 Each thing has one way to do it. When a language offers several equivalent spellings, every codebase
-picks a different one, and agents produce inconsistent code. K's formatter has no options, imports
-have no wildcards, queries have one form, and the project layout is fixed. Two K codebases look alike.
+picks a different one, and agents produce inconsistent code. Kobra's formatter has no options, imports
+have no wildcards, queries have one form, and the project layout is fixed. Two Kobra codebases look alike.
 
 When a redundant second spelling still parses, the compiler reports it with a machine-applicable fix (`K1302`, `K2012`, `K2303`, `K4014`):
 
@@ -93,7 +93,7 @@ catch .outOfStock(let available) { … }
 
 ## Required values are named; optional values are chained
 
-K builds the Java builder pattern into the language. Required values are named arguments. Optional
+Kobra builds the Java builder pattern into the language. Required values are named arguments. Optional
 values are set with chained calls:
 
 ```k
@@ -129,7 +129,7 @@ set to a constant read the same way.
 
 Whatever can be resolved statically is resolved statically: dependency injection, URLs, class
 references, Protobuf field numbers, reactive dependency hints. A mistake that would be a runtime bug in
-another stack is a compile error in K. Linking to a page that doesn't exist, styling with a class that
+another stack is a compile error in Kobra. Linking to a page that doesn't exist, styling with a class that
 isn't defined, or injecting a database into browser code all fail the build.
 
 - **Validated literals are checked at compile time.** `Url("https://…")`, `Uuid("…")`,
@@ -165,7 +165,7 @@ an agent can apply directly:
 
 ## Where the ideas come from
 
-| From | K takes |
+| From | Kobra takes |
 |---|---|
 | Vue | single-declaration components with scoped styles |
 | Swift | readable declarative views, `@State` and `@Binding`, implicit member expressions, `guard` |

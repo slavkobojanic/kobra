@@ -151,7 +151,7 @@ pub struct ArchiveError(pub String);
 
 impl std::fmt::Display for ArchiveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "not a K app archive: {}", self.0)
+        write!(f, "not a Kobra app archive: {}", self.0)
     }
 }
 

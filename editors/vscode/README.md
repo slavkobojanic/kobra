@@ -1,6 +1,6 @@
-# K for Visual Studio Code
+# Kobra for Visual Studio Code
 
-Syntax highlighting for `.k` files and the K language server. The server is `k lsp`, which ships in the
+Syntax highlighting for `.k` files and the Kobra language server. The server is `k lsp`, which ships in the
 `k` binary: it is the compiler's own analysis, so the editor shows exactly what `k check` reports.
 
 What you get:
@@ -16,9 +16,9 @@ What you get:
 - completion (names in scope, members after `.`, implicit members such as `padding: .md`, annotations after
   `@`), signature help, outline, workspace symbols and inlay hints with each page's derived URL;
 - **formatting** with `k fmt`'s formatter (Format Document, Format Selection), **on save by default**: the
-  extension sets `editor.formatOnSave`, four-space indentation and no indentation detection for K files.
+  extension sets `editor.formatOnSave`, four-space indentation and no indentation detection for Kobra files.
   To turn saving off, add `"[k]": { "editor.formatOnSave": false }` to your settings;
-- the **toolchain's version** in the language status item (the `{}` next to "K" in the status bar), as the
+- the **toolchain's version** in the language status item (the `{}` next to "Kobra" in the status bar), as the
   server reports it: the `k` on `PATH` runs the project's pinned toolchain, so this is the version the
   project uses. Clicking it restarts the server.
 
@@ -28,8 +28,8 @@ The extension needs the `k` binary on `PATH` (or set `k.server.path`). Then, fro
 
 ```sh
 npm install                 # only vscode-languageclient
-npx @vscode/vsce package    # builds k-language-0.1.0.vsix
-code --install-extension k-language-0.1.0.vsix
+npx @vscode/vsce package    # builds kobra-0.1.0.vsix
+code --install-extension kobra-0.1.0.vsix
 ```
 
 For development, open this directory in VS Code and press `F5` to launch an Extension Development Host.
@@ -44,24 +44,24 @@ npm is used only here, for the extension. Building and testing the compiler neve
 | `k.server.extraEnv` | `{}` | Extra environment variables for the server |
 | `k.trace.server` | `off` | Log the protocol messages in the output panel (`messages`, `verbose`) |
 
-The command **K: Restart Language Server** restarts `k lsp`, for example after installing a new `k`.
+The command **Kobra: Restart Language Server** restarts `k lsp`, for example after installing a new `k`.
 
 ## Debugging
 
-VS Code's built-in JavaScript debugger debugs K as K, with breakpoints in `.k` files, through the source
+VS Code's built-in JavaScript debugger debugs Kobra as Kobra, with breakpoints in `.k` files, through the source
 maps `k dev` serves. Nothing else needs installing. Copy [`launch.json`](launch.json) and
 [`tasks.json`](tasks.json) into your project's `.vscode/` folder:
 
-- **K: debug in Chrome** starts `k dev --inspect` (the `k: dev` task) and opens the app in Chrome.
+- **Kobra: debug in Chrome** starts `k dev --inspect` (the `k: dev` task) and opens the app in Chrome.
   Breakpoints in components, pages, services and event handlers stop in the browser.
-- **K: attach to the server (k dev --inspect)** attaches to the server's isolate on port 9229.
+- **Kobra: attach to the server (k dev --inspect)** attaches to the server's isolate on port 9229.
   Breakpoints in rpc handlers, `@Load` code running on the server and endpoint pages stop there.
-- **K: browser and server** does both at once.
+- **Kobra: browser and server** does both at once.
 
-The maps name the K sources `/_k/src/<path>` in the browser and `k:/_k/src/<path>` on the server;
+The maps name the Kobra sources `/_k/src/<path>` in the browser and `k:/_k/src/<path>` on the server;
 `sourceMapPathOverrides` maps both to the workspace folder, which must be the folder with `k.toml`
 (change `${workspaceFolder}` to its subfolder otherwise). The runtime is on the maps' ignore list and in
-`skipFiles`, so stepping stays in K code. The book's Debugging chapter has the details, Firefox and
+`skipFiles`, so stepping stays in Kobra code. The book's Debugging chapter has the details, Firefox and
 Safari included.
 
 ## How it fits together

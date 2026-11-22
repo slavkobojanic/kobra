@@ -1,4 +1,4 @@
-# Formatting for the K toolchain sources. Only stable options are used so the
+# Formatting for the Kobra toolchain sources. Only stable options are used so the
 # stable toolchain formats identically everywhere.
 edition = "2024"
 max_width = 100

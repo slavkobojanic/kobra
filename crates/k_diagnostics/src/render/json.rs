@@ -15,7 +15,7 @@ use crate::span::Span;
 ///
 /// ```json
 /// {"code":"K0104","name":"symbolic-and","severity":"error",
-///  "message":"K uses `and`, not `&&`",
+///  "message":"Kobra uses `and`, not `&&`",
 ///  "span":{"file":"src/A.k","start":10,"end":12,
 ///          "startLine":1,"startColumn":11,"endLine":1,"endColumn":13},
 ///  "labels":[{"span":{...},"message":"..."}],
@@ -168,14 +168,14 @@ mod tests {
         let mut sources = SourceMap::new();
         let file = sources.add("src/A.k", "if a && b {}\n");
         let at = Span::new(file, TextRange::new(5.into(), 7.into()));
-        let d = Diagnostic::new(codes::SYMBOLIC_AND, at, "K uses `and`, not `&&`")
+        let d = Diagnostic::new(codes::SYMBOLIC_AND, at, "Kobra uses `and`, not `&&`")
             .with_label(at, "here")
             .with_note("n")
             .with_help("h")
             .with_fix(Fix::replace("Replace `&&` with `and`", at, "and"));
         let span = r#"{"file":"src/A.k","start":5,"end":7,"startLine":1,"startColumn":6,"endLine":1,"endColumn":8}"#;
         let expected = format!(
-            r#"{{"code":"K0104","name":"symbolic-and","severity":"error","message":"K uses `and`, not `&&`","span":{span},"labels":[{{"span":{span},"message":"here"}}],"notes":["n"],"helps":["h"],"fixes":[{{"message":"Replace `&&` with `and`","applicability":"machine-applicable","edits":[{{"span":{span},"replacement":"and"}}]}}]}}"#
+            r#"{{"code":"K0104","name":"symbolic-and","severity":"error","message":"Kobra uses `and`, not `&&`","span":{span},"labels":[{{"span":{span},"message":"here"}}],"notes":["n"],"helps":["h"],"fixes":[{{"message":"Replace `&&` with `and`","applicability":"machine-applicable","edits":[{{"span":{span},"replacement":"and"}}]}}]}}"#
         );
         assert_eq!(json(&d, &sources), expected);
     }

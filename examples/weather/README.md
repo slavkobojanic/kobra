@@ -1,8 +1,8 @@
-# Weather: a K example app
+# Weather: a Kobra example app
 
-A small weather dashboard written entirely in K. Search for a city, open its dashboard, and see current conditions, air quality and a 24-hour temperature chart. The data comes from the free [Open-Meteo](https://open-meteo.com) APIs, which need no API key, and refreshes every ten minutes while the page is open.
+A small weather dashboard written entirely in Kobra. Search for a city, open its dashboard, and see current conditions, air quality and a 24-hour temperature chart. The data comes from the free [Open-Meteo](https://open-meteo.com) APIs, which need no API key, and refreshes every ten minutes while the page is open.
 
-The app has about 1,020 lines of K, not counting blank lines, comments, tests and test fakes. It is meant to be read: every file shows one or two language features in a realistic setting.
+The app has about 1,020 lines of Kobra, not counting blank lines, comments, tests and test fakes. It is meant to be read: every file shows one or two language features in a realistic setting.
 
 The code follows the decisions in [`docs/design`](../../docs/design/README.md) (the ones it leans on most are listed [below](#design-documents-this-example-relies-on)) and the syntax in [`docs/compiler/grammar.md`](../../docs/compiler/grammar.md).
 

@@ -2,7 +2,7 @@
 
 ## Decision
 
-**An endpoint page is a page with HTTP handlers instead of a `view`.** It is K's one deliberate escape hatch to raw HTTP, and it exists **only for external callers** that can't speak K's RPC: webhooks, OAuth callbacks, health checks. The app's own client always uses RPC ([11-protocols-and-rpc.md](11-protocols-and-rpc.md)), so developers otherwise never see HTTP.
+**An endpoint page is a page with HTTP handlers instead of a `view`.** It is Kobra's one deliberate escape hatch to raw HTTP, and it exists **only for external callers** that can't speak Kobra's RPC: webhooks, OAuth callbacks, health checks. The app's own client always uses RPC ([11-protocols-and-rpc.md](11-protocols-and-rpc.md)), so developers otherwise never see HTTP.
 
 **Endpoint pages are allowed only with a fixed `at "…"` URL,** because the URL is a contract with the outside system.
 

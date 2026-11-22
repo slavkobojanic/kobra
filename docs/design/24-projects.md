@@ -2,7 +2,7 @@
 
 ## Decision
 
-Every K project, app or package, has a `k.toml` at its root and the same fixed layout. `k new` creates both. `k.toml` is the only configuration file, and it holds only what can't be expressed in K code.
+Every Kobra project, app or package, has a `k.toml` at its root and the same fixed layout. `k new` creates both. `k.toml` is the only configuration file, and it holds only what can't be expressed in Kobra code.
 
 ```toml
 [package]
@@ -83,7 +83,7 @@ k.lock           the toolchain that last built the app (written by `k build`, co
 dist/            build output; git-ignored
 ```
 
-- **The layout is fixed**, like the formatter: there is no `source = "src"` key. Every K repository looks the same.
+- **The layout is fixed**, like the formatter: there is no `source = "src"` key. Every Kobra repository looks the same.
 - **A project with an `App.k` is an app; one without is a library package.**
 
 ## Creating a project: `k new`
@@ -131,7 +131,7 @@ public page Home at "/" {
 
     view {
         main {
-            heading(level: 1) { "Hello from K" }
+            heading(level: 1) { "Hello from Kobra" }
 
             paragraph { "Count: {count}" }
 
@@ -167,7 +167,7 @@ charts/
 ## Why
 
 - TOML is readable, has comments, and is familiar from Cargo, which the toolchain is built with.
-- Keeping the manifest minimal follows "one obvious way": anything that *can* be K code (DI choices, layouts, metadata) *is* K code, where the compiler checks it.
+- Keeping the manifest minimal follows "one obvious way": anything that *can* be Kobra code (DI choices, layouts, metadata) *is* Kobra code, where the compiler checks it.
 - Recording names derived from `name` in lockfiles follows "lockfiles for anything outside systems depend on": rpc URLs and users' stored data must not move because a project was renamed.
 - A fixed skeleton is the project-level counterpart of the configuration-free formatter.
 

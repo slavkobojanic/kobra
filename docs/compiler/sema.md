@@ -1,7 +1,7 @@
 # Semantic Analysis
 
 `k_sema` turns the syntax trees of a project into a checked program: the module graph, resolved names,
-the HIR, types, effects, control flow, and the framework rules that make K's guarantees hold. This
+the HIR, types, effects, control flow, and the framework rules that make Kobra's guarantees hold. This
 document is the design of that crate and the source of truth for **what is checked, where, with which
 code, and in which release**. The language is specified in [`docs/design`](../design/README.md); the
 grammar in [grammar.md](grammar.md); diagnostic conventions and every code's primary span in
@@ -80,7 +80,7 @@ The API in `crates/k_sema/src/lib.rs` is final; later stages fill in its impleme
 | `Analysis` | An immutable, `Send + Sync`, cheaply cloned snapshot of one revision. |
 | `Analysis::diagnostics` | Every diagnostic of the project, sorted (diagnostics rule 7). |
 | `Analysis::file_diagnostics` | The diagnostics whose primary span is in one file. |
-| `Analysis::type_at(file, range)` | The type of the expression, pattern binding or declaration name whose range is exactly `range`, rendered as K type syntax. |
+| `Analysis::type_at(file, range)` | The type of the expression, pattern binding or declaration name whose range is exactly `range`, rendered as Kobra type syntax. |
 | `Analysis::resolve_at(file, range)` | What the name, member, element, attribute, CSS property, class, keyframes or token reference at `range` refers to (`Resolution`). |
 | `Analysis::side_of(file, range)` | The server/client side of the top-level declaration whose name token is `range` (`Side`). |
 | `Analysis::program()` | The read-only **program view** (`k_sema::view::ProgramView`) code generation consumes: every declaration and extension (kind, module, file and syntax range, annotations, resolved `implements`, extended type, function signature, constant type, side), every member (kind, flags, field type, signature with labels, defaults and parameter ranges), every generic parameter with its constraints, and extensions by extended type. Ids (`DeclId`, `MemberId`, `GenId`) index its tables for one revision. `ProgramView::resolve` maps a `Resolution` back to ids (members of extensions through the extended type; a member of a test group that shares its qualified name with the declaration it tests, `test Checkout { }` beside `service Checkout`, by its labels first, so a group helper is never taken for the service's function of the same name). Built once per revision at the end of the semantic pass, after the rest of the result is handed over (`view::ViewSlot`): the diagnostics don't wait for it, and a query that needs it before it is built waits. Signatures it resolves that no check needed report nothing. |
@@ -115,10 +115,10 @@ open ("in the style of salsa"); this records it.
 - Its current API is pre-1.0 and has been rewritten twice (the 2022 "new salsa" macros); the project's
   rule is few, well-known, stable crates, and salsa brings a proc-macro stack and several concurrency
   crates with it.
-- K's dependency structure is **coarse and static**: about ten query kinds with a fixed layering
+- Kobra's dependency structure is **coarse and static**: about ten query kinds with a fixed layering
   (§3.3). A generic dependency-tracking engine buys little over an explicit pipeline in which each layer
   is memoized per key and compared for early cutoff.
-- Parallelism: K needs deterministic **fan-out per layer** (parse all files, build all item trees, check
+- Parallelism: Kobra needs deterministic **fan-out per layer** (parse all files, build all item trees, check
   all declarations) on a fixed thread count. That is a scoped-thread work queue (as `parse_all` already
   does), simpler and more predictable than salsa's parallel snapshots.
 - Debuggability: each layer's inputs and outputs are plain data that tests can assert on.
@@ -266,13 +266,13 @@ analysis, which never reports a missing `k.toml`.
 
 Implemented in `crates/k_sema/src/stdlib/` and `crates/k_sema/stdlib/`.
 
-### 5.1 Decision: embedded K source
+### 5.1 Decision: embedded Kobra source
 
-The stdlib's declarations are **K source files embedded in the binary** with `include_str!`:
+The stdlib's declarations are **Kobra source files embedded in the binary** with `include_str!`:
 `crates/k_sema/stdlib/k/<module>/<Name>.k`, one public declaration per file named like the file, exactly
 as in an app. They are parsed by the same parser at first use (`Stdlib::get`, once per process; about
 two hundred small files, a few milliseconds in total) and checked by the same checker, so the standard
-library is documented, reviewable K and the checker has no second declaration format.
+library is documented, reviewable Kobra and the checker has no second declaration format.
 
 - **Bodies the runtime provides are marked `@Native`** and omitted (`@Native func now() -> Date`); an
   `init` keeps an empty `{}` because the grammar requires a body. Native bodies are trusted: their
@@ -322,15 +322,15 @@ Built-in elements are not declarations; they come from the element table.
 
 ### 5.4 Data tables
 
-What has no K declaration syntax is data in Rust, each with consistency tests:
+What has no Kobra declaration syntax is data in Rust, each with consistency tests:
 
 - **`stdlib::elements`**: every built-in view element with its required named arguments (in alternative
   forms, `link(to:)` or `link(url:)`), chained attributes (generated per element, not registered
   modifiers), events with payload types, allowed content, accessibility category, plus
-  `UNIVERSAL_ATTRIBUTES` and `HTML_NAMES` (HTML name → K element hint for K3101).
-- **`stdlib::css`**: every CSS property by its camelCase K name with the CSS name, its value grammar in
-  the CSS value-definition syntax, and the K types its implicit members and interpolations resolve
-  against; `DATA_TYPES` maps CSS data types (`<length-percentage>`) to K types (`Length`, `Spacing`, …).
+  `UNIVERSAL_ATTRIBUTES` and `HTML_NAMES` (HTML name → Kobra element hint for K3101).
+- **`stdlib::css`**: every CSS property by its camelCase Kobra name with the CSS name, its value grammar in
+  the CSS value-definition syntax, and the Kobra types its implicit members and interpolations resolve
+  against; `DATA_TYPES` maps CSS data types (`<length-percentage>`) to Kobra types (`Length`, `Spacing`, …).
   `animationName` takes `<keyframes-name>`, which resolves against the component's keyframes.
 - **`stdlib::annotations`**: for every annotation, where it may appear (`Target`) and which
   mutability it requires (`Mutability::Let` / `Var` / `Any`), which drives K3001 and K3002.
@@ -394,7 +394,7 @@ Name resolution inside a body walks lexical scopes, innermost first:
 1. block-local `let`/`var` bindings (visible after their declaration, K2306 for reads before
    initialization), pattern bindings of `if let`, `guard let` (visible after the `guard`), `match` arms,
    `catch` clauses and `for` patterns;
-2. lambda parameters (`{ item => … }`, `{ (a: Int, b: Int) -> Int => … }`); K has no implicit lambda
+2. lambda parameters (`{ item => … }`, `{ (a: Int, b: Int) -> Int => … }`); Kobra has no implicit lambda
    parameter;
 3. function parameters (internal names);
 4. members of the enclosing declaration (`self` members are referenced unqualified; `self.x` is not
@@ -448,7 +448,7 @@ BodySource  { expr: ArenaMap<ExprId, SyntaxNodePtr>, pat: ArenaMap<PatId, Syntax
   high-level (codegen needs the original shape); compound assignment → assignment.
 - **Views** lower to a tree of element, component, `if`, `for` (with key), `match` and text nodes;
   **styles** to rules with resolved selectors and declarations whose values are lists of CSS components
-  and K expressions.
+  and Kobra expressions.
 - Missing syntax (an `ErrorNode`, a missing expression) lowers to `Expr::Missing`, typed `{error}`, so
   checking continues without cascades.
 
@@ -749,7 +749,7 @@ from the element table:
 - `.on(name:)` with an unknown event → **K3105**; the handler's parameter must accept the payload;
 - a view `for` without `key` → **K3106**;
 - children the element doesn't accept (`Content::None`, `Only([...])`) → **K3107**;
-- attribute and argument values are checked against the table's K types (implicit members resolve
+- attribute and argument values are checked against the table's Kobra types (implicit members resolve
   against them: `.type(.submit)`).
 
 Accessibility lints beyond required accessible names are **deferred**.
@@ -760,8 +760,8 @@ Accessibility lints beyond required accessible names are **deferred**.
 
 - **Typed properties:** the property must exist in the CSS table (**K3201**, with a camelCase fix for
   kebab-case names); its value is matched against the property's value grammar: CSS keywords are bare
-  identifiers, literals must satisfy a data type, K values (implicit members, `{interpolations}`) must
-  have one of the property's K types (**K3202**).
+  identifiers, literals must satisfy a data type, Kobra values (implicit members, `{interpolations}`) must
+  have one of the property's Kobra types (**K3202**).
 - **Camel-case keywords:** a keyword in a value, a function argument or a media feature value that
   contains `-` (`space-between`) is **K3214** with the machine-applicable camel-case fix (`spaceBetween`);
   it is then matched in that spelling, so the grammar doesn't report it again. The tables of
@@ -1033,7 +1033,7 @@ is injectable everywhere a service is (§12.6). Plain functions take `now: Date`
 ### 12.16 Lockfiles
 
 Design [13-tooling.md](../design/13-tooling.md#lockfiles). The host passes the project's lockfiles (and
-the `k.toml` of the project and of each mounted library) to the semantic pass beside the K sources.
+the `k.toml` of the project and of each mounted library) to the semantic pass beside the Kobra sources.
 `storage.lock` and `rpc.lock` are checked here (`locks.rs`, `rpclock.rs`), so the language server
 reports them; `schema.lock` and `routes.lock` need code generation's persistence model and route table,
 so `k_codegen::project_diagnostics` checks them, and `k check` (and the corpus) add its diagnostics for
@@ -1476,7 +1476,7 @@ round revises it):
 - **Jobs.** A job service's generated `static let kind` is typed `JobKind<Payload>` from its
   `Job<Payload>`, so generic calls such as `payloads(of:)` infer the payload (and its codec).
 - **Closest names** use the optimal-string-alignment distance (a transposition costs 1, so `titel`
-  suggests `title`); HTML attribute spellings (`src`, `alt`, `href`) suggest their K labels.
+  suggests `title`); HTML attribute spellings (`src`, `alt`, `href`) suggest their Kobra labels.
 - **Remaining leniencies** (open items): a repository's members seen from outside it stay open (its inherited writes and generated queries
   aren't modelled, nor `Entity.UniqueViolation`); `@container`/`@layer` preludes, accessibility lints
   beyond required names and stream restrictions remain deferred; the pass is still single-threaded.

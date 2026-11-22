@@ -10,7 +10,7 @@ Start from the project you finished in [step 9](09-testing.md). The finished ste
 ## A setting of your own
 
 Whoever runs a copy of Shelf for a family or a book club wants to stop strangers making accounts once
-everyone is in. That's configuration: a value that differs between copies of the same build. In K it's a
+everyone is in. That's configuration: a value that differs between copies of the same build. In Kobra it's a
 `config` declaration, whose fields come from environment variables. Create
 `src/accounts/ShelfConfig.k`:
 
@@ -181,7 +181,7 @@ PORT                  Int              optional  default "8080"
 SHELF_SIGN_UPS        Bool             optional  default "true"
 ```
 
-Most come from K's own configs: `DATABASE_URL` from the database's, `K_SESSION_IDLE` from the sessions'.
+Most come from Kobra's own configs: `DATABASE_URL` from the database's, `K_SESSION_IDLE` from the sessions'.
 `DATABASE_PASSWORD` is a **secret**, a `Secret<String>`: the server never prints it, not in this list
 and not in a log, and the browser never gets it. A secret can also come from a file, with
 `DATABASE_PASSWORD_FILE`, which is how Docker and Kubernetes hand secrets to a program.
@@ -272,6 +272,6 @@ In this step you:
   settings in full.
 - [Deployment](../../apps/deployment.md) covers `dist/app`'s commands, Postgres, proxies, containers and
   several servers.
-- [A tour of K](../../tour.md) is a fast pass over the whole language, and [The basics](../../language/basics.md)
+- [A tour of Kobra](../../tour.md) is a fast pass over the whole language, and [The basics](../../language/basics.md)
   starts the language guide.
 - The [example apps](../../examples/todos.md) are finished apps to read, from a todo list to a shop.

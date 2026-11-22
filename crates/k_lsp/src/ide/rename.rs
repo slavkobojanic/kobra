@@ -121,7 +121,7 @@ pub fn valid_name(name: &str) -> Result<(), String> {
         .next()
         .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
     if !first_ok || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err(format!("`{name}` is not a valid K identifier"));
+        return Err(format!("`{name}` is not a valid Kobra identifier"));
     }
     if name == "_" {
         return Err("`_` is not a name".to_owned());

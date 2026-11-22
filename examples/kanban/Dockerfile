@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Two stages: the K toolchain checks and builds the app, and nginx serves the
+# Two stages: the Kobra toolchain checks and builds the app, and nginx serves the
 # static files it produces. Kanban renders on the client and has no
 # server-only code, so `k build` writes only dist/public: there is no
 # dist/app to run. See docs/design/38-deployment.md, "Static-only apps".
@@ -14,7 +14,7 @@
 # The toolchain to build with. By default it is compiled from this
 # repository's source, so nothing needs an account or a published image;
 # with a published toolchain image, pass
-# --build-arg K_TOOLCHAIN=ghcr.io/k-lang/k:0.1.0 and the source stage is
+# --build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0 and the source stage is
 # skipped.
 ARG K_TOOLCHAIN=k-toolchain-from-source
 ARG RUST_VERSION=1.99

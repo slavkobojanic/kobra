@@ -5,7 +5,7 @@
 @Preview("workers")
 public enum WorkerFailure implements Error, Codable {
     /// The worker stopped while it ran the call: the method panicked or
-    /// threw something that isn't a K error, or the browser ended it. The
+    /// threw something that isn't a Kobra error, or the browser ended it. The
     /// next call starts a new worker.
     case crashed
     /// The browser couldn't start the worker: it has no `Worker`, or the

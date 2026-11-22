@@ -1,6 +1,6 @@
 # Collections
 
-K has three core collections: `List`, `Map` and `Set`. They need no import.
+Kobra has three core collections: `List`, `Map` and `Set`. They need no import.
 
 ```k
 ~struct ProductId implements Equatable, Hashable {

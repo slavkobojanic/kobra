@@ -1,4 +1,4 @@
--- The K language server for Neovim: `k lsp` over standard input and output.
+-- The Kobra language server for Neovim: `k lsp` over standard input and output.
 --
 --   require("k.lsp").setup()                 -- defaults
 --   require("k.lsp").setup({ cmd = { "/path/to/k", "lsp" } })
@@ -18,7 +18,7 @@ M.defaults = {
   root_markers = { "k.toml", ".git" },
 }
 
---- Starts the K language server for K buffers.
+--- Starts the Kobra language server for Kobra buffers.
 --- @param opts table|nil overrides of `M.defaults` (any `vim.lsp.Config` field)
 function M.setup(opts)
   local config = vim.tbl_deep_extend("force", M.defaults, opts or {})

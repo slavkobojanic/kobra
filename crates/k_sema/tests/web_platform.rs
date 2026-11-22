@@ -566,7 +566,7 @@ fn render(data: &Data) -> String {
             ));
         }
         out.push_str(
-            "| API | Status | K | Runs on | Verified in | Notes |\n|---|---|---|---|---|---|\n",
+            "| API | Status | Kobra | Runs on | Verified in | Notes |\n|---|---|---|---|---|---|\n",
         );
         let rows: Vec<&Api> = data.apis.iter().filter(|a| a.area == area.name).collect();
         for api in &rows {

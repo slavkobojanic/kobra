@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-/// The K toolchain: compiler, test runner and development server.
+/// The Kobra toolchain: compiler, test runner and development server.
 #[derive(Debug, Parser)]
 #[command(name = "k", version, about, propagate_version = true)]
 pub struct Cli {

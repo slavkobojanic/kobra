@@ -1,4 +1,4 @@
-# Fuzz targets for the K syntax layer and semantic analysis, run with cargo-fuzz (libFuzzer) on a
+# Fuzz targets for the Kobra syntax layer and semantic analysis, run with cargo-fuzz (libFuzzer) on a
 # nightly toolchain:
 #
 #     rustup toolchain install nightly --profile minimal
@@ -12,7 +12,7 @@
 #   parse            arbitrary UTF-8: no panic, valid spans, bounded errors
 #   parse_roundtrip  arbitrary UTF-8: every invariant, including the lossless
 #                    tree, token identity, re-lexing, dumps and determinism
-#   structured       bytes drive a K program generator; valid programs must
+#   structured       bytes drive a Kobra program generator; valid programs must
 #                    parse without diagnostics
 #   check            arbitrary UTF-8 checked as a one-file project: no panic,
 #                    well-formed diagnostics, answering position queries
@@ -57,6 +57,7 @@ name = "k_fuzz"
 version = "0.0.0"
 edition = "2024"
 publish = false
+license = "MIT OR Apache-2.0"
 
 [package.metadata]
 cargo-fuzz = true

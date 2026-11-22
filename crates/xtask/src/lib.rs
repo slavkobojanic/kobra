@@ -1,4 +1,4 @@
-//! The K repository's release automation, run as `cargo xtask …`
+//! The Kobra repository's release automation, run as `cargo xtask …`
 //! (`docs/compiler/release.md`; the decisions are
 //! `docs/design/48-releases-and-versioning.md`, "The release process").
 //!
@@ -14,6 +14,8 @@
 //! * [`docs`]: `docs build`, the versioned docs site.
 //! * [`dist`]: the release archives, `SHA256SUMS`, `index.json` and the
 //!   smoke test.
+//! * [`project`]: the project's name and where it is published
+//!   (`[workspace.metadata.project]`).
 //! * [`workflows`]: the CI workflows in `.github/`, read back for their
 //!   test.
 //! * [`cli`]: the command line.
@@ -27,6 +29,7 @@ pub mod dist;
 pub mod docs;
 pub mod fragment;
 pub mod gate;
+pub mod project;
 pub mod release;
 pub mod version;
 pub mod workflows;

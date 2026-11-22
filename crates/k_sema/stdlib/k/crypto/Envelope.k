@@ -5,7 +5,7 @@
 /// form is `k1e.` followed by base64url.
 @Native
 public struct Envelope<T> implements Codable, Equatable, Hashable where T implements Codable {
-    /// The wire form, for storing outside K.
+    /// The wire form, for storing outside Kobra.
     var bytes: Bytes
 
     /// Reads the wire form.

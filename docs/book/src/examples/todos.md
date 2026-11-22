@@ -2,7 +2,7 @@
 
 `examples/todos` is the smallest complete app in the repository: a todo list that keeps everything in
 the browser's local storage. It has no server code, no protocol and no database, so it shows the
-browser half of K on its own: components, reactivity, styles, a theme, typed storage and component
+browser half of Kobra on its own: components, reactivity, styles, a theme, typed storage and component
 tests.
 
 ```bash

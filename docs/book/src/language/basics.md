@@ -1,6 +1,6 @@
 # The basics
 
-This part of the book covers K as a general-purpose language: the values, functions and types you use
+This part of the book covers Kobra as a general-purpose language: the values, functions and types you use
 in every kind of declaration, whether it's a component, a service or a test.
 
 If you know Swift, you'll recognize a lot. If you know TypeScript or Kotlin, the ideas will be
@@ -27,7 +27,7 @@ func welcome(name: String, visitsSoFar: Int) -> String {
 }
 ```
 
-Even this small snippet shows several of K's rules:
+Even this small snippet shows several of Kobra's rules:
 
 - Every declaration states its mutability: `let` or `var`. Top-level values are always `let`; mutable
   state lives in a function, a component or a service.

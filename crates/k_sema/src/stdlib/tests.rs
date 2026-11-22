@@ -531,7 +531,7 @@ fn html_names_are_sorted_and_suggest_existing_elements() {
         );
         assert!(
             elements::element(html).is_none(),
-            "{html} is also a K element"
+            "{html} is also a Kobra element"
         );
     }
     assert_eq!(elements::html_suggestion("a"), Some("link"));

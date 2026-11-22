@@ -125,7 +125,7 @@ fn a_candidate_then_the_release() {
     );
     assert!(
         repo.read("examples/app/Dockerfile")
-            .contains("ghcr.io/acme/k:0.4.0 ")
+            .contains("ghcr.io/acme/kobra:0.4.0 ")
     );
     // The changelog page is the CHANGELOG's copy.
     assert_eq!(

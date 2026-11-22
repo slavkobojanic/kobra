@@ -1,11 +1,11 @@
 # Workspaces and services
 
-A system often grows past one app: a payment service, a storefront, an admin tool. K keeps them in one
+A system often grows past one app: a payment service, a storefront, an admin tool. Kobra keeps them in one
 **workspace**, shares their contracts through **library packages**, and lets one app call another with
 the same protocols, codecs and typed errors it already uses between its browser and its server. There is
 no second framework to learn.
 
-The smallest complete example is `examples/stack` in the K repository; `examples/shop` is the same
+The smallest complete example is `examples/stack` in the Kobra repository; `examples/shop` is the same
 shape grown into a production-style system, with a fake card provider, databases, background jobs,
 Docker Compose and Kubernetes (see [Deployment](deployment.md#a-system-of-services)):
 

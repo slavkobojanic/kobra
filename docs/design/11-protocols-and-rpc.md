@@ -2,12 +2,12 @@
 
 ## Decision
 
-K is full-stack, and the client talks to the server over **RPC, not REST**. A `protocol` declares the contract in K syntax. It compiles to **Protobuf** and runs over the **Connect protocol** (from Buf).
+Kobra is full-stack, and the client talks to the server over **RPC, not REST**. A `protocol` declares the contract in Kobra syntax. It compiles to **Protobuf** and runs over the **Connect protocol** (from Buf).
 
 Why Connect:
 
 - It works natively in browsers over HTTP/1.1 and HTTP/2. gRPC needs a proxy.
-- It is wire-compatible with gRPC and gRPC-Web, so Go, Java and mobile clients can talk to a K server.
+- It is wire-compatible with gRPC and gRPC-Web, so Go, Java and mobile clients can talk to a Kobra server.
 - Messages are binary Protobuf in production and JSON in development, so traffic is readable in devtools.
 
 RPC is the only way the app's own client talks to its server. The one deliberate escape hatch to raw HTTP is the endpoint page, for external systems that can't speak RPC ([27-endpoint-pages.md](27-endpoint-pages.md)).
@@ -69,12 +69,12 @@ service CartService {
 - **Streaming:**
   - Server streaming (`Stream<T>`) works in browsers. How a handler produces a stream and how a client reads it is in [29-server-streaming.md](29-server-streaming.md).
   - Client streaming and bidirectional streaming are allowed only between servers, because browser `fetch` can't do them. Using them from client code is a compile error.
-- **Naming:** K's `protocol` means a wire contract, not Swift's protocols. In-process abstractions use `interface`.
+- **Naming:** Kobra's `protocol` means a wire contract, not Swift's protocols. In-process abstractions use `interface`.
 
 ## Interop
 
 - `k proto export` emits `.proto` files for non-K consumers.
-- `import proto "billing/v1/invoice.proto"` turns existing protos into K types.
+- `import proto "billing/v1/invoice.proto"` turns existing protos into Kobra types.
 
 ## Field numbers and `rpc.lock`
 

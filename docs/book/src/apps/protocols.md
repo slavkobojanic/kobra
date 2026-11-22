@@ -1,7 +1,7 @@
 # Protocols and RPC
 
-K is full-stack, and the browser talks to the server over **RPC, not REST**. A `protocol` declares the
-contract in K. It compiles to **Protobuf** and runs over the **Connect protocol**, which works natively in
+Kobra is full-stack, and the browser talks to the server over **RPC, not REST**. A `protocol` declares the
+contract in Kobra. It compiles to **Protobuf** and runs over the **Connect protocol**, which works natively in
 browsers and is wire-compatible with gRPC.
 
 You never write a URL, a `fetch` call, a JSON parser or an API client. You call a function, and the
@@ -144,7 +144,7 @@ public protocol CartProtocol requires Authenticated {
   `requires` comes after the complete signature, as it does in `page` and `protocol` headers, so the
   effects `async throws E -> T` stay uninterrupted.
 - Parameters and return types are ordinary `Codable` structs, enums, collections and core types.
-- K's `protocol` means a **wire contract** between processes, not Swift's protocols. In-process
+- Kobra's `protocol` means a **wire contract** between processes, not Swift's protocols. In-process
   abstractions use [`interface`](../language/declarations.md#interfaces).
 
 ## Implementing it on the server
@@ -403,7 +403,7 @@ client code is a compile error.
 Every protocol has **deterministic, locked Protobuf names**, so a non-K client, or `curl` in an
 end-to-end test, can call an rpc without reading generated files:
 
-| K | Protobuf / Connect |
+| Kobra | Protobuf / Connect |
 |---|---|
 | module `store` in project `shop` | package `shop.store` |
 | `protocol StoreProtocol` | service `StoreProtocol` |
@@ -449,7 +449,7 @@ body in an error's payload; wrap the error without it. A warning for such a payl
 
 > **Planned** (protobuf). The first compiler releases speak JSON only. The binary Protobuf encoding, `k proto
 > export` (which emits `.proto` files for non-K consumers) and `import proto "billing/v1/invoice.proto"`
-> (which turns existing Protobuf definitions into K types) come later.
+> (which turns existing Protobuf definitions into Kobra types) come later.
 
 ## Field numbers and `rpc.lock`
 
@@ -471,5 +471,5 @@ you:
 There is no separate `protocol.lock`: an earlier design kept the wire names in one, and `rpc.lock` now
 records everything it would have.
 
-Because K servers speak Connect, Go, Java and mobile clients can call them with ordinary gRPC or Connect
+Because Kobra servers speak Connect, Go, Java and mobile clients can call them with ordinary gRPC or Connect
 tooling.

@@ -190,7 +190,7 @@ TCP ── accept ── hyper http1 ── static asset? ── front::check �
 - **Globals** inside an isolate: what V8 provides (`JSON`, `Math`, `Date`, `Intl`, `Promise`, typed
   arrays), plus a bootstrap that installs `console`, `queueMicrotask`, `AbortController`/`AbortSignal`,
   `TextEncoder`/`TextDecoder`. **No ambient I/O**: no `fetch`, `require`, `process` or `Deno.*` file APIs;
-  every effect on the world goes through a K op. (A test asserts it.)
+  every effect on the world goes through a Kobra op. (A test asserts it.)
 
 ---
 
@@ -680,7 +680,7 @@ get `no-cache`. `HEAD` sends no body. Precompressed variants (brotli/gzip chosen
 
 ## 15. Logging, panics and errors
 
-- Logs are JSON lines on stdout: `{"level": "...", "message": "..."}` (v0), with request ids and K stack
+- Logs are JSON lines on stdout: `{"level": "...", "message": "..."}` (v0), with request ids and Kobra stack
   traces from `k.observe` later. `k dev` and `k run` at a workspace root write them for people instead,
   after the app's name (`Output::Prefixed`: `shop   | warning: …`); every log site goes through
   `Output::write`. A panic is logged with the method, the path and the JavaScript stack; a
@@ -691,11 +691,11 @@ get `no-cache`. `HEAD` sends no body. Precompressed variants (brotli/gzip chosen
   `<pre class="k-stack">`, and an rpc's `internal` error message carries it, both mapped to `.k` lines
   (`op_k_dev_errors`, `op_k_symbolicate`). The handler's error never reaches the client otherwise (an
   e2e case asserts the message is absent).
-- **Stack traces name `.k` lines.** Every generated server module that holds K code carries its source
+- **Stack traces name `.k` lines.** Every generated server module that holds Kobra code carries its source
   map inline ([codegen.md §18](codegen.md#18-source-maps)); `stack::Symbolicator` decodes a module's map
   the first time a trace names it and rewrites each `k:/app/….js:line:col` frame as
   `src/home/GreeterApi.k:11:16 [k:/app/home.js:40:22]`. `op_k_log` applies it to every logged line that
-  names a module, so a panic's logged trace reads as K in `k dev` and in `dist/app` alike.
+  names a module, so a panic's logged trace reads as Kobra in `k dev` and in `dist/app` alike.
 - **Infrastructure failures** (a lost database connection) are panics ([09-errors.md](../design/09-errors.md#panics)).
 - **Never panic in Rust on input**: malformed HTTP is hyper's `400`, oversized bodies `413`, invalid
   headers are skipped when copying a response, and a response from JavaScript with an invalid status is
@@ -718,7 +718,7 @@ get `no-cache`. `HEAD` sends no body. Precompressed variants (brotli/gzip chosen
   (manifest kinds, ranges, `.env`, the development environment) and `http.rs` (endpoint templates).
 - `crates/k_server/tests/runtime_js.rs`: the runtime's JS unit tests ([testing.md §4.1](testing.md#41-runtime-js-tests)).
 - `crates/k_server/tests/corpus_run.rs`: the execution corpus ([testing.md §3.10](testing.md#310-the-run-suite)).
-- `crates/k_server/tests/e2e.rs`: request scripts against hand-written bundles (`tests/http/*`) and K
+- `crates/k_server/tests/e2e.rs`: request scripts against hand-written bundles (`tests/http/*`) and Kobra
   projects (`tests/e2e/*`) ([testing.md §8.2](testing.md#82-server-end-to-end-tests)).
 - `crates/k_server/tests/server.rs`: streamed body limits, concurrency, graceful shutdown with a request in
   flight, start-up failures.
@@ -905,13 +905,13 @@ memoized per request container like `SessionManager`; a test build uses the same
   threads per connection. Chrome's `chrome://inspect` ("Configure…" the port) and VS Code's `node`
   attach connect unchanged;
 - gives the runtime's modules (`k:/runtime/…`) an inline map onto themselves with their source on the
-  `ignoreList`, so stepping stays in K code; the generated modules carry their K maps anyway;
+  `ignoreList`, so stepping stays in Kobra code; the generated modules carry their Kobra maps anyway;
 - when the isolate goes away (a `k dev` restart), closes the inspector's listener and its sessions, so
   the debugger reconnects to the next server on the same port.
 
 `k dev --inspect` at a workspace root opens the inspector for the first app. Breakpoints are set in
 `.k` files through the maps (`k:/_k/src/<path>`); `k_cli/tests/debugging.rs` sets one in an rpc handler
-over the protocol, calls the rpc and checks the paused `.k` line and the K locals in scope.
+over the protocol, calls the rpc and checks the paused `.k` line and the Kobra locals in scope.
 
 ---
 

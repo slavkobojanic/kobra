@@ -5,7 +5,7 @@ the library between them:
 
 - **shop** is the storefront. Customers browse products, check out as guests and pay by card. A
   background job emails the confirmation over SMTP, and staff sign in to an admin page.
-- **paybox** is a fake card payment provider, a server-only K app with its own database. It charges
+- **paybox** is a fake card payment provider, a server-only Kobra app with its own database. It charges
   test card numbers, refunds, and tells each merchant about its payments by calling the merchant back
   from retried background jobs.
 - **pay-contracts** is a library with the two protocols between them, `Payments` (served by paybox)

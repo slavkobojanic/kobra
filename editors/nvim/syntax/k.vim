@@ -1,4 +1,4 @@
-" Vim syntax file for K (.k files).
+" Vim syntax file for Kobra (.k files).
 "
 " The same file serves Vim (editors/vim) and Neovim (editors/nvim); the two
 " copies must stay identical, and must list every keyword of the compiler's

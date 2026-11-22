@@ -1,4 +1,4 @@
-# Upgrading K
+# Upgrading Kobra
 
 A project names the toolchain it needs in `k.toml`, and `k.lock` records the exact one that last built it
 (see [The k command](../reference/cli.md#toolchains)):

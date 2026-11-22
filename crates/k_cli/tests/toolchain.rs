@@ -587,7 +587,7 @@ mod commands {
         );
         let exe = r.toolchain("99.1.0").join(tool());
         assert_eq!(fs::read_to_string(&exe).unwrap(), script("99.1.0"));
-        assert!(r.toolchain("99.1.0").join("LICENSE").is_file());
+        assert!(r.toolchain("99.1.0").join("LICENSE-MIT").is_file());
         assert!(!r.toolchain("99.1.1").exists());
         assert!(r.tmp_entries().is_empty(), "{:?}", r.tmp_entries());
         // The installed toolchain is the one delegation runs.

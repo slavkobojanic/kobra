@@ -1,4 +1,4 @@
-# Clippy configuration for the K toolchain.
+# Clippy configuration for the Kobra toolchain.
 #
 # Production code must never panic on user input (see
 # docs/compiler/architecture.md, "Diagnostics"), so `unwrap_used` and `panic`

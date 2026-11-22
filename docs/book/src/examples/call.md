@@ -70,7 +70,7 @@ call after 15 seconds of the `TestClock`, hanging up, screen sharing and the bro
 a full room, blocked devices, the connection's statistics, and no ICE servers without TURN.
 
 The stdlib's own real-browser suite (`crates/k_cli/tests/chrome.rs`) calls between two Chrome tabs
-through a K server with no ICE servers, through a coturn container with `IcePolicy.relayOnly`
+through a Kobra server with no ICE servers, through a coturn container with `IcePolicy.relayOnly`
 (checking that `stats()` reports the relay), under forced glare, and with a mid-call `replace`.
 
 ## Deploying it

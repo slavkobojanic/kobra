@@ -3,11 +3,13 @@ name = "k_db"
 # Integration tests are modules of tests/main.rs (one binary, `it`), not one
 # binary per file: docs/design/13-tooling.md, "One test binary per crate".
 autotests = false
-description = "Persistence for K: entity schemas, query translation to SQL, migrations and the SQLite/Postgres drivers."
+description = "Persistence for Kobra: entity schemas, query translation to SQL, migrations and the SQLite/Postgres drivers."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 rusqlite.workspace = true

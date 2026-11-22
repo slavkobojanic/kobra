@@ -1,6 +1,6 @@
 /// An RSA public key, for verifying signatures from systems that still
 /// sign with RSA, such as identity providers (`docs/design/33-crypto.md`,
-/// "Signatures"). K never signs with RSA. Ordinary data: [`Codable`] as
+/// "Signatures"). Kobra never signs with RSA. Ordinary data: [`Codable`] as
 /// base64url text of its SPKI DER, and a `ConfigValue`. Keys of 2,048 to
 /// 8,192 bits only.
 @Native

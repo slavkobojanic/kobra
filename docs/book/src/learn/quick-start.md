@@ -2,10 +2,22 @@
 
 On this page you'll build a tip splitter: you enter a bill, pick a tip and say how many people are
 paying, and the page shows what each person pays. It takes about ten minutes, and on the way you'll use
-the parts every K app has: state, a view, a component, styles, a test and a build.
+the parts every Kobra app has: state, a view, a component, styles, a test and a build.
 
-You need the `k` command. If you don't have it yet, follow [Installation](../getting-started/installation.md)
-first. The finished app is in the repository as `examples/learn/quick-start`.
+You need the `k` command. If you don't have it yet, install it with one line on Linux or macOS:
+
+```sh
+curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh
+```
+
+or, on Windows, in PowerShell:
+
+```powershell
+irm https://slavkobojanic.github.io/kobra/install.ps1 | iex
+```
+
+[Installation](../getting-started/installation.md) has the details. The finished app is in the
+repository as `examples/learn/quick-start`.
 
 ## Create the project
 
@@ -34,7 +46,7 @@ the app every time you save a file; reload the browser to see the change.
 
 ```text
 tip/
-  k.toml                 the project manifest: its name and the K version it needs
+  k.toml                 the project manifest: its name and the Kobra version it needs
   App.k                  the app declaration
   .gitignore
   src/
@@ -93,7 +105,7 @@ Save, reload the browser, type `50` as the bill, and the page says that each per
 - `Money` is an exact amount in a currency, kept in cents (`minorUnits`) rather than as a floating-point
   number, so it never rounds by accident. `allocated(into:)` splits it into parts that add up to the
   total exactly, and `formatted(as: .currency)` writes it as `$28.75`.
-- `if` is an expression in K, so `if people < 1 { 1 } else { people }` is a value: nobody divides a bill
+- `if` is an expression in Kobra, so `if people < 1 { 1 } else { people }` is a value: nobody divides a bill
   between zero people.
 
 ## Pick the tip with buttons
@@ -125,7 +137,7 @@ box {
 ## Make a component
 
 The buttons work, but nothing shows which tip is in use, and the three of them repeat the same code.
-K's standard library has no segmented control, so you'll build one: a component, a reusable piece of
+Kobra's standard library has no segmented control, so you'll build one: a component, a reusable piece of
 the view. Create `src/home/TipOption.k`:
 
 ```k
@@ -333,6 +345,6 @@ You've built a tip splitter, and on the way:
 ## Next steps
 
 - [Tutorial: build Shelf](tutorial/index.md) builds a larger app, one step at a time.
-- [A tour of K](../tour.md) builds a small full-stack feature, from the database to the button.
+- [A tour of Kobra](../tour.md) builds a small full-stack feature, from the database to the button.
 - [Components](../apps/components.md), [Reactivity](../apps/reactivity.md) and
   [Styles and themes](../apps/styles.md) cover what this page used in full.

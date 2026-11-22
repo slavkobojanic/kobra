@@ -3,6 +3,6 @@
 [package]
 name = "shelf"
 title = "Shelf"
-description = "A new K app."
+description = "A new Kobra app."
 k = "0.1"
 version = "0.1.0"

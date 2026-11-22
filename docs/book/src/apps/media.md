@@ -92,7 +92,7 @@ The `lifetime` says what a stream belongs to:
   stream outlives the component that started it and still stops when the page is left.
 
 A stream that arrives after its owner is gone, because the user answered the prompt after leaving
-the page, is stopped before any K code sees it.
+the page, is stopped before any Kobra code sees it.
 
 ## Recording
 

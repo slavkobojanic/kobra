@@ -52,9 +52,9 @@ component CartSummary {
   Keywords are camelCase like properties: `justifyContent: spaceBetween`, `textDecoration: lineThrough`,
   `fontFamily: "Inter", sansSerif`. The CSS gets the usual spelling (`space-between`); writing the
   kebab-case form is an error (K3214) whose quick fix rewrites it.
-- Comments use `//` and `/* */`, as in K code.
+- Comments use `//` and `/* */`, as in Kobra code.
 
-Declarations end with `;`, as in CSS. This is the one place in K where semicolons appear.
+Declarations end with `;`, as in CSS. This is the one place in Kobra where semicolons appear.
 
 What isn't kept: **element selectors and `#id` selectors.** Styles select the classes you define, never
 `box` or `button`, and `!important` is a compile error.
@@ -64,7 +64,7 @@ What isn't kept: **element selectors and `#id` selectors.** Styles select the cl
 **Property values are checked against each property's CSS grammar.** `borderLeft: 4px blue solid potato`
 is a compile error, not a silently ignored declaration.
 
-Two kinds of K value appear in styles:
+Two kinds of Kobra value appear in styles:
 
 - **Theme tokens and static values use implicit member syntax:** `padding: .md` resolves against the type
   `padding` expects, so it means `Spacing.md`. They never need braces.
@@ -226,7 +226,7 @@ installed: `Font(family: "Inter", size: 16px)` becomes `16px "Inter", system-ui,
 family whose name says `Serif` falls back to serif faces, one that says `Mono` or `Code` to
 monospaced ones.
 
-K doesn't load fonts from the web. A named family is drawn where the reader has it installed, and the
+Kobra doesn't load fonts from the web. A named family is drawn where the reader has it installed, and the
 fallback stack everywhere else.
 
 ### Base styles
@@ -359,7 +359,7 @@ component ThemeToggle {
   ~}
   ```
 
-- The method is `apply`, not `use`, because `use` is a keyword and K has no member names that are
+- The method is `apply`, not `use`, because `use` is a keyword and Kobra has no member names that are
   keywords.
 
 In tests, every test gets a fresh `Theme` starting at `.base`, with no cookie set. A test reads the active

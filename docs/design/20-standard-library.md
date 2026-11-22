@@ -2,7 +2,7 @@
 
 ## Decision
 
-The stdlib is **batteries-included**. With no JavaScript interop (see [17-javascript-interop.md](17-javascript-interop.md)), it defines everything K can do.
+The stdlib is **batteries-included**. With no JavaScript interop (see [17-javascript-interop.md](17-javascript-interop.md)), it defines everything Kobra can do.
 
 **It includes:** web platform features and common application infrastructure.
 **It excludes:** vendor-specific integrations (Stripe, Twilio, a particular analytics product) and a full design-system component library. Vendor integrations belong in git packages ([18-packages.md](18-packages.md)), built on stdlib provider interfaces such as `EmailProvider` and `StorageProvider`. Each provider interface has a sensible built-in default, and a separate hermetic default in tests ([21-testing.md](21-testing.md#test-doubles-and-defaults)).

@@ -1,6 +1,6 @@
 # Structs, enums, classes and interfaces
 
-K has four general-purpose kinds of type. Each has one job:
+Kobra has four general-purpose kinds of type. Each has one job:
 
 | Kind | Semantics | Use it for |
 |---|---|---|
@@ -223,7 +223,7 @@ enum Status {
 
 ### Associated data
 
-Cases can carry data, which makes enums K's sum types:
+Cases can carry data, which makes enums Kobra's sum types:
 
 ```k
 enum Shape {
@@ -286,7 +286,7 @@ enum Plan {
 
 ### Error enums
 
-An enum that `implements Error` can be thrown. This is how all errors are declared in K; see
+An enum that `implements Error` can be thrown. This is how all errors are declared in Kobra; see
 [Errors](errors.md):
 
 ```k
@@ -361,7 +361,7 @@ service StripePayments implements PaymentProvider {
 - `interface Searchable implements Identifiable` means every implementation of `Searchable` must also
   implement `Identifiable`.
 
-K's `interface` is for in-process abstractions. A `protocol` is something else entirely: a wire contract
+Kobra's `interface` is for in-process abstractions. A `protocol` is something else entirely: a wire contract
 between browser and server. See [Protocols and RPC](../apps/protocols.md).
 
 ## Generics

@@ -122,7 +122,7 @@ fn connection(
         ("/json/version", _) => respond(
             &mut out,
             &serde_json::json!({
-                "Browser": "K",
+                "Browser": "Kobra",
                 "Protocol-Version": "1.3",
             })
             .to_string(),
@@ -132,7 +132,7 @@ fn connection(
             respond(
                 &mut out,
                 &serde_json::json!([{
-                    "description": "K server",
+                    "description": "Kobra server",
                     "devtoolsFrontendUrl": format!("devtools://devtools/bundled/js_app.html?experiments=true&v8only=true&ws={ws}"),
                     "id": TARGET,
                     "title": title,

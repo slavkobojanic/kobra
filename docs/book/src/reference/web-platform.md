@@ -1,11 +1,11 @@
 # Web platform APIs
 
-K has no JavaScript interop in app code, so every browser API an app can use is wrapped by the
+Kobra has no JavaScript interop in app code, so every browser API an app can use is wrapped by the
 standard library. This page lists the web platform's APIs by their specs' names, and says for each
-whether K supports it, through which module and type, where that code runs, and which engines the
-real-browser suite checks it in. It also lists what K deliberately doesn't wrap, and why.
+whether Kobra supports it, through which module and type, where that code runs, and which engines the
+real-browser suite checks it in. It also lists what Kobra deliberately doesn't wrap, and why.
 
-- **Supported:** an app can do what the API does, through the K API named. The wrapper is a K type, not
+- **Supported:** an app can do what the API does, through the Kobra API named. The wrapper is a Kobra type, not
   the browser's object member for member: a member the platform has and the wrapper leaves out is a
   decision of the design.
 - **Partial:** some of it; the note says what's missing.
@@ -13,7 +13,7 @@ real-browser suite checks it in. It also lists what K deliberately doesn't wrap,
   before it's built; Tier 3 waits until an app needs it.
 - **Not planned:** the design decides against it, or covers it another way; the note says which.
 
-**Runs on** says where the K API works: in the browser only (a client-only platform interface, which
+**Runs on** says where the Kobra API works: in the browser only (a client-only platform interface, which
 only a service can inject), on the server only, or on both. **Verified in** names the engines whose
 real-browser tests exercise the binding: Chromium over the DevTools protocol and Firefox over
 WebDriver BiDi. WebKit isn't automated yet, so Safari behaviour in the notes comes from the engines'
@@ -50,7 +50,7 @@ and the rules for feature detection, permissions and user activation, are in
 
 Guide: [Copying and sharing](../apps/clipboard-and-sharing.md).
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Clipboard API: text | Supported | [`Clipboard`](stdlib/k-device.md#clipboard), [`CopyButton`](stdlib/k-device.md#copybutton) | browser | Chromium, Firefox | Firefox allows a read or a write only during a click: outside one, both are `.denied` (checked). Design: `docs/design/45-web-platform.md#clipboard`. |
 | Clipboard API: HTML, images and files (ClipboardItem) | Planned (Tier 2) | — | — | — | Writing several items, and pasting an image into a `File` with the same size limits. Design: `docs/design/45-web-platform.md#inventory`. |
@@ -64,7 +64,7 @@ Real-browser checks: `chrome::kanban_copies_a_card_link_to_the_clipboard`, `chro
 
 Guide: [Notifications](../apps/notifications.md).
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Permissions API | Supported | [`PermissionState`](stdlib/k-device.md#permissionstate) | browser | Chromium, Firefox | Each permissioned interface has a reactive `permission` and a `request…` member, the only one that prompts; there is no free-standing query. Design: `docs/design/45-web-platform.md#permissions`. |
 | Notifications API | Supported | [`Notifications`](stdlib/k-device.md#notifications), [`SystemNotification`](stdlib/k-device.md#systemnotification) | browser | Chromium, Firefox | Local notifications, shown through the service worker `k build` generates. Design: `docs/design/45-web-platform.md#notifications`. |
@@ -77,7 +77,7 @@ Real-browser checks: `chrome::push_message_is_shown_by_the_service_worker_in_chr
 
 Guide: [The user's location](../apps/location.md).
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Geolocation API | Supported | [`Geolocation`](stdlib/k-device.md#geolocation), [`Position`](stdlib/k-device.md#position), [`LocationAccuracy`](stdlib/k-device.md#locationaccuracy) | browser | Chromium, Firefox | A refused permission is `.denied` (checked in both engines). Design: `docs/design/45-web-platform.md#geolocation`. |
 
@@ -87,7 +87,7 @@ Real-browser checks: `chrome::weather_uses_my_location`, `chrome::web_platform_b
 
 Guide: [The page and the device](../apps/environment.md).
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Page Visibility | Supported | [`PageVisibility`](stdlib/k-device.md#pagevisibility) | both | — | During server rendering the page counts as visible. Design: `docs/design/45-web-platform.md#page-visibility`. |
 | Online and offline (navigator.onLine, online and offline events) | Supported | [`Connectivity`](stdlib/k-device.md#connectivity) | both | Chromium | A failed rpc or channel reconnect is the probe. The Network Information API (connection type, bandwidth) isn't wrapped. Design: `docs/design/45-web-platform.md#connectivity`. |
@@ -111,7 +111,7 @@ Real-browser checks: `chrome::notes_shows_an_offline_banner_while_the_network_is
 
 Guide: [Other tabs and the screen](../apps/tabs-and-screen.md).
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Broadcast Channel API | Supported | [`TabMessaging`](stdlib/k-device.md#tabmessaging), [`TabChannel`](stdlib/k-device.md#tabchannel) | browser | Chromium, Firefox | Typed messages; a tab running another build ignores them (checked). Design: `docs/design/45-web-platform.md#messages-between-tabs`. |
 | Web Locks API | Planned (Tier 2) | — | — | — | So that one tab syncs at a time, and to elect the tab that holds a shared stream. Design: `docs/design/45-web-platform.md#inventory`. |
@@ -123,7 +123,7 @@ Real-browser checks: `chrome::shop_keeps_the_cart_in_step_across_tabs`, `chrome:
 
 Guide: [Local storage](../apps/local-storage.md).
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Web Storage (localStorage) | Supported | [`LocalStorage`](stdlib/k-storage.md#localstorage), [`StorageKey`](stdlib/k-storage.md#storagekey) | browser | Chromium | Typed keys under the app's namespace. Session storage is deferred. Design: `docs/design/36-local-storage.md`. |
 | IndexedDB | Supported | [`Collections`](stdlib/k-storage.md#collections), [`Collection`](stdlib/k-storage.md#collection), [`CollectionIndex`](stdlib/k-storage.md#collectionindex) | browser | Chromium | Collections and indexes declared as typed values, their shapes in `storage.lock`, upgrades owned by the compiler. Design: `docs/design/52-indexed-collections.md`. |
@@ -136,7 +136,7 @@ Real-browser checks: `chrome::collections_persist_across_a_reload_in_chrome`, `c
 
 Guide: [Offline and installable apps](../apps/offline.md).
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Service Workers | Partial | [`Offline`](stdlib/k-core.md#offline), [`AppUpdates`](stdlib/k-device.md#appupdates) | browser | Chromium | `k build` generates the worker; apps write no service worker code. Design: `docs/design/54-offline.md`. |
 | Cache API | Partial | [`Offline`](stdlib/k-core.md#offline) | browser | Chromium | Used only by the generated worker: the build's hashed files, and pages rendered without a session. Design: `docs/design/54-offline.md`. |
@@ -148,7 +148,7 @@ Real-browser checks: `chrome::offline_page_is_kept_and_its_rpc_fails_offline_in_
 
 ## Files, drag and drop, keyboard
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | File API (File, Blob, FileReader) and file pickers | Supported | [`Files`](stdlib/k-device.md#files), [`File`](stdlib/k-device.md#file), [`FileType`](stdlib/k-device.md#filetype) | browser | — | Opening files, and saving through a download. See [Importing and exporting files](../apps/files.md). Design: `docs/design/42-files.md`. |
 | File System Access: save in place, directories | Planned (Tier 3) | — | — | — | Its save picker is Chromium only. Design: `docs/design/42-files.md#open-questions`. |
@@ -162,7 +162,7 @@ Real-browser checks: `chrome::kanban_creates_a_board_adds_cards_and_moves_them_w
 
 ## Focus, scrolling and navigation
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Focus and scrolling (focus, scrollIntoView) | Supported | [`ElementRef`](stdlib/k-ui.md#elementref), [`ScrollAlignment`](stdlib/k-ui.md#scrollalignment) | browser | Chromium | A component's own element, named by an `ElementRef` field and `.ref(…)`. See [Views and built-in elements](../apps/views.md). Design: `docs/design/53-element-references.md`. |
 | History API, Navigation API | Supported | [`Router`](stdlib/k-ui.md#router) | browser | Chromium | Not exposed: the router owns the URL, and a second way to push history would desynchronize it. It restores the scroll and moves the focus after navigation. See [Pages and routing](../apps/routing.md). Design: `docs/design/12-routing.md`. |
@@ -171,7 +171,7 @@ Real-browser checks: `chrome::a_failed_submit_focuses_the_first_invalid_field_in
 
 ## Networking
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Fetch API | Supported | [`HttpClient`](stdlib/k-http.md#httpclient), [`FetchHttpClient`](stdlib/k-http.md#fetchhttpclient) | both | — | Typed requests and responses; an app's own server is reached through protocols, whose rpcs also go over fetch. See [Calling HTTP APIs](../apps/http.md). Design: `docs/design/32-http-client.md`. |
 | WebSockets | Supported | [`Channel`](stdlib/k-rpc.md#channel), [`WebSocketClient`](stdlib/k-http.md#websocketclient), [`WebSocket`](stdlib/k-http.md#websocket) | both | Chromium | Typed channels to the app's own server in `k.rpc`; raw sockets to other servers in `k.http`. See [Channels](../apps/channels.md). Design: `docs/design/44-channels.md`. |
@@ -187,7 +187,7 @@ Real-browser checks: `chrome::channels_resume_in_chrome_after_the_socket_drops`,
 
 Guide: [Camera, microphone, recording and calls](../apps/media.md).
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Media Capture and Streams (getUserMedia, enumerateDevices) | Supported | [`MediaDevices`](stdlib/k-media.md#mediadevices), [`MediaStream`](stdlib/k-media.md#mediastream), [`MediaTrack`](stdlib/k-media.md#mediatrack), [`CaptureRequest`](stdlib/k-media.md#capturerequest) | browser | Chromium, Firefox | `requestAccess(for:)` prompts and capturing never does. Firefox keeps a grant for one visit by default. Design: `docs/design/46-media-and-rtc.md#capture-mediadevices`. |
 | Screen Capture (getDisplayMedia) | Supported | [`ScreenCapture`](stdlib/k-media.md#screencapture), [`DisplaySurface`](stdlib/k-media.md#displaysurface) | browser | — | Design: `docs/design/46-media-and-rtc.md#capture-mediadevices`. |
@@ -208,7 +208,7 @@ In the browser these use Web Crypto (`crypto.subtle`); on the server, and in bot
 
 Guide: [Bytes and cryptography](../apps/crypto.md).
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Web Crypto: AES-GCM | Supported | [`AesGcmKey`](stdlib/k-crypto.md#aesgcmkey), [`Sealed`](stdlib/k-crypto.md#sealed), [`WrappedKey`](stdlib/k-crypto.md#wrappedkey) | both | Chromium, Firefox | AES-256-GCM only. Design: `docs/design/33-crypto.md#authenticated-encryption-sealedt`. |
 | Web Crypto: HMAC | Supported | [`Hmac`](stdlib/k-crypto.md#hmac), [`Mac`](stdlib/k-crypto.md#mac) | both | — | SHA-256 and SHA-512. Design: `docs/design/33-crypto.md#hmac-hmac-and-mac`. |
@@ -218,7 +218,7 @@ Guide: [Bytes and cryptography](../apps/crypto.md).
 | Web Crypto: Ed25519 | Supported | [`Ed25519PrivateKey`](stdlib/k-crypto.md#ed25519privatekey), [`Ed25519PublicKey`](stdlib/k-crypto.md#ed25519publickey), [`Ed25519Signature`](stdlib/k-crypto.md#ed25519signature) | both | Chromium, Firefox | The default signature. Browsers without Ed25519 in Web Crypto get no fallback. Design: `docs/design/33-crypto.md#signatures`. |
 | Web Crypto: ECDSA P-256 | Supported | [`EcdsaP256PrivateKey`](stdlib/k-crypto.md#ecdsap256privatekey), [`EcdsaP256PublicKey`](stdlib/k-crypto.md#ecdsap256publickey), [`EcdsaP256Signature`](stdlib/k-crypto.md#ecdsap256signature) | both | Chromium, Firefox | For interop (JWT ES256, VAPID). Gecko verified some signatures of the wrong length, so the binding refuses any that isn't 64 bytes first. Design: `docs/design/33-crypto.md#decided-while-implementing`. |
 | Web Crypto: X25519 and HPKE | Supported | [`X25519PrivateKey`](stdlib/k-crypto.md#x25519privatekey), [`X25519PublicKey`](stdlib/k-crypto.md#x25519publickey), [`SharedSecret`](stdlib/k-crypto.md#sharedsecret), [`Envelope`](stdlib/k-crypto.md#envelope), [`EnvelopedKey`](stdlib/k-crypto.md#envelopedkey) | both | Chromium, Firefox | HPKE base mode (RFC 9180) is composed from Web Crypto calls; no primitive is written in JavaScript. Design: `docs/design/33-crypto.md#sealing-to-a-public-key-envelopet`. |
-| Web Crypto: RSA | Partial | [`RsaPublicKey`](stdlib/k-crypto.md#rsapublickey), [`RsaSignature`](stdlib/k-crypto.md#rsasignature) | both | — | Verification only (PKCS #1 v1.5 and PSS), for tokens from identity providers; K never signs or encrypts with RSA. Design: `docs/design/33-crypto.md#signatures`. |
+| Web Crypto: RSA | Partial | [`RsaPublicKey`](stdlib/k-crypto.md#rsapublickey), [`RsaSignature`](stdlib/k-crypto.md#rsasignature) | both | — | Verification only (PKCS #1 v1.5 and PSS), for tokens from identity providers; Kobra never signs or encrypts with RSA. Design: `docs/design/33-crypto.md#signatures`. |
 | Crypto: getRandomValues, randomUUID | Supported | [`SecureRandom`](stdlib/k-crypto.md#securerandom), [`Uuid`](stdlib/k-crypto.md#uuid) | both | — | Design: `docs/design/33-crypto.md#secure-random-values`. |
 | Non-extractable keys kept in IndexedDB | Supported | [`KeyStore`](stdlib/k-crypto.md#keystore) | browser | Chromium | Not run on Firefox, where asking for persistent storage prompts and a headless run can't answer. Design: `docs/design/33-crypto.md#keeping-keys-in-the-browser-keystore`. |
 
@@ -226,7 +226,7 @@ Real-browser checks: `chrome::crypto_key_store_keeps_a_non_extractable_key_acros
 
 ## Identity and payments
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Web Authentication (passkeys) | Supported | [`Passkeys`](stdlib/k-auth.md#passkeys), [`PasskeyVerifier`](stdlib/k-auth.md#passkeyverifier) | both | Chromium | Attestation "none", verified by the server; registering and signing in need a user's action, as Safari requires. Autofill (conditional mediation) isn't built. See [Authentication and sessions](../apps/auth.md). Design: `docs/design/51-passkeys.md`. |
 | Credential Management: stored passwords | Not planned | — | — | — | The autocomplete attributes of form fields already cover it. Design: `docs/design/45-web-platform.md#inventory`. |
@@ -238,7 +238,7 @@ Real-browser checks: `chrome::passkeys_refuse_a_page_on_another_origin_in_chrome
 
 Guide: [Work off the main thread](../apps/workers.md).
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | Web Workers | Supported | [`Worker`](stdlib/k-concurrency.md#worker), [`WorkerFailure`](stdlib/k-concurrency.md#workerfailure) | browser | Chromium | A stateless service whose async methods run in a module worker; a cancelled call ends the worker and a crash restarts it. Design: `docs/design/55-workers.md`. |
 | requestAnimationFrame, requestIdleCallback, scheduler.postTask | Not planned | — | — | — | Runtime-internal: the renderer schedules. Design: `docs/design/45-web-platform.md#inventory`. |
@@ -248,7 +248,7 @@ Real-browser checks: `chrome::a_worker_counts_off_the_main_thread_and_stops_when
 
 ## Graphics, text and locale
 
-| API | Status | K | Runs on | Verified in | Notes |
+| API | Status | Kobra | Runs on | Verified in | Notes |
 |---|---|---|---|---|---|
 | SVG | Partial | [`LineChart`](stdlib/k-charts.md#linechart) | both | Chromium | Charts are SVG, drawn on both sides for accessibility and server rendering; drawing of your own is `k.graphics`. See [Charts](../apps/charts.md). Design: `docs/design/37-charts.md`. |
 | Canvas 2D | Planned (Tier 2) | — | — | — | In `k.graphics`. Feature `k-graphics` on [Design status](design-status.md). Design: `docs/design/45-web-platform.md#inventory`. |

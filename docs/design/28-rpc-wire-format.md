@@ -6,7 +6,7 @@ Every protocol has **deterministic, locked Protobuf names**, so a non-K client (
 
 ## Names
 
-| K | Protobuf / Connect |
+| Kobra | Protobuf / Connect |
 |---|---|
 | module `store` in project `shop` ([24-projects.md](24-projects.md)) | package `shop.store` |
 | `protocol StoreProtocol` | service `StoreProtocol` |
@@ -22,8 +22,8 @@ Every protocol has **deterministic, locked Protobuf names**, so a non-K client (
   - Changing a parameter's external label is source-breaking but wire-compatible.
   - Changing its internal name renames the wire field, which `rpc.lock` records, so it needs `@Breaking`.
 - **A struct return type is the response message itself:** `placeOrder` answers `{"orderId": "…", "paymentUrl": "…"}`. Other return types are wrapped as `{"value": …}`, and an rpc without a return type answers `{}`.
-- JSON field names are the K field names (lower camel case, which is also Protobuf's JSON mapping). Enums without payloads are their case names (`"awaitingPayment"`); `Uuid`, `Url` and `EmailAddress` are strings; `Date` is RFC 3339; `Money` is as in [34-money.md](34-money.md).
-- **Servers accept both encodings,** binary Protobuf (`application/proto`) and JSON (`application/json`), in every environment, and nothing else ([26-auth-and-sessions.md](26-auth-and-sessions.md#request-forgery)). K clients send binary in production and JSON in development; other clients choose.
+- JSON field names are the Kobra field names (lower camel case, which is also Protobuf's JSON mapping). Enums without payloads are their case names (`"awaitingPayment"`); `Uuid`, `Url` and `EmailAddress` are strings; `Date` is RFC 3339; `Money` is as in [34-money.md](34-money.md).
+- **Servers accept both encodings,** binary Protobuf (`application/proto`) and JSON (`application/json`), in every environment, and nothing else ([26-auth-and-sessions.md](26-auth-and-sessions.md#request-forgery)). Kobra clients send binary in production and JSON in development; other clients choose.
 - **Request bodies are limited to 1 MB,** enforced before decoding, like endpoint pages.
 - Every rpc response carries `Cache-Control: private, no-store`.
 
@@ -83,7 +83,7 @@ protocol StoreProtocol {
 | a panic | `internal`, with no details outside development | 500 |
 | `rpcFailure(.offline)`, `rpcFailure(.timeout)` | — (produced by the client; nothing reached the server or came back) | — |
 
-- **On a K client, each of these arrives typed** as the rpc's error enum, except a panic.
+- **On a Kobra client, each of these arrives typed** as the rpc's error enum, except a panic.
 - Error types that cross the wire are `Codable`. The compiler warns when an error payload is a server-only type or an upstream response (an `HttpError` holding a third party's response body), with a hint to wrap the error without it.
 
 ## Calling an rpc by hand
@@ -100,7 +100,7 @@ curl --header 'Content-Type: application/json' --header 'Connect-Protocol-Versio
 - One request message per rpc keeps adding a parameter a compatible change (a new field).
 - One fixed failure case replaces a naming convention and hidden panics with an exhaustive `catch`.
 - Typed network failures cost one error enum on every rpc, and buy a page that can keep a user's unsaved input when the connection drops. The panic alternative (an `OfflineBoundary` catching it) would lose that input on an ordinary web condition.
-- Standard Connect codes let generic infrastructure (load balancers, gRPC clients, monitoring) understand K errors without K-specific knowledge.
+- Standard Connect codes let generic infrastructure (load balancers, gRPC clients, monitoring) understand Kobra errors without K-specific knowledge.
 
 ## Open questions
 

@@ -187,7 +187,7 @@ stays put elsewhere. A range keeps the edits of its lines, and none when the par
 wouldn't format to the same result (a moved `init()` taken half). A file with syntax errors gets no
 edits (`null`), and the client's options (tab size, spaces) are ignored, because the formatter has none.
 
-The VS Code extension makes formatting on save the default for K files (`configurationDefaults` for
+The VS Code extension makes formatting on save the default for Kobra files (`configurationDefaults` for
 `[k]`: `editor.formatOnSave`, four-space indentation, no indentation detection); Neovim and Vim format
 through their LSP clients (`vim.lsp.buf.format()`, `:LspDocumentFormat`).
 
@@ -208,7 +208,7 @@ cases are `tests/fmt/**/name.k` with `name.formatted.k` ([testing.md §5.7](../c
 ## Why
 
 - **Keeping the author's line breaks** (as `gofmt` does) instead of wrapping at a width: a width makes
-  every rename re-wrap unrelated lines, and K's newline rules make many breaks significant, so a
+  every rename re-wrap unrelated lines, and Kobra's newline rules make many breaks significant, so a
   wrapping formatter would need a second, width-aware parser of its own. Without it the formatter only
   ever adds or removes a line break where grammar.md §5 says it is insignificant, which the check stage
   can verify.

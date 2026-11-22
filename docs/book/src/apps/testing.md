@@ -328,7 +328,7 @@ test AddToCart {
 ```
 
 An element a test can't find by role and name isn't accessible either, so component tests double as
-accessibility checks. Queries are named after K's element names, not ARIA roles, so a test reads like
+accessibility checks. Queries are named after Kobra's element names, not ARIA roles, so a test reads like
 the view it checks:
 
 | Member | Meaning |
@@ -530,5 +530,5 @@ test StripeWebhook {
 
 ## No snapshot tests
 
-K has no snapshot tests. They encourage accepting changes without reviewing them. Write an `expect` for
+Kobra has no snapshot tests. They encourage accepting changes without reviewing them. Write an `expect` for
 the thing you actually care about.

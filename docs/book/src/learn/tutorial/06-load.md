@@ -53,7 +53,7 @@ Then give the browser's service a function for it, in `src/books/BookService.k`:
 
 ## Load them on the page
 
-A page can't show the books until they've arrived, and they might not arrive at all. K handles both with a
+A page can't show the books until they've arrived, and they might not arrive at all. Kobra handles both with a
 `@Load` field: a value the page loads before it shows its view. Change the top of `src/home/Home.k`:
 
 ```k

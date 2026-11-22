@@ -108,16 +108,19 @@ pub enum DocsStep {
         /// The release tags, comma-separated; `git tag --list 'v*'` by default.
         #[arg(long, value_delimiter = ',')]
         tags: Option<Vec<String>>,
-        /// The release host the install scripts download from (`https://github.com/<owner>/<repo>/releases`).
+        /// The release host the install scripts download from (`https://github.com/<owner>/<repo>/releases`); `[workspace.metadata.project]`'s by default.
         #[arg(long)]
         releases: Option<String>,
+        /// The toolchain index the install scripts read (`<site>/index.json`); `[workspace.metadata.project]`'s by default.
+        #[arg(long)]
+        index: Option<String>,
     },
 }
 
 /// `dist` steps.
 #[derive(Debug, Subcommand)]
 pub enum DistStep {
-    /// Pack a built `k` into `k-<version>-<target>.tar.gz` (`.zip` for Windows) with the README and licence.
+    /// Pack a built `k` into `k-<version>-<target>.tar.gz` (`.zip` for Windows) with the README and the licences (`LICENSE-MIT`, `LICENSE-APACHE`).
     Archive {
         /// The target triple.
         #[arg(long)]

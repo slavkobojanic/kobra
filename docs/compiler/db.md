@@ -89,7 +89,7 @@ a server process (§6, §9).
   `"<table>_<column>_idx"`. A money column's index covers both stored columns.
 - **Column types** (`ColumnType`):
 
-  | Type | K | Postgres | SQLite |
+  | Type | Kobra | Postgres | SQLite |
   |---|---|---|---|
   | `uuid` | `Uuid` | `uuid` | `TEXT` |
   | `text` | `String`, `EmailAddress`, `Url` | `text` | `TEXT` |
@@ -122,14 +122,14 @@ a server process (§6, §9).
 `ir::Statement`. Anything it can't lower fails the build with the file, line and reason, never an
 in-memory scan.
 
-| K | IR |
+| Kobra | IR |
 |---|---|
 | `notes` (the entity collection), awaited | `Select { table, columns: every stored column in field order }` |
 | `.filter { n => P }` (repeatable; filters are `And`ed) | `filter: Some(lower(P))` |
 | `n.field == x`, `!=`, `<`, `<=`, `>`, `>=` | `Compare { Column, op, Param }` (either side may be the column; flipped when it is on the right) |
 | `n.a == n.b` | `Compare { Column, op, Column }` |
 | `n.field == nil` / `!= nil` | `IsNull` / `IsNotNull` |
-| `n.field == x` with `x: T?` | `field = x OR (field IS NULL AND x IS NULL)`: `nil` equals `nil`, as in K |
+| `n.field == x` with `x: T?` | `field = x OR (field IS NULL AND x IS NULL)`: `nil` equals `nil`, as in Kobra |
 | `n.flag` (a `Bool` field on its own) | `Compare { Column, Eq, Param(true) }` |
 | `n.price <= m` (money) | `amount <= p AND currency = p'` |
 | `a and b`, `a or b`, `not a` | `And`, `Or` (flattened), `Not` |
@@ -145,7 +145,7 @@ in-memory scan.
 | `.including { n => n.rel }` | a second statement per relation ([§8](#8-relations)) |
 | `notes.insert(x)`, `insert(all:)`, `update(x)`, `delete(x)` | the inherited writes ([§7](#7-writes-version-and-unique-violations)) |
 
-- **Every value is a parameter.** Captured K values and constants (`n.isPinned == true`, a case `.live`)
+- **Every value is a parameter.** Captured Kobra values and constants (`n.isPinned == true`, a case `.live`)
   become `Param(n)`, numbered from 1 in order of use; only integer literals of `limit`/`offset` are inlined.
   A value may not mention the row (`n.a == n.b + 1` is a build error: "only a field of the row can be
   compared").

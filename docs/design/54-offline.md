@@ -61,7 +61,7 @@ Three rules hold everywhere:
 self.kOffline = {"build":"/assets/app.682b3cc4.js","files":["/assets/app.5a4c9c59.css", …],"shell":"/","version":"aefcda39"};
 ```
 
-- **`files`: every file below `/assets/` but source maps:** the entry, the runtime chunk, the shared chunk, every page chunk, every feature chunk and the stylesheets. Fonts and images would be included by the same rule; today a K client has none there (icons are inline SVG in the stylesheet, theme fonts are system stacks, [07](07-themes-and-units.md#fonts)). Page chunks are all included, not only the visited ones: offline, any page must open.
+- **`files`: every file below `/assets/` but source maps:** the entry, the runtime chunk, the shared chunk, every page chunk, every feature chunk and the stylesheets. Fonts and images would be included by the same rule; today a Kobra client has none there (icons are inline SVG in the stylesheet, theme fonts are system stacks, [07](07-themes-and-units.md#fonts)). Page chunks are all included, not only the visited ones: offline, any page must open.
 - **`shell`: `/` for a client-rendered app, else `null`.** Every URL of a client-rendered app answers the same document (the static host's fallback, or `dist/app`), so one cached copy opens every page. It is fetched at install with `cache: "reload"`. A shell answered `no-store` (a client-rendered app's shell carries the session mirror when the app has sessions) isn't kept, and that app's navigations go to the network first like a server-rendered app's.
 - **`build`: the entry chunk's path,** which the page compares with its own to know whether a newer build has taken over ([Updates](#updates)).
 - **`version`: a hash of `files`,** which names the caches: `k-<version>` for the precache and `k-<version>-pages` for the pages kept on the way.
@@ -121,7 +121,7 @@ The web app manifest comes from `App.k`'s `metadata` as before ([22](22-metadata
 
 - **`k dev` never serves a caching worker, even with `--release`.** An `@Offline` app's development worker sets `self.kOffline = null`: it caches nothing, has no `fetch` or `message` handler, and its `activate` deletes every `k-` cache. The page still registers it, so a caching worker left by `k run --release` or a `k build` served on the same `localhost` port is replaced at the browser's next update check, and `k dev`'s rebuilds always reach the page.
 - **`k run` serves the development worker; `k run --release` serves the one `k build` ships,** so a release client can be tried offline locally, which is what the real-Chrome tests do.
-- **DevTools' "Update on reload" and "Bypass for network"** still work as for any worker; nothing in K fights them.
+- **DevTools' "Update on reload" and "Bypass for network"** still work as for any worker; nothing in Kobra fights them.
 
 ## Tests
 
@@ -186,10 +186,10 @@ Built tests first, as designed above, with these decisions:
 
 ## Alternatives rejected
 
-- **A user-written service worker** (or Workbox-style configuration): a second runtime with its own rules, the main source of offline bugs, for what is the same policy in every K app.
+- **A user-written service worker** (or Workbox-style configuration): a second runtime with its own rules, the main source of offline bugs, for what is the same policy in every Kobra app.
 - **Caching rpc results** (stale-while-revalidate on `/_k/`): rpcs are typed calls with typed errors; replaying an old answer hides that the call didn't happen, and a mutation can't be replayed at all. Offline data is the app's, through `Collections` ([52](52-indexed-collections.md)) or `LocalStorage` ([36](36-local-storage.md)).
 - **Waiting for every tab to close before a new build takes over:** see [Why](#why).
-- **Precaching only the visited pages' chunks:** offline, the next page the user opens must work too, and a K app's page chunks are small.
+- **Precaching only the visited pages' chunks:** offline, the next page the user opens must work too, and a Kobra app's page chunks are small.
 - **A separate worker file for offline** (`k-offline.js`): two registrations can't share the scope `/`, and the notifications worker would lose its `notificationclick` to whichever registered last.
 - **An `offline { }` page of the app's** shown for a never-visited server-rendered page: see [open questions](#open-questions).
 

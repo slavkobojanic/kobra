@@ -1,6 +1,6 @@
 # Deployment
 
-A K app deploys as **one file**. `k build` produces `dist/app`, a self-contained server executable that
+A Kobra app deploys as **one file**. `k build` produces `dist/app`, a self-contained server executable that
 validates its configuration, migrates the database, serves HTTP and runs the job worker. It has built-in
 commands for operations, so container images need no shell.
 
@@ -132,14 +132,14 @@ expand/contract: a column is retired in one release and dropped in a later one
 
 ## Containers
 
-> **Planned** (toolchain-image). The K project will publish `ghcr.io/k-lang/k:<version>`, a minimal image containing the
+> **Planned** (toolchain-image). The Kobra project will publish `ghcr.io/slavkobojanic/kobra:<version>`, a minimal image containing the
 > static `k` binary. It isn't published yet; the examples build the toolchain in a first stage instead,
 > as described below the sample.
 
 With the toolchain image, a multi-stage build looks like this:
 
 ```text
-FROM ghcr.io/k-lang/k:0.1.0 AS build
+FROM ghcr.io/slavkobojanic/kobra:0.1.0 AS build
 WORKDIR /src
 COPY . .
 # k check fails on any type error, lockfile drift (schema.lock included) or failing test.
@@ -263,7 +263,7 @@ mount point would otherwise have to be created inside the read-only Secret volum
 which stops the container from starting.
 
 **The deployment is checked against the build.** `dist/app config` is the complete list of what an app
-reads, so a test can hold the deployment files to it: the K repository's `crates/k_cli/tests/deploy.rs`
+reads, so a test can hold the deployment files to it: the Kobra repository's `crates/k_cli/tests/deploy.rs`
 builds the workspace and fails when a container misses a required variable, sets a variable the app
 doesn't read (a typo), passes a secret as a plain variable, or pairs the services' tokens wrongly. A
 second test, `crates/k_cli/tests/kubernetes.rs`, applies the manifests to a throwaway kind cluster and
@@ -286,7 +286,7 @@ an empty `#k-app`. The host should:
 The Kanban example's image does exactly that with nginx:
 
 ```text
-FROM ghcr.io/k-lang/k:0.1.0 AS build
+FROM ghcr.io/slavkobojanic/kobra:0.1.0 AS build
 WORKDIR /src
 COPY . .
 RUN k check
@@ -312,5 +312,5 @@ location / {
 
 Until the toolchain image is published, `examples/kanban/Dockerfile` builds `k` from this repository in
 a first stage, as the shop's does (its build context is the repository root;
-`--build-arg K_TOOLCHAIN=ghcr.io/k-lang/k:0.1.0` switches to the published image). Its `k check` runs
+`--build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0` switches to the published image). Its `k check` runs
 the tests too.

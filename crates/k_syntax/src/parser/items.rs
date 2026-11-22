@@ -130,7 +130,7 @@ pub(crate) fn semicolon(p: &mut Parser<'_>) {
         Diagnostic::new(
             codes::SEMICOLON,
             span,
-            "semicolons are not used in K; end the statement with a line break",
+            "semicolons are not used in Kobra; end the statement with a line break",
         )
         .with_fix(fix),
     );

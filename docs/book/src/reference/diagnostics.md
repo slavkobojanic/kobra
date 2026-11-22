@@ -26,7 +26,7 @@ error[K0001]: unexpected character `$`
 1 | $x
   | ^
   |
-  = help: K has no `$` sigil; to pass a two-way binding, write `bind x`
+  = help: Kobra has no `$` sigil; to pass a two-way binding, write `bind x`
 ```
 
 **Fix:** Delete the character, or move it into a string or a comment. `$x` is written `bind x`.
@@ -143,7 +143,7 @@ error[K0006]: invalid number literal
 
 ### K0007 `brace-escape`
 
-**Error.** `\{` is not an escape in K strings; write `{{` for a literal `{`.
+**Error.** `\{` is not an escape in Kobra strings; write `{{` for a literal `{`.
 
 Example (`tests/corpus/lexer/strings/brace-escape-backslash.k`):
 
@@ -257,7 +257,7 @@ error[K0102]: expected a line break before this
 
 ### K0103 `semicolon`
 
-**Error.** K code does not use semicolons; statements end at the end of the line.
+**Error.** Kobra code does not use semicolons; statements end at the end of the line.
 
 Example (`tests/corpus/parser/declarations/errors/semicolon-after-item.k`):
 
@@ -268,7 +268,7 @@ struct B {}
 ```
 
 ```text
-error[K0103]: semicolons are not used in K; end the statement with a line break
+error[K0103]: semicolons are not used in Kobra; end the statement with a line break
  --> src/corpus/semicolon-after-item.k:2:12
   |
 2 | struct A {};
@@ -281,7 +281,7 @@ error[K0103]: semicolons are not used in K; end the statement with a line break
 
 ### K0104 `symbolic-and`
 
-**Error.** K writes logical conjunction as `and`, not `&&`.
+**Error.** Kobra writes logical conjunction as `and`, not `&&`.
 
 Example (`tests/corpus/parser/expressions/operators/symbolic-and-fix.k`):
 
@@ -304,7 +304,7 @@ error[K0104]: `&&` is not an operator; write `and`
 
 ### K0105 `symbolic-or`
 
-**Error.** K writes logical disjunction as `or`, not `||`.
+**Error.** Kobra writes logical disjunction as `or`, not `||`.
 
 Example (`tests/corpus/parser/expressions/operators/symbolic-or-fix.k`):
 
@@ -327,7 +327,7 @@ error[K0105]: `||` is not an operator; write `or`
 
 ### K0106 `symbolic-not`
 
-**Error.** K writes logical negation as `not`, not `!`.
+**Error.** Kobra writes logical negation as `not`, not `!`.
 
 Example (`tests/corpus/parser/expressions/operators/symbolic-not-fix.k`):
 
@@ -350,7 +350,7 @@ error[K0106]: `!` is not an operator; write `not`
 
 ### K0107 `ternary`
 
-**Error.** K has no ternary operator; use an `if` expression.
+**Error.** Kobra has no ternary operator; use an `if` expression.
 
 Example (`tests/corpus/parser/expressions/operators/ternary-with-implicit-members.k`):
 
@@ -360,7 +360,7 @@ let tone = ok ? .success : .danger
 ```
 
 ```text
-error[K0107]: there is no ternary operator in K
+error[K0107]: there is no ternary operator in Kobra
  --> src/corpus/ternary-with-implicit-members.k:2:15
   |
 2 | let tone = ok ? .success : .danger
@@ -2014,13 +2014,13 @@ struct Other implements Int {}
 ```
 
 ```text
-error[K2014]: `corpus.Kind` is not an interface: K has no inheritance
+error[K2014]: `corpus.Kind` is not an interface: Kobra has no inheritance
  --> src/corpus/implements-enum-and-builtin.k:6:25
   |
 6 | struct Thing implements Kind {}
   |                         ^^^^
 
-error[K2014]: `Int` is not an interface: K has no inheritance
+error[K2014]: `Int` is not an interface: Kobra has no inheritance
  --> src/corpus/implements-enum-and-builtin.k:7:25
   |
 7 | struct Other implements Int {}
@@ -4499,7 +4499,7 @@ error[K3101]: `div` is not a built-in element
   = fix: Replace `div` with `box`
 ```
 
-**Fix:** Use a K element name (`link` for `a`, `paragraph` for `p`) or a component's name.
+**Fix:** Use a Kobra element name (`link` for `a`, `paragraph` for `p`) or a component's name.
 
 ### K3102 `missing-element-argument`
 
@@ -5169,7 +5169,7 @@ error[K3201]: `colour` is not a CSS property
 
 ### K3202 `invalid-css-value`
 
-**Error.** A property's value doesn't match the property's value grammar or K types.
+**Error.** A property's value doesn't match the property's value grammar or Kobra types.
 
 Example (`tests/corpus/sema/ui/styles/keyword-not-in-grammar.k`):
 
@@ -5590,7 +5590,7 @@ error[K3213]: keyframes `fade` are declared twice
 
 ### K3214 `kebab-case-css-keyword`
 
-**Error.** A CSS keyword in a style value is written in kebab case; K spells keywords in camel case.
+**Error.** A CSS keyword in a style value is written in kebab case; Kobra spells keywords in camel case.
 
 Example (`tests/corpus/sema/ui/styles/kebab-case-keyword.k`):
 
@@ -5619,7 +5619,7 @@ component Card {
 ```
 
 ```text
-error[K3214]: CSS keywords are camel case in K: `line-through` is written `lineThrough`
+error[K3214]: CSS keywords are camel case in Kobra: `line-through` is written `lineThrough`
   --> src/corpus/kebab-case-keyword.k:12:29
    |
 12 |             textDecoration: line-through;
@@ -5627,7 +5627,7 @@ error[K3214]: CSS keywords are camel case in K: `line-through` is written `lineT
    |
    = fix: Replace `line-through` with `lineThrough`
 
-error[K3214]: CSS keywords are camel case in K: `space-between` is written `spaceBetween`
+error[K3214]: CSS keywords are camel case in Kobra: `space-between` is written `spaceBetween`
   --> src/corpus/kebab-case-keyword.k:13:29
    |
 13 |             justifyContent: space-between;
@@ -5635,7 +5635,7 @@ error[K3214]: CSS keywords are camel case in K: `space-between` is written `spac
    |
    = fix: Replace `space-between` with `spaceBetween`
 
-error[K3214]: CSS keywords are camel case in K: `ease-in-out` is written `easeInOut`
+error[K3214]: CSS keywords are camel case in Kobra: `ease-in-out` is written `easeInOut`
   --> src/corpus/kebab-case-keyword.k:14:39
    |
 14 |             transition: opacity 200ms ease-in-out;
@@ -5643,7 +5643,7 @@ error[K3214]: CSS keywords are camel case in K: `ease-in-out` is written `easeIn
    |
    = fix: Replace `ease-in-out` with `easeInOut`
 
-error[K3214]: CSS keywords are camel case in K: `auto-fill` is written `autoFill`
+error[K3214]: CSS keywords are camel case in Kobra: `auto-fill` is written `autoFill`
   --> src/corpus/kebab-case-keyword.k:15:41
    |
 15 |             gridTemplateColumns: repeat(auto-fill, 1fr);
@@ -5651,7 +5651,7 @@ error[K3214]: CSS keywords are camel case in K: `auto-fill` is written `autoFill
    |
    = fix: Replace `auto-fill` with `autoFill`
 
-error[K3214]: CSS keywords are camel case in K: `sans-serif` is written `sansSerif`
+error[K3214]: CSS keywords are camel case in Kobra: `sans-serif` is written `sansSerif`
   --> src/corpus/kebab-case-keyword.k:16:34
    |
 16 |             fontFamily: "Inter", sans-serif;
@@ -5659,7 +5659,7 @@ error[K3214]: CSS keywords are camel case in K: `sans-serif` is written `sansSer
    |
    = fix: Replace `sans-serif` with `sansSerif`
 
-error[K3214]: CSS keywords are camel case in K: `no-preference` is written `noPreference`
+error[K3214]: CSS keywords are camel case in Kobra: `no-preference` is written `noPreference`
   --> src/corpus/kebab-case-keyword.k:18:43
    |
 18 |             @media (prefersReducedMotion: no-preference) { padding: 4px; }
@@ -8934,7 +8934,7 @@ error[K6001]: a query lambda is translated to SQL, which can't call this functio
    |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^
 ```
 
-**Fix:** Use only fields, literals, parameters and the query operators the compiler translates; filter in K after loading if needed.
+**Fix:** Use only fields, literals, parameters and the query operators the compiler translates; filter in Kobra after loading if needed.
 
 ### K6002 `unsupported-column-type`
 

@@ -3,7 +3,7 @@
 `examples/kanban` in the repository is a complete app that runs entirely in the browser: boards of
 columns and cards that you drag between columns, edit, import and export. It builds to static files
 only and ships in an nginx image. Its README walks through every file; this page shows how the parts
-of K it uses fit together.
+of Kobra it uses fit together.
 
 | Feature | Where | Chapter |
 |---|---|---|

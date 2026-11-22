@@ -120,7 +120,7 @@ A test is one browser talking to one server, in one process:
 `render(view)` returns a `Screen`.
 
 - **`render(SomePage(param: value))` renders a page** without its layout, exactly as the router would after navigating to it: its `@Load` fields start at once, and `loading`, `view` or `failed` is shown as they resolve. Guards still apply: rendering a page that `requires Authenticated` with no session shows the redirect, not the page.
-- Queries are named after K's element names ([05-views.md](05-views.md)), not ARIA role names, so a test reads like the view it checks.
+- Queries are named after Kobra's element names ([05-views.md](05-views.md)), not ARIA role names, so a test reads like the view it checks.
 
 | Member | Meaning |
 |---|---|

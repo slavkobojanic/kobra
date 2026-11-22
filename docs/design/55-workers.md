@@ -80,7 +80,7 @@ func histogram(samples: Bytes, buckets: Int) async throws WaveError -> List<Doub
 - **`async`, and `throws E`:** a missing `async` or `throws` is K4037 (`worker-method-signature`), with fixes that add `async` and `throws WorkerOnlyError`. A generic method is K4037 too: codecs need the concrete types.
 - **`E` is `WorkerOnlyError` or a `Codable` error enum with exactly one `workerFailure(WorkerFailure)` case,** else K4038 (`worker-error-without-failure-case`), whose fix adds the case, as K5502's does for rpcs.
 - **Parameters, the result and `E` are `Codable`** (K4039, `worker-payload-not-codable`). A `Stream<T>` result is K4039 too, with a note: streamed progress is an [open question](#open-questions).
-- **Inside the worker,** a method's code is ordinary K; it calls the service's other members and any top-level function, struct or enum. Its typed errors are thrown as usual.
+- **Inside the worker,** a method's code is ordinary Kobra; it calls the service's other members and any top-level function, struct or enum. Its typed errors are thrown as usual.
 
 ```k
 /// Why a worker call failed outside the method (only the runtime produces it).
@@ -104,7 +104,7 @@ public enum WorkerOnlyError implements Error, Codable {
 ## Calls
 
 - **Values cross through their codecs.** The proxy encodes each argument with its codec into JSON values, posts them (`postMessage`, a structured clone of plain JSON: no class instance, function or signal crosses), the worker decodes them with the same codecs, and the result and a thrown error come back the same way. So a `Date`, a `Money` or a struct with an `@JsonKey` arrives as itself, and a decoding failure can't happen between two halves of one build.
-- **`Bytes` at the top level isn't encoded:** a `Bytes` parameter or result is posted as its `Uint8Array`, which structured clone copies in one block, instead of the codec's list of numbers. It is copied, not transferred: K values are immutable and the caller still holds it, and a transfer would empty it. `Bytes` inside a struct goes through the struct's codec.
+- **`Bytes` at the top level isn't encoded:** a `Bytes` parameter or result is posted as its `Uint8Array`, which structured clone copies in one block, instead of the codec's list of numbers. It is copied, not transferred: Kobra values are immutable and the caller still holds it, and a transfer would empty it. `Bytes` inside a struct goes through the struct's codec.
 - **The queue.** One worker per service; calls wait in the page in the order they were made, and the worker runs one at a time. A worker is one thread, so running two calls "at once" would only interleave them; queuing in the page is what lets a cancelled call that hasn't started be dropped without disturbing the running one.
 - **Lifetime.** The worker starts at the first call, not when the service is injected, so a page that never calls it costs nothing; it is a module worker (`new Worker(url, {type: "module", name: "NoteSearch"})`), and its first call waits for it to load. It then stays for the life of the page. There is no idle timeout ([open question](#open-questions)).
 
@@ -121,12 +121,12 @@ A call made from an effect, a load or a handler carries its owner's cancellation
 | What happens in the worker | What the call throws | The worker |
 |---|---|---|
 | the method throws a case of `E` | that case, decoded with `E`'s codec | keeps running |
-| the method panics, or throws something that isn't a K error (a bug in interop) | `.workerFailure(.crashed)` | terminated; the next call starts a new one |
+| the method panics, or throws something that isn't a Kobra error (a bug in interop) | `.workerFailure(.crashed)` | terminated; the next call starts a new one |
 | the browser ends it (`error` event, out of memory), or a message can't be read (`messageerror`) | `.workerFailure(.crashed)` for the running call | started again for the queued ones |
 | it can't start: no `Worker`, its script fails to load, a CSP refuses it | `.workerFailure(.unavailable)` for every queued call | tried again at the next call |
 
 - **A worker announces itself** once its module has run (`{k: "ready"}`): an error before that is a load failure (`.unavailable`), after it a crash. The proxy posts the first call only once the worker is ready.
-- **A crash is logged** in the console with the worker's message (a panic's text), in development with the K stack the worker's source map gives.
+- **A crash is logged** in the console with the worker's message (a panic's text), in development with the Kobra stack the worker's source map gives.
 - **Only the runtime produces `workerFailure`.** A method that throws it itself isn't checked in this round ([open questions](#open-questions)).
 
 ## Server rendering
@@ -166,7 +166,7 @@ test NoteSearch {
 
 - **The worker chunk** `workers/<name>.<hash>.js` (`workers/note-search.3f2a1b9c.js`) holds the service's class, the declarations it reaches (structs, enums, functions, their codecs) and a few lines that serve its methods; it imports what it uses from the runtime chunk and `serveWorker` from the `workers` chunk. It never imports the shared chunk: that holds the app's components, which a worker has no use for. It is linked and minified with the rest of a release build, and named after its bytes, so a change to the worker's code changes its name, the proxy's text and hence the shared chunk's name.
 - **The proxy** is the service's name in the shared chunk, a class whose methods encode, post and decode, so the containers construct it as before. It calls `workerClient`, in the runtime feature chunk `workers.<hash>.js` (`runtime/workers.js`), which ships only to apps with a `@Worker` service, so **the runtime chunk doesn't grow.**
-- **The worker is started from the proxy's own URL:** `new Worker(new URL("./workers/note-search.<hash>.js", import.meta.url), {type: "module", name})`. Same origin, so a content security policy needs `worker-src 'self'` (or `script-src 'self'`, which it falls back to); no `blob:` URL and no `eval`. Module workers are in every browser K supports (Baseline 2023).
+- **The worker is started from the proxy's own URL:** `new Worker(new URL("./workers/note-search.<hash>.js", import.meta.url), {type: "module", name})`. Same origin, so a content security policy needs `worker-src 'self'` (or `script-src 'self'`, which it falls back to); no `blob:` URL and no `eval`. Module workers are in every browser Kobra supports (Baseline 2023).
 - **`@Offline`** precaches the worker chunks with the other files below `/assets/` ([54](54-offline.md#what-is-precached)), so a worker starts offline.
 - **`k dev`** serves the worker chunk with a source map like any other, so DevTools shows the worker's `.k` source and stops at its breakpoints.
 
@@ -190,15 +190,15 @@ Built tests first, as designed above, with these decisions:
 
 - **Declarations.** `k.concurrency.Worker` (an `@Annotation` struct, target `Service`), `WorkerFailure` and `WorkerOnlyError` (`Codable` enums). The side of a `@Worker` service is client-only in `di::compute_side`; K4012's check (`body.rs`) covers a `@Worker` service's methods besides the stdlib's client-only interfaces, with a message of its own, and skips a worker's calls to itself. The checks are `k_sema::workers`.
 - **Codegen.** `workers.rs` in `k_codegen`: on the client a `@Worker` service lowers to its proxy, `class S { constructor() { this.$w = $k.workerClient(open, "S"); } async m($c, …) { return this.$w.call($c, "m", [encoded…], decode, decodeError, failure); } }`; the worker chunk is built from a second lowering of the program in which the service is its real class and its host table, `S$host = { m: [decodeArguments, encodeResult, encodeError] }`, kept to what the service reaches, the service last. The stdlib declarations of that lowering are taken from what the codecs use too (`WorkerOnlyError`'s codec needs `WorkerFailure`'s). The proxy names the chunk with a placeholder that the bundler replaces in the syntax tree once the chunk is printed, and the linker orders a chunk named by `new URL(…)` before the chunk that names it (`Imports::urls`). A test bundle wraps the class and its table in `S$worker`, so the class's own name inside it is the real class's.
-- **Runtime.** `runtime/workers.js` (part `Workers`, a runtime feature chunk like `forms`, `WORKERS_SIZE_BUDGET` 1.25 KB; 1,060 B compacted and gzipped as built): `workerClient(open, name)` with the queue, cancellation and failures, and `serveWorker(scope, make, host)`, which the worker chunk calls with `globalThis`. `inlineWorker(make, host)`, the in-process host `k test` uses, is the test kit's (`testing/kit.js`), so no app ships it. The message protocol: `{k: "call", id, m, a}` to the worker; `{k: "ready"}`, `{k: "ok", id, v}`, `{k: "error", id, e}` and `{k: "crash", id, text}` back. A thrown value that isn't an `Error` (a K enum value) is a typed error; anything else, a `KPanic` included, a crash.
+- **Runtime.** `runtime/workers.js` (part `Workers`, a runtime feature chunk like `forms`, `WORKERS_SIZE_BUDGET` 1.25 KB; 1,060 B compacted and gzipped as built): `workerClient(open, name)` with the queue, cancellation and failures, and `serveWorker(scope, make, host)`, which the worker chunk calls with `globalThis`. `inlineWorker(make, host)`, the in-process host `k test` uses, is the test kit's (`testing/kit.js`), so no app ships it. The message protocol: `{k: "call", id, m, a}` to the worker; `{k: "ready"}`, `{k: "ok", id, v}`, `{k: "error", id, e}` and `{k: "crash", id, text}` back. A thrown value that isn't an `Error` (a Kobra enum value) is a typed error; anything else, a `KPanic` included, a crash.
 - **Sizes.** The runtime chunk doesn't change. Notes ships 41,443 B gzip, 2,930 B more than before: the `workers` chunk (1,008 B linked), its worker chunk (1,357 B, fetched at the first search) and the proxy and the page's ranking; **notes' budget rose from 40,000 B to 43,500 B** (performance.md §11.7), and `WORKERS_SIZE_BUDGET` (1.25 KB) is new.
 
 ## Why
 
-- **A service, not a new kind of declaration:** a worker is a set of operations the page calls, which is what a service already is in K; injecting it, faking it in tests and finding it in the code work as for every service.
+- **A service, not a new kind of declaration:** a worker is a set of operations the page calls, which is what a service already is in Kobra; injecting it, faking it in tests and finding it in the code work as for every service.
 - **No state:** a worker that can be terminated to cancel a call and restarted after a crash can't promise to keep anything. Making that a rule instead of a caveat means cancellation and crashes never lose data, and the main thread's services stay the one place state lives.
 - **Typed failures, like rpcs:** a worker is another thread that can die independently of the page, which is the same situation as a server that can be unreachable. The `workerFailure` case makes the page handle it where it already handles errors, with an exhaustive `catch`.
-- **Codecs, not structured clone of K values:** K values are partly runtime classes (`Date`, `Money`, hash maps keyed by structs) that structured clone would turn into plain objects. The codecs already define one form for every `Codable` type, and are what an rpc uses.
+- **Codecs, not structured clone of Kobra values:** Kobra values are partly runtime classes (`Date`, `Money`, hash maps keyed by structs) that structured clone would turn into plain objects. The codecs already define one form for every `Codable` type, and are what an rpc uses.
 - **A chunk with only what the service reaches:** the worker starts at the first call, so its download is on that call's path; the app's components and the shared chunk would only make it slower.
 - **Terminating on cancel:** a stale CPU-bound call can't be interrupted any other way, and since nothing is lost, stopping it is free apart from the restart.
 
@@ -208,7 +208,7 @@ Built tests first, as designed above, with these decisions:
 - **Stateful workers** (an index built once and queried many times): see [Why](#why). A page that needs to reuse a large input passes it each call, or keeps the derived data itself (the worker can return it); a cache that survives restarts is an [open question](#open-questions).
 - **Running inline when `Worker` is missing:** it would freeze the page exactly when the work is heavy; `.unavailable` lets the page choose its own fallback (notes filters by substring instead).
 - **Running inline during server rendering:** see [Server rendering](#server-rendering).
-- **Transferring `Bytes`:** a transfer empties the sender's buffer, and a K value the caller still holds must not change.
+- **Transferring `Bytes`:** a transfer empties the sender's buffer, and a Kobra value the caller still holds must not change.
 - **A `blob:` URL or an inline script for the worker:** content security policies commonly refuse `blob:` workers; a same-origin chunk needs nothing.
 - **A pool of workers per service,** or parallel calls: one queue is predictable and enough for keeping the page responsive; parallel speed-ups are an [open question](#open-questions).
 - **Shared memory and `Atomics`, `SharedWorker`, workers on the server:** out of scope (shared memory needs cross-origin isolation headers on every response; a `SharedWorker` would need state, which workers don't have; the server has background jobs, [30](30-background-jobs.md)).

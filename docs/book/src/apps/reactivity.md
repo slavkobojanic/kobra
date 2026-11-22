@@ -1,6 +1,6 @@
 # Reactivity
 
-K uses **compiled, fine-grained signals**, like Svelte 5 and Solid. There is no virtual DOM. The compiler
+Kobra uses **compiled, fine-grained signals**, like Svelte 5 and Solid. There is no virtual DOM. The compiler
 links each piece of state to the exact DOM nodes that read it, so when the state changes, those nodes
 update and nothing else runs. There is no diffing.
 
@@ -370,7 +370,7 @@ component DraftEditor {
 }
 ```
 
-Stopping is silent, like an effect's cancellation: no `catch` clause runs and nothing is reported. K has
+Stopping is silent, like an effect's cancellation: no `catch` clause runs and nothing is reported. Kobra has
 no `defer` or `finally`; work that must happen when a component goes away belongs in `onCleanup`, which
 still runs. On a page that `requires Authenticated`, this is also what makes `session.user` safe after
 an `await`: when another tab signs out, the page is left, and its handlers stop before they could read
@@ -378,7 +378,7 @@ the missing user ([Authentication](auth.md)).
 
 ## State in services
 
-`@State`, `@Derived` and `@Effect` work the same in [services](services.md), which is how K handles
+`@State`, `@Derived` and `@Effect` work the same in [services](services.md), which is how Kobra handles
 shared state: there is no separate store library. A component that reads `cart.items` from an injected
 `CartService` updates whenever the service's state changes.
 

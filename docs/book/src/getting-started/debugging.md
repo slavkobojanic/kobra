@@ -1,7 +1,7 @@
 # Debugging
 
-You debug K as K. Breakpoints go in `.k` files, the debugger stops on `.k` lines, stack traces name
-`.k` lines, and the values you inspect read as K values. This works in the developer tools of Chrome,
+You debug Kobra as Kobra. Breakpoints go in `.k` files, the debugger stops on `.k` lines, stack traces name
+`.k` lines, and the values you inspect read as Kobra values. This works in the developer tools of Chrome,
 Edge, Firefox and Safari, and in VS Code, with nothing to install: `k dev` writes a source map for every
 file it generates, and those maps lead from the generated JavaScript back to your code.
 
@@ -22,7 +22,7 @@ public component Counter {
 ```
 
 Set a breakpoint on `count = next`, click the button, and the browser stops there with `next`, `count`
-and the component's other members in the Scope pane, by their K names.
+and the component's other members in the Scope pane, by their Kobra names.
 
 ## In the browser
 
@@ -40,7 +40,7 @@ What you can set breakpoints on: any statement in a function, a handler (`.on(cl
 initializer (it stops each time the value is recomputed or loaded), and a view binding such as
 `"Add one ({count})"` (it stops each time that text re-renders).
 
-**Stepping stays in your code.** The K runtime is on the source maps' ignore list, so Step into goes
+**Stepping stays in your code.** The Kobra runtime is on the source maps' ignore list, so Step into goes
 from your code to your code, and stack traces show your functions without the runtime between them.
 That holds for `await` too: the async stack trace of a stopped `async` function shows the `.k` lines that
 led to it, across rpc calls.
@@ -48,10 +48,10 @@ led to it, across rpc calls.
 **Errors name `.k` lines.** An error thrown in the browser shows in the Console with its stack trace
 mapped to your files. Click a line to jump to it.
 
-### Seeing K values
+### Seeing Kobra values
 
 Values in the Scope pane, in hovers and in the Console are JavaScript values underneath. Turn on custom
-formatters to see them as K values: in Chrome's DevTools settings (the gear icon, Preferences, Console),
+formatters to see them as Kobra values: in Chrome's DevTools settings (the gear icon, Preferences, Console),
 check **Enable custom formatters**. With it on, while you develop:
 
 | Value | Shown as |
@@ -82,7 +82,7 @@ k dev --inspect
 debugger is attached, the server runs one isolate, so every request goes through it.
 
 - **Chrome.** Open `chrome://inspect`, choose **Configure…**, add `localhost:9229`, then click
-  **inspect** under "K server". The `.k` files are under `_k/src` in the Sources panel.
+  **inspect** under "Kobra server". The `.k` files are under `_k/src` in the Sources panel.
 - **VS Code.** Use the attach configuration below.
 
 Without a debugger attached, you still get `.k` lines:
@@ -95,20 +95,20 @@ Without a debugger attached, you still get `.k` lines:
 ## VS Code
 
 VS Code's built-in JavaScript debugger needs no extension. Copy `editors/vscode/launch.json` and
-`editors/vscode/tasks.json` from the K repository into your project's `.vscode/` folder. They hold three
+`editors/vscode/tasks.json` from the Kobra repository into your project's `.vscode/` folder. They hold three
 configurations:
 
-- **K: debug in Chrome** starts `k dev --inspect` and opens the app in Chrome, with breakpoints in your
+- **Kobra: debug in Chrome** starts `k dev --inspect` and opens the app in Chrome, with breakpoints in your
   `.k` files.
-- **K: attach to the server (k dev --inspect)** attaches to the server.
-- **K: browser and server** does both, so one session stops on both sides of an rpc.
+- **Kobra: attach to the server (k dev --inspect)** attaches to the server.
+- **Kobra: browser and server** does both, so one session stops on both sides of an rpc.
 
 The part that makes `.k` breakpoints work is the path mapping. The maps call your files
 `/_k/src/<path>` in the browser and `k:/_k/src/<path>` on the server:
 
 ```json
 {
-  "name": "K: attach to the server (k dev --inspect)",
+  "name": "Kobra: attach to the server (k dev --inspect)",
   "type": "node",
   "request": "attach",
   "port": 9229,

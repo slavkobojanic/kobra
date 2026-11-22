@@ -10,11 +10,13 @@
 //! | `examples/**/k.toml` | `k = "X.Y"`, when the minor changes |
 //! | `examples/**/k.lock` | `toolchain = "X.Y.Z"` |
 //! | the test projects' `k.toml` and `k.lock` (`tests/e2e/**`, `crates/*/tests/**` but `xtask`'s) | the same: the tests run them through the new `k` |
-//! | `examples/**` (`Dockerfile`, YAML, Markdown), `docs/book/src/**.md`, `docs/design/38-deployment.md` | toolchain image tags `…/k:X.Y.Z` |
+//! | `examples/**` (`Dockerfile`, YAML, Markdown), `docs/book/src/**.md`, `docs/design/38-deployment.md` | toolchain image tags `…/kobra:X.Y.Z` |
 //! | `docs/book/src/**.md` | `k = "X.Y"` in `toml` blocks, and `k X.Y.Z` as `k --version` prints it |
 //!
 //! `k new` writes the running toolchain's minor, so it needs nothing. The
-//! tool's name is read from `crates/k_cli/Cargo.toml`'s `[[bin]]`.
+//! tool's name is read from `crates/k_cli/Cargo.toml`'s `[[bin]]`, the
+//! image's from `Cargo.toml`'s `[workspace.metadata.project] image`
+//! (the tool's name when there is none).
 
 use std::path::{Path, PathBuf};
 
@@ -135,9 +137,9 @@ fn assignment(line: &str, key: &str, old: &str, new: &str) -> Option<String> {
     ))
 }
 
-/// `text` with every `/<tool>:<old>` image tag naming `new`.
-fn image_tags(text: &str, tool: &str, old: &str, new: &str) -> String {
-    let needle = format!("/{tool}:{old}");
+/// `text` with every `/<image>:<old>` image tag naming `new`.
+fn image_tags(text: &str, image: &str, old: &str, new: &str) -> String {
+    let needle = format!("/{image}:{old}");
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(i) = rest.find(&needle) {
@@ -145,7 +147,7 @@ fn image_tags(text: &str, tool: &str, old: &str, new: &str) -> String {
         let ends = !after.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '.' || c == '-');
         out.push_str(&rest[..i]);
         if ends {
-            out.push_str(&format!("/{tool}:{new}"));
+            out.push_str(&format!("/{image}:{new}"));
         } else {
             out.push_str(&needle);
         }
@@ -187,7 +189,7 @@ fn version_mentions(text: &str, tool: &str, old: &str, new: &str) -> String {
 
 /// The book page `text` with `k = "<old minor>"` in `toml` blocks and
 /// version mentions moved to `new`.
-fn book_page(text: &str, tool: &str, old: &Version, new: &Version) -> String {
+fn book_page(text: &str, tool: &str, image: &str, old: &Version, new: &Version) -> String {
     let mut lang: Option<String> = None;
     let replaced = lines(text, |line| {
         let t = line.trim_start();
@@ -204,7 +206,7 @@ fn book_page(text: &str, tool: &str, old: &Version, new: &Version) -> String {
         None
     });
     let replaced = version_mentions(&replaced, tool, &old.to_string(), &new.to_string());
-    image_tags(&replaced, tool, &old.to_string(), &new.to_string())
+    image_tags(&replaced, image, &old.to_string(), &new.to_string())
 }
 
 /// The new text of every file that names the version, moving it from the
@@ -217,6 +219,8 @@ fn book_page(text: &str, tool: &str, old: &Version, new: &Version) -> String {
 pub fn bump(root: &Path, new: &Version) -> Result<Vec<Change>, String> {
     let old = current(root)?;
     let tool = tool(root);
+    let project = crate::project::Project::read(root);
+    let image = project.image_name().unwrap_or(&tool).to_owned();
     let (old_s, new_s) = (old.to_string(), new.to_string());
     let mut changes = Vec::new();
     let mut add = |path: &Path, text: String| {
@@ -322,7 +326,7 @@ pub fn bump(root: &Path, new: &Version) -> Result<Vec<Change>, String> {
                 assignment(l, &tool, &old.minor_text(), &new.minor_text())
             }),
             "k.lock" => lines(&text, |l| assignment(l, "toolchain", &old_s, &new_s)),
-            _ => image_tags(&text, &tool, &old_s, &new_s),
+            _ => image_tags(&text, &image, &old_s, &new_s),
         };
         add(&path, new_text);
     }
@@ -370,12 +374,12 @@ pub fn bump(root: &Path, new: &Version) -> Result<Vec<Change>, String> {
     );
     for path in pages {
         if let Ok(text) = std::fs::read_to_string(&path) {
-            add(&path, book_page(&text, &tool, &old, new));
+            add(&path, book_page(&text, &tool, &image, &old, new));
         }
     }
     let design = root.join("docs/design/38-deployment.md");
     if let Ok(text) = std::fs::read_to_string(&design) {
-        add(&design, image_tags(&text, &tool, &old_s, &new_s));
+        add(&design, image_tags(&text, &image, &old_s, &new_s));
     }
     Ok(changes)
 }

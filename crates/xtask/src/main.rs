@@ -287,6 +287,7 @@ fn docs_task(root: &Path, step: DocsStep) -> ExitCode {
         from,
         tags,
         releases,
+        index,
     } = step;
     let Some(site_version) = docs::SiteVersion::parse(&version) else {
         eprintln!(
@@ -312,6 +313,7 @@ fn docs_task(root: &Path, step: DocsStep) -> ExitCode {
         out: out.clone(),
         tags: tags.map(|t| t.into_iter().filter(|s| !s.is_empty()).collect()),
         releases,
+        index,
         mdbook,
     };
     match docs::build(&options) {

@@ -168,9 +168,9 @@ An OAuth state (`issueState()`) and a passkey challenge are bound to a session r
 
 ## Request forgery
 
-K's defences against cross-site request forgery are on by default and can't be turned off:
+Kobra's defences against cross-site request forgery are on by default and can't be turned off:
 
-- **RPC routes accept only `application/json` and `application/proto`, and require the `Connect-Protocol-Version` header.** Anything else is refused with `415` before guards run. A cross-site `<form>` can't send either, and a cross-site `fetch` that tries needs a CORS preflight, which K never grants for rpc routes.
+- **RPC routes accept only `application/json` and `application/proto`, and require the `Connect-Protocol-Version` header.** Anything else is refused with `415` before guards run. A cross-site `<form>` can't send either, and a cross-site `fetch` that tries needs a CORS preflight, which Kobra never grants for rpc routes.
 - **Every request that carries the session cookie and isn't `GET` or `HEAD`** must have an `Origin` header matching `K_PUBLIC_ORIGIN`, or `Sec-Fetch-Site: same-origin`, or it is refused with `403`. This covers rpcs and endpoint pages that use the session, and it also stops same-site attackers (a sibling subdomain), which `SameSite=Lax` alone doesn't.
 - **A `GET` or `HEAD` handler on an endpoint page that uses the session must not change state:** reaching `SessionManager.signIn`, `signOut` or a repository write from one is a compile warning. The exception is an OAuth callback that returns early unless `consumeState` succeeded, which the compiler checks in the same function.
 - **Endpoint pages that don't use the session receive no cookie and need no check,** which is what webhooks want ([27-endpoint-pages.md](27-endpoint-pages.md#sessions)).

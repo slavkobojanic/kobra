@@ -1,6 +1,6 @@
 # Kanban
 
-Kanban boards written entirely in K. Create boards with To do, Doing and Done columns, add and edit
+Kanban boards written entirely in Kobra. Create boards with To do, Doing and Done columns, add and edit
 cards, and move them between columns by dragging them with a mouse or a finger, or with the keyboard.
 A chart shows each board's progress over time. Boards can be exported as JSON files and imported again,
 in this browser or another one. Everything is kept in the browser's local storage, and there are light,

@@ -33,7 +33,7 @@ pub const END: &str = "<!-- /gen -->";
 
 /// `CHANGELOG.md` before any release.
 pub const EMPTY_CHANGELOG: &str = "# Changelog\n\n\
-Every released version of K, newest first. Each section is compiled from the changelog fragments in\n\
+Every released version of Kobra, newest first. Each section is compiled from the changelog fragments in\n\
 `changes/` when the version is prepared (`cargo xtask release prepare`, docs/compiler/release.md).\n\
 The book's changelog page (`docs/book/src/reference/changelog.md`) is a copy.\n";
 

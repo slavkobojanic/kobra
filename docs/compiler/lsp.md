@@ -1,6 +1,6 @@
 # Language server
 
-`k lsp` is the K language server: the Language Server Protocol (LSP 3.17) over standard input and output,
+`k lsp` is the Kobra language server: the Language Server Protocol (LSP 3.17) over standard input and output,
 answered by the compiler's own analysis. The design rule is [13-tooling.md](../design/13-tooling.md): **the
 compiler and the language server are the same engine.** Every request is answered from an
 `k_sema::Analysis` snapshot of the same `AnalysisHost` `k check` drives, so the editor never disagrees
@@ -177,7 +177,7 @@ symbol is a `Resolution`, the key of the reverse index.
 
 * **Definition**: `Analysis::definition`: a declaration's or member's name token (stdlib ones too), a binding,
   a theme token, a style class or keyframes rule. A page case (`.signIn`) goes to its page (`SignIn`).
-  Built-in elements, attributes, events and CSS properties have no K source.
+  Built-in elements, attributes, events and CSS properties have no Kobra source.
 * **Type definition**: the declaration of the type of the expression, binding, field, parameter or function
   result, through optionals and into the element type of a stdlib generic (`List<Todo>` goes to `Todo`).
 * **Implementation**: for an interface or protocol, every declaration implementing it, transitively through
@@ -208,7 +208,7 @@ properties; generated members other than through their source; anything without 
 
 The hover of a symbol is Markdown:
 
-1. its declaration as K source in a fenced block: annotations, visibility, keyword, qualified name,
+1. its declaration as Kobra source in a fenced block: annotations, visibility, keyword, qualified name,
    generics, signature or type, `implements`; a member names its owner (`// in shop.Cart`);
 2. facts: **a page's URL** (`URL: /sign-in`, from `Analysis::page_url`), a declaration's side of the
    server/client boundary when it isn't shared, and for a member marked `@UserAction` (at its declaration

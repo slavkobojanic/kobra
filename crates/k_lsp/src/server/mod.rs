@@ -690,7 +690,7 @@ impl Server {
         let Some((snap, file)) = self.snap_for(&at.text_document.uri) else {
             return Some(Outcome::Err(
                 codes::REQUEST_FAILED,
-                "the document is not part of a K project".to_owned(),
+                "the document is not part of a Kobra project".to_owned(),
             ));
         };
         self.spawn(id, move || match handler(&snap, file, at.position, ()) {

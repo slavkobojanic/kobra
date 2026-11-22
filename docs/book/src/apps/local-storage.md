@@ -122,7 +122,7 @@ try storage.write(key: savedTodos, value: items)        // value must be a List<
   the binding's annotation.
 - **The name is a string literal,** and each name is declared once in the app. Two keys with the same name
   are a `k check` error, so two services can't corrupt each other's data.
-- **Keys are namespaced per app,** so two K apps on one origin don't collide. The namespace is the one
+- **Keys are namespaced per app,** so two Kobra apps on one origin don't collide. The namespace is the one
   `storage.lock` records, so renaming the project doesn't orphan every user's data; without a lock it is
   `k.toml`'s `name`. The browser's item is `namespace:name` (`todos:todos`).
 - **Data stored before namespacing moves once.** An item an older build stored under the bare name is
@@ -196,7 +196,7 @@ fields = [
   - an enum without payloads as `cases`, a list of case names: `cases = ["light", "dark"]`;
   - an enum with payloads as `cases`, a list of tables `{ name = "…", fields = [ … ] }`, where a payload
     without a label has only a `type`.
-- **Types are written as in K, with qualified names** (`List<todo.Todo>`, `String?`, `Map<String, Int>`).
+- **Types are written as in Kobra, with qualified names** (`List<todo.Todo>`, `String?`, `Map<String, Int>`).
   Standard-library types (`String`, `Int`, `Uuid`, `Date`, `List`, `Map`, `Optional`, and the rest) aren't
   expanded, because the standard library fixes their encoding.
 - **`[collections.<name>]`**, one table per [collection](#indexed-collections): its `declaration`, its

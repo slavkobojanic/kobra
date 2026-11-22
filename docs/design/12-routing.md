@@ -129,7 +129,7 @@ url = "/webhooks/stripe"
 
 ## Endpoint pages
 
-**A page that has HTTP handlers (`@Get`, `@Post`, …) instead of a `view` is an endpoint page.** It answers raw HTTP and exists only for external callers that can't speak K's RPC: webhooks, OAuth callbacks, health checks. Everything else, including every call from the app's own client, is RPC ([11-protocols-and-rpc.md](11-protocols-and-rpc.md)), and developers otherwise never see HTTP.
+**A page that has HTTP handlers (`@Get`, `@Post`, …) instead of a `view` is an endpoint page.** It answers raw HTTP and exists only for external callers that can't speak Kobra's RPC: webhooks, OAuth callbacks, health checks. Everything else, including every call from the app's own client, is RPC ([11-protocols-and-rpc.md](11-protocols-and-rpc.md)), and developers otherwise never see HTTP.
 
 ```k
 page StripeWebhook at "/webhooks/stripe" {

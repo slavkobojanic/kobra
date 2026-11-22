@@ -125,7 +125,7 @@ impl Fix {
 ///
 /// let file = FileId::new(0);
 /// let at = Span::new(file, TextRange::new(10.into(), 12.into()));
-/// let diagnostic = Diagnostic::new(codes::SYMBOLIC_AND, at, "K uses `and`, not `&&`")
+/// let diagnostic = Diagnostic::new(codes::SYMBOLIC_AND, at, "Kobra uses `and`, not `&&`")
 ///     .with_fix(Fix::replace("Replace `&&` with `and`", at, "and"));
 /// assert_eq!(diagnostic.code.to_string(), "K0104");
 /// ```

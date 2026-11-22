@@ -1,2 +1,2 @@
-" `.k` files are K.
+" `.k` files are Kobra.
 autocmd BufNewFile,BufRead *.k setfiletype k

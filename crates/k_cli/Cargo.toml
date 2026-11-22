@@ -3,11 +3,13 @@ name = "k_cli"
 # Integration tests are modules of tests/main.rs (one binary, `it`), not one
 # binary per file: docs/design/13-tooling.md, "One test binary per crate".
 autotests = false
-description = "The `k` command-line tool: compiler, test runner and development server of the K language."
+description = "The `k` command of the Kobra language: compiler, test runner, formatter, development server and toolchain manager."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "k"

@@ -129,7 +129,7 @@ A lock that the requirement no longer allows (the requirement was raised by hand
 | `k toolchain remove <version>` | remove an installed toolchain (not the default) |
 | `k toolchain default <version>` | make an installed toolchain the `k` on the `PATH`: it is copied to `$K_HOME/bin` |
 | `k self update` | install the newest stable release (the newest nightly, when this `k` is a nightly) and make it the default |
-| `k upgrade [project]` | move a project to the running toolchain: lockfiles to its format, `k` and `k.lock` to it, the migration fixes applied, then what remains printed; refuses uncommitted changes; see [Upgrading K](../apps/upgrading.md) |
+| `k upgrade [project]` | move a project to the running toolchain: lockfiles to its format, `k` and `k.lock` to it, the migration fixes applied, then what remains printed; refuses uncommitted changes; see [Upgrading Kobra](../apps/upgrading.md) |
 | `k upgrade --to <version>` | move it to that installed toolchain instead (`0.3.1`, or `0.3` for its newest installed release), through each minor in between |
 | `k upgrade --allow-dirty` | upgrade with uncommitted changes, or outside git |
 | `k upgrade --format json` | print the remaining diagnostics as JSON |
@@ -138,7 +138,7 @@ A lock that the requirement no longer allows (the requirement was raised by hand
 
 | Command | Purpose |
 |---|---|
-| `k proto export` | emit `.proto` files from K protocols (**Planned** protobuf) |
+| `k proto export` | emit `.proto` files from Kobra protocols (**Planned** protobuf) |
 
 ## The built server
 

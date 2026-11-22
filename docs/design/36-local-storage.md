@@ -64,7 +64,7 @@ try storage.write(key: savedTodos, value: items)        // value must be a List<
 
 - **`StorageKey<T>` pairs a name with the type stored under it,** so a read can't ask for a different type than the write stored. The type is written out (`StorageKey<List<Todo>>(name: "todos")`) or given by the binding, as generic arguments are ([RA-23 in the grammar](../compiler/grammar.md)).
 - **The name is a string literal,** and each name is declared once in the app. Any other argument is a compile error (`K2403`). Two keys with the same name are a `k check` error (`K2405`, at the later key in file order, pointing at the earlier one), so two services can't corrupt each other's data. Test code isn't counted (below).
-- **Keys are namespaced per app,** so two K apps on one origin don't collide. The namespace is derived from `k.toml`'s `name` when first recorded in `storage.lock`, and read from the lock afterwards, so renaming the project doesn't orphan every user's data ([24-projects.md](24-projects.md#name-is-the-projects-identity)). A key's `localStorage` item is `namespace:name` (`todos:todos`).
+- **Keys are namespaced per app,** so two Kobra apps on one origin don't collide. The namespace is derived from `k.toml`'s `name` when first recorded in `storage.lock`, and read from the lock afterwards, so renaming the project doesn't orphan every user's data ([24-projects.md](24-projects.md#name-is-the-projects-identity)). A key's `localStorage` item is `namespace:name` (`todos:todos`).
 - **Data stored before namespacing moves once.** Builds before the namespace reached the browser stored items under the bare name (`todos`). A read that finds no namespaced item reads the bare one, writes it under the namespaced name and removes the bare item, so users keep their data across the upgrade without a migration step in the app. Removing a key removes both. The bare item is only ever read when the namespaced one is missing, so once moved, another app's bare item of the same name is never picked up. (Decided when the real-browser runs found every app writing bare keys.)
 
 ### `storage.lock`
@@ -127,7 +127,7 @@ fields = [
   - a struct as `fields`, in declaration order, each with its `name` and `type`;
   - an enum without payloads as `cases`, a list of case names;
   - an enum with payloads as `cases`, a list of tables `{ name = "…", fields = [ … ] }`, where a payload without a label has only a `type`.
-- **Types are written as in K, with qualified names** (`List<cart.SavedItem>`, `String?`, `Map<String, Int>`). Stdlib types (`String`, `Int`, `Uuid`, `Date`, `List`, `Map`, `Optional`, and the rest) aren't expanded, because the stdlib fixes their encoding.
+- **Types are written as in Kobra, with qualified names** (`List<cart.SavedItem>`, `String?`, `Map<String, Int>`). Stdlib types (`String`, `Int`, `Uuid`, `Date`, `List`, `Map`, `Optional`, and the rest) aren't expanded, because the stdlib fixes their encoding.
 - **`[collections.<name>]`**, one table per indexed collection: `declaration`, `key`, `type` and `indexes` ([52](52-indexed-collections.md#storagelock)).
 - **Tables are sorted:** keys by name, then collections, then jobs by name, then types by qualified name, so the file doesn't depend on the order in which things were added. A struct without fields is `fields = []`; an enum mixing cases with and without payloads writes every case as a table, a payload-free one as `{ name = "…" }`.
 

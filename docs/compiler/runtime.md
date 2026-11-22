@@ -247,7 +247,7 @@ row. API: `store(initial)` with `get(path)`,
   and a synchronous effect that throws it, are as silent: the load stays where it was.
 - **Handlers and bound values are silent when stopped.** `on` drops its handler's rejection with
   `CANCELLED` (any other rejection is left unhandled, as before). **`own(f, c)`** (`view.js`) is the value
-  generated code passes where an async function is called with its K arguments alone (a prop, an
+  generated code passes where an async function is called with its Kobra arguments alone (a prop, an
   `@Emits` handler, `form.handle`'s action): `(...a) => f(c, ...a)`, where `c` is the owner's lifetime
   (`lifetime()`) or the creating run's signal, and a call stopped by `CANCELLED` never settles instead of
   rejecting, so a caller that drops the promise reports nothing and one that awaits it stops too.
@@ -343,7 +343,7 @@ A block owns the DOM range between two comment markers and a child scope:
 
 `on(target, event, handler)` wraps the handler in `batch`; an async handler's promise is not awaited. A
 `submit` handler calls `preventDefault()` first, before the owner check and whether or not the body
-throws, so a form K handles never navigates ([05-views.md](../design/05-views.md#rules)).
+throws, so a form Kobra handles never navigates ([05-views.md](../design/05-views.md#rules)).
 `autofocus(el)` (emitted for `.autofocus`) focuses the element in a microtask, once it is in the
 document and still has the `autofocus` attribute; it does nothing while hydrating, where the browser
 honoured the attribute itself.
@@ -1435,7 +1435,7 @@ and `$k.serveWorker`, which the bundler points at `workers.<hash>.js`) is a `@Wo
 - **`serveWorker(scope, make, host)`**, which a worker chunk calls with `globalThis`, posts `{k: "ready"}`,
   then answers each call: `host[m]` is `[decodeArguments, encodeResult, encodeError]`, the service is
   `make()` at the first call, and the method runs with `$c` `null`. A thrown value that is an object but not
-  an `Error` (a K enum value) is encoded with `encodeError`; anything else, a `KPanic` included, is
+  an `Error` (a Kobra enum value) is encoded with `encodeError`; anything else, a `KPanic` included, is
   `{k: "crash", text}`.
 - **In `k test`** the opener is the kit's `inlineWorker(make, host)` (`testing/kit.js`): a pair of in-process
   ports running `serveWorker` on the test's thread, each message copied (`Uint8Array`s sliced) and delivered

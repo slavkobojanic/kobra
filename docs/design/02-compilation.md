@@ -2,7 +2,7 @@
 
 ## Decision
 
-K is **compiled ahead of time** to JavaScript.
+Kobra is **compiled ahead of time** to JavaScript.
 
 - The compiler reads `.k` files, type-checks them, and outputs plain JavaScript, CSS and Protobuf definitions.
 - Types are erased at runtime. The shipped runtime is small.

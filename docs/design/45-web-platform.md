@@ -2,7 +2,7 @@
 
 ## Decision
 
-K has no JavaScript interop ([17-javascript-interop.md](17-javascript-interop.md)), so **every browser API an app can use is a stdlib wrapper**, and this file is the policy for those wrappers and the inventory of which ones exist. It fixes four things:
+Kobra has no JavaScript interop ([17-javascript-interop.md](17-javascript-interop.md)), so **every browser API an app can use is a stdlib wrapper**, and this file is the policy for those wrappers and the inventory of which ones exist. It fixes four things:
 
 1. **Each API gets one of five shapes,** chosen by what it is: a reactive stdlib service, a component, an element event, or a client-only or server-only platform interface ([shapes](#shapes)).
 2. **Feature detection is typed.** Injection always succeeds. A wrapper says whether it works here with `isSupported`, and every operation that can be missing has an `.unsupported` error case, so `catch` makes the app handle it ([feature detection](#feature-detection)).
@@ -81,9 +81,9 @@ Calling `location.locate()` from an `@Effect` instead is a compile error: `locat
 
 ## Shapes
 
-A wrapper takes the shape of what the API *is*, so an app reaches every platform feature the way it reaches the rest of K:
+A wrapper takes the shape of what the API *is*, so an app reaches every platform feature the way it reaches the rest of Kobra:
 
-| What the API is | K shape | Who may use it | Tier 1 examples |
+| What the API is | Kobra shape | Who may use it | Tier 1 examples |
 |---|---|---|---|
 | A state of the page or device that views read | **stdlib service**, reactive, usable on both sides with a documented server value | components, pages, layouts, services, like `Clock` and `Theme` | `Connectivity`, `PageVisibility`, `Preferences`, `Viewport` |
 | Something that holds while part of the page is shown | **component** that renders nothing | views | `KeepScreenAwake`, like `KeyboardShortcut` ([43](43-keyboard-shortcuts.md)) |
@@ -94,7 +94,7 @@ A wrapper takes the shape of what the API *is*, so an app reaches every platform
 
 - **The rule that sorts the last two rows from the first four:** an API that reads the user's data (the clipboard, their position), sends data out (a share, a notification), or can be refused is a platform interface, so its failures are handled in one service and its test double is configured in one place. An API that only describes the page, or only acts while a part of the page is shown, is available to views directly.
 - **The common gesture still needs no service.** `CopyButton(text:label:)` and `ShareButton(content:label:)` cover "copy this" and "share this" from a view. A service injects `Clipboard` or `Share` when it needs more (reading, a computed value, its own error handling).
-- **The raw JavaScript object is never exposed.** A wrapper is a K type with K semantics (values, typed errors, reactivity, ownership), not a binding of the browser's interface member for member. A member the platform has and the wrapper leaves out is a decision recorded in its section, not an oversight.
+- **The raw JavaScript object is never exposed.** A wrapper is a Kobra type with Kobra semantics (values, typed errors, reactivity, ownership), not a binding of the browser's interface member for member. A member the platform has and the wrapper leaves out is a decision recorded in its section, not an oversight.
 
 ## General rules
 
@@ -128,7 +128,7 @@ Every wrapper declares one error enum per operation, as `LocalStorage` and `File
 | `.cancelled` | the user closed a sheet or picker without choosing | the share sheet dismissed, as `FileOpenError.cancelled` |
 | `.unavailable` | the API exists and is allowed, but can't do it now | no position fix; the screen can't be kept on in battery saver |
 
-- **Browsers report a missing user activation and a refused permission with the same `NotAllowedError`,** so K can't tell them apart either; both are `.denied`. With the [activation rule](#user-activation) checked by the compiler, a missing activation is rare in practice.
+- **Browsers report a missing user activation and a refused permission with the same `NotAllowedError`,** so Kobra can't tell them apart either; both are `.denied`. With the [activation rule](#user-activation) checked by the compiler, a missing activation is rare in practice.
 - Errors that only one wrapper has (`LocationError.timeout`) are added to its enum under a name that says what happened.
 
 ### Permissions
@@ -152,7 +152,7 @@ public enum PermissionState implements Equatable {
 
 ### User activation
 
-Browsers allow some calls only while the user is acting on the page: a share sheet, a clipboard write, a permission prompt, the file picker. Code that calls them elsewhere works in development (where the developer just clicked) and fails for users after an `await` that took longer than expected. K turns the rule into a compile-time check.
+Browsers allow some calls only while the user is acting on the page: a share sheet, a clipboard write, a permission prompt, the file picker. Code that calls them elsewhere works in development (where the developer just clicked) and fails for users after an `await` that took longer than expected. Kobra turns the rule into a compile-time check.
 
 - **The stdlib marks those members `@UserAction`.** Tier 1: `Clipboard.write(text:)`, `Clipboard.readText()`, `Share.share(_:)`, every `request…` member (here, `MediaDevices.requestAccess(for:)` in [46](46-media-and-rtc.md#capture-mediadevices), and `KeyStore.requestPersistence()` in [33](33-crypto.md#keeping-keys-in-the-browser-keystore)), `MediaDevices.captureScreen`, and `Files.open(accepting:)` and `openAll` ([42-files.md](42-files.md#files), whose rule this check enforces).
 - **A user-action context is the synchronous part of:**
@@ -203,9 +203,9 @@ Every wrapper that keeps something running follows [03-reactivity.md](03-reactiv
 
 **Tiers.** Tier 1 is designed here and built now. Tier 2 is next: the direction is recorded, and each gets its own design file before it is built. Tier 3 is later, when an app needs it. "Not wrapping" says why.
 
-A wrapper reaches Tier 1 when it is Baseline in all three engines (or degrades to a typed `.unsupported` where it isn't), common in the kinds of apps K's examples are, small enough to design here, and impossible to build from other stdlib pieces. Nothing in any tier may need a third-party account.
+A wrapper reaches Tier 1 when it is Baseline in all three engines (or degrades to a typed `.unsupported` where it isn't), common in the kinds of apps Kobra's examples are, small enough to design here, and impossible to build from other stdlib pieces. Nothing in any tier may need a third-party account.
 
-| API | Tier | K | Notes |
+| API | Tier | Kobra | Notes |
 |---|---|---|---|
 | Clipboard: text | **1** | `Clipboard`, `CopyButton` (`k.device`) | [below](#clipboard) |
 | Clipboard: HTML, images, files | 2 | `Clipboard.write(_ items:)`, paste into `File` ([42](42-files.md)) | `ClipboardItem` is Baseline; image paste needs the same size limits as `File` |
@@ -221,7 +221,7 @@ A wrapper reaches Tier 1 when it is Baseline in all three engines (or degrades t
 | Viewport size and pointer type | **1** | `Viewport` (`k.device`) | [below](#viewport) |
 | IntersectionObserver | **1** | `appeared`, `disappeared` events (`k.ui`) | [below](#element-events) |
 | ResizeObserver | **1** | `resized` event (`k.ui`) | [below](#element-events) |
-| MutationObserver | Not wrapping | | K renders the DOM from state, so every change it could report is a state change the app already has |
+| MutationObserver | Not wrapping | | Kobra renders the DOM from state, so every change it could report is a state change the app already has |
 | Screen wake lock | **1** | `KeepScreenAwake` (`k.device`) | [below](#keepscreenawake) |
 | BroadcastChannel, cross-tab sync | **1** | `TabMessaging`, `TabChannel<T>` (`k.device`) | [below](#messages-between-tabs); already used inside server streams ([29](29-server-streaming.md#one-connection-per-stream-shared-across-tabs)) |
 | Storage `storage` event | 2 | `LocalStorage.changes(key:)` | [36's open question](36-local-storage.md#open-questions); `TabChannel` covers it meanwhile |
@@ -763,7 +763,7 @@ view {
 
 - **`WakeLockFailure` has the two cases above** (`.unsupported`, `.unavailable`) and implements `Error` and `Equatable`. Without `navigator.wakeLock`, or outside a secure context, the component fires `.unsupported` without asking; any rejection of `request("screen")` is `.unavailable`. Browsers reject a permissions policy, battery saver and a hidden page alike with `NotAllowedError`, so a policy that disables the lock in a frame is `.unavailable` here, not `.unsupported` as [errors](#errors) would have it; telling them apart would need `document.featurePolicy`, which only Chromium has.
 - **It asks only while the page is visible,** and again on each `visibilitychange` while it holds no lock; a request still pending when it unmounts is released as soon as it resolves.
-- **`TestWakeLock` replaces `k.internal.WakeLock`,** an empty stdlib service only the standard library names: a `@TestDefault` needs something to replace, and the browser's lock has no members K code calls. In the browser the container has no `WakeLock` (the component holds the screen's lock itself); in `k test` the component reads `TestWakeLock` from its container (`native_component_dependencies`), whose request answers at once, so `expect wakeLock.isHeld` holds right after the click that mounts it. `refuse(with:)` refuses every later request. The double doesn't follow `TestPageVisibility`: hiding the page in a test doesn't release it.
+- **`TestWakeLock` replaces `k.internal.WakeLock`,** an empty stdlib service only the standard library names: a `@TestDefault` needs something to replace, and the browser's lock has no members Kobra code calls. In the browser the container has no `WakeLock` (the component holds the screen's lock itself); in `k test` the component reads `TestWakeLock` from its container (`native_component_dependencies`), whose request answers at once, so `expect wakeLock.isHeld` holds right after the click that mounts it. `refuse(with:)` refuses every later request. The double doesn't follow `TestPageVisibility`: hiding the page in a test doesn't release it.
 - **The server renders nothing** for it (`$s.natives["k.device.KeepScreenAwake$ssr"]`). The recipe-step example of [implementation tests](#implementation-tests) item 4 isn't built yet: no example has recipes; the `k test` fixture `crates/k_cli/tests/fixtures/tabs` has the step-by-step recipe instead.
 
 ## Messages between tabs
@@ -849,7 +849,7 @@ public interface TabMessaging {
 
 ## Alternatives rejected
 
-- **Exposing the browser's objects** (`navigator.clipboard` as a K type): it would import every quirk, untyped error and engine difference into K code, and give no place for the permission and activation rules.
+- **Exposing the browser's objects** (`navigator.clipboard` as a Kobra type): it would import every quirk, untyped error and engine difference into Kobra code, and give no place for the permission and activation rules.
 - **Optional injection for unsupported APIs** (`@Inject let share: Share?`): see [feature detection](#feature-detection).
 - **A runtime check for user activation** (throwing `.needsUserAction`): the browser already does that, indistinguishably from a denial, and only on the devices where the timing goes wrong. A compile-time rule catches it where it is written.
 - **Implicit prompts** (every call may prompt, as the platform does): a prompt from an effect on page load is the pattern browsers now penalize (Chromium's quiet notification UI) and users deny reflexively.

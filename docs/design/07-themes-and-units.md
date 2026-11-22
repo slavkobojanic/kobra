@@ -68,7 +68,7 @@ A `font` token is a family and a size: `font body: Font = Font(family: "Inter", 
   - `ui-serif, Georgia, Cambria, "Times New Roman", serif` for a family whose name says `Serif` (and not `Sans`);
   - `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace` for one whose name says `Mono` or `Code`.
 - **Without a `font body` token, the page uses the system sans-serif stack.**
-- **K loads a font only when the app ships it.** A named family is used if the reader has it installed, otherwise the fallback. There is no font asset pipeline yet, so no `@font-face` and no preload tag is emitted; never one that points at a third-party font host (see the open questions).
+- **Kobra loads a font only when the app ships it.** A named family is used if the reader has it installed, otherwise the fallback. There is no font asset pipeline yet, so no `@font-face` and no preload tag is emitted; never one that points at a third-party font host (see the open questions).
 
 ## Base styles
 
@@ -128,7 +128,7 @@ component ThemeToggle {
   - The `Theme` service also applies the remembered variant when it is created, so a reload keeps the scheme in any document.
 - **During server rendering,** `theme.current` is the remembered variant, or `.base`, and `apply` does nothing. Effects don't run on the server anyway ([03-reactivity.md](03-reactivity.md)).
 - A choice that lives in a service (for example a settings service that syncs it to the account) is applied from an `@Effect` in the page or layout that is always mounted: `theme.apply(settings.variant)`.
-- The method is `apply`, not `use`, because `use` is a keyword ([10-services.md](10-services.md#injecting-interfaces)) and K has no member names that are keywords.
+- The method is `apply`, not `use`, because `use` is a keyword ([10-services.md](10-services.md#injecting-interfaces)) and Kobra has no member names that are keywords.
 
 ### Tests
 

@@ -39,6 +39,9 @@ fn v(text: &str) -> Version {
     Version::parse(text).unwrap()
 }
 
+/// The licence files every archive carries (the project is MIT OR Apache-2.0).
+const LICENCES: [&str; 2] = ["LICENSE-MIT", "LICENSE-APACHE"];
+
 fn has(tool: &str) -> bool {
     Command::new(tool).arg("-h").output().is_ok()
 }
@@ -74,7 +77,7 @@ fn archive_names() {
 }
 
 #[test]
-fn a_unix_archive_holds_the_executable_and_the_readme() {
+fn a_unix_archive_holds_the_executable_the_readme_and_the_licences() {
     let dir = Scratch::new("tar");
     let bin = dir.0.join("k-built");
     fs::write(&bin, b"#!/bin/sh\necho fake k\n").unwrap();
@@ -86,7 +89,9 @@ fn a_unix_archive_holds_the_executable_and_the_readme() {
     archive(&repo(), &v("0.1.0"), "aarch64-apple-darwin", &bin, &out).unwrap();
     assert_eq!(first, fs::read(&path).unwrap(), "reproducible");
     if !has("tar") {
-        eprintln!("a_unix_archive_holds_the_executable_and_the_readme: no tar, not unpacked");
+        eprintln!(
+            "a_unix_archive_holds_the_executable_the_readme_and_the_licences: no tar, not unpacked"
+        );
         return;
     }
     let unpacked = dir.0.join("unpacked");
@@ -102,6 +107,13 @@ fn a_unix_archive_holds_the_executable_and_the_readme() {
     let top = unpacked.join("k-0.1.0-aarch64-apple-darwin");
     assert_eq!(fs::read(top.join("k")).unwrap(), fs::read(&bin).unwrap());
     assert!(top.join("README.md").is_file());
+    for licence in LICENCES {
+        assert_eq!(
+            fs::read(top.join(licence)).unwrap(),
+            fs::read(repo().join(licence)).unwrap(),
+            "{licence}"
+        );
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
@@ -143,6 +155,32 @@ fn a_windows_archive_is_a_zip() {
         fs::read(&bin).unwrap()
     );
     assert!(top.join("README.md").is_file());
+    for licence in LICENCES {
+        assert!(top.join(licence).is_file(), "{licence}");
+    }
+}
+
+#[test]
+fn an_archive_without_the_licences_is_refused() {
+    // A root with a README but no licence files: the archive would ship
+    // the toolchain without its terms, so packing fails.
+    let dir = Scratch::new("unlicensed");
+    let root = dir.0.join("root");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("README.md"), "# Kobra\n").unwrap();
+    fs::write(root.join("LICENSE-MIT"), "MIT\n").unwrap();
+    let bin = dir.0.join("k-built");
+    fs::write(&bin, b"#!/bin/sh\n").unwrap();
+    let err = archive(
+        &root,
+        &v("0.1.0"),
+        "aarch64-apple-darwin",
+        &bin,
+        &dir.0.join("dist"),
+    )
+    .unwrap_err();
+    assert!(err.contains("LICENSE-APACHE"), "{err}");
+    assert!(!dir.0.join("dist").exists());
 }
 
 /// Two fake archives of 0.1.0 and their SHA256SUMS.

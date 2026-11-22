@@ -5,14 +5,14 @@
 # write instead. When a change removes syntax or makes a claim false, add the old form here in the same
 # change, so the next mention anywhere fails.
 
-# CSS in K: properties and keyword values are camelCase (K3214)
-\b[a-z]+(?:[A-Z][a-z]+)+: *[a-z]+(?:-[a-z]+)+\b  # CSS keyword values are camelCase in K (K3214): `spaceBetween`, not `space-between`
-\b(?:font|background|border|max|min|line|text|justify|align|flex|grid|box|margin|padding)-[a-z]+(?:-[a-z]+)*: *[^ ]  # CSS properties are camelCase in K: `fontSize:`, not `font-size:`
+# CSS in Kobra: properties and keyword values are camelCase (K3214)
+\b[a-z]+(?:[A-Z][a-z]+)+: *[a-z]+(?:-[a-z]+)+\b  # CSS keyword values are camelCase in Kobra (K3214): `spaceBetween`, not `space-between`
+\b(?:font|background|border|max|min|line|text|justify|align|flex|grid|box|margin|padding)-[a-z]+(?:-[a-z]+)*: *[^ ]  # CSS properties are camelCase in Kobra: `fontSize:`, not `font-size:`
 (?:one change|changes one thing): \**(?:property names|properties)  # keyword values are camelCase too (K3214): say "names are camelCase", property names and keyword values alike
 
 # The toolchain exists
 [Tt]he compiler is (?:still )?being written  # the compiler exists and runs
-hasn't been compiled  # every K sample in the book is compiled by the book test
+hasn't been compiled  # every Kobra sample in the book is compiled by the book test
 (?:isn't|is not) (?:yet )?(?:a )?(?:working|runnable) compiler  # the compiler exists and runs
 
 # `k check` runs the tests (`--no-tests` skips them)
@@ -62,4 +62,4 @@ replicas behind a load balancer reach each other's subscribers  # Broadcast deli
 
 # Explicit type arguments exist (08-types.md, "Decided while implementing")
 (?:no|without) explicit (?:generic|type) arguments  # type arguments can be written after a name: `decode<User>(json)`
-(?:There is|K has) no `f<Int>\(x\)`  # `f<Int>(x)` is valid K: explicit type arguments
+(?:There is|Kobra has) no `f<Int>\(x\)`  # `f<Int>(x)` is valid Kobra: explicit type arguments

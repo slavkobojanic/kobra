@@ -2,7 +2,7 @@
 
 ## Decision
 
-K uses **typed, checked throws**, with a `try` marker at every call that can throw.
+Kobra uses **typed, checked throws**, with a `try` marker at every call that can throw.
 
 ```k
 enum CartError implements Error {

@@ -1,6 +1,6 @@
 # Keywords
 
-K has two kinds of keyword.
+Kobra has two kinds of keyword.
 
 - **Hard keywords** are reserved everywhere and can never be used as names.
 - **Contextual keywords** are keywords only in specific positions, such as the start of a declaration.

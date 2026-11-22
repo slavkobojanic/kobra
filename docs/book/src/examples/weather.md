@@ -4,7 +4,7 @@
 which need no API key. You search for a city, open its dashboard and see current conditions, air
 quality and a 24-hour temperature chart, refreshed every ten minutes while the page is open.
 
-It is the example for the data-loading half of K: a service that wraps an external HTTP API, typed
+It is the example for the data-loading half of Kobra: a service that wraps an external HTTP API, typed
 errors from the network to the page, pages with parameters and `@Load`, effects driven by the injected
 clock, a chart, and tests that fake the HTTP client and the clock.
 
