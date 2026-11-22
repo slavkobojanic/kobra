@@ -20,7 +20,6 @@ use crate::{index, toolchain};
 pub(crate) const SITE: &str = "https://slavkobojanic.github.io/kobra/";
 
 /// Runs `k docs`.
-#[must_use]
 pub fn run(args: &DocsArgs) -> ExitCode {
     let version = toolchain::running();
     let Some(dir) = toolchain::k_home().map(|h| h.join("docs").join(version.to_string())) else {

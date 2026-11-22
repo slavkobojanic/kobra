@@ -56,7 +56,6 @@ const STALE: Duration = Duration::from_secs(3600);
 type Failure = (String, u8);
 
 /// Runs a `k toolchain` subcommand.
-#[must_use]
 pub fn run(command: &ToolchainCommand) -> ExitCode {
     let result = match command {
         ToolchainCommand::Install(args) => install_command(args),
@@ -68,7 +67,6 @@ pub fn run(command: &ToolchainCommand) -> ExitCode {
 }
 
 /// Runs a `k self` subcommand.
-#[must_use]
 pub fn run_self(command: &SelfCommand) -> ExitCode {
     match command {
         SelfCommand::Update => finish(self_update()),

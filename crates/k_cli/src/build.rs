@@ -319,6 +319,16 @@ fn write_static(output: &Output, out: &Path) -> std::io::Result<()> {
     let mut options = ServerOptions::new(std::net::SocketAddr::from(([127, 0, 0, 1], 0)), bundle);
     options.workers = 1;
     let server = Server::start(options).map_err(std::io::Error::other)?;
+    // The worker isolate starts after the listener: wait until the server
+    // reports it ready (`/_k/health`), or a slow machine renders a 503.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while std::time::Instant::now() < deadline {
+        let health = k_server::testing::send(server.local_addr(), "GET", "/_k/health", &[], b"");
+        if matches!(health, Ok(ref h) if h.status == 200) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
     let page = k_server::testing::send(
         server.local_addr(),
         "GET",
