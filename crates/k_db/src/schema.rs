@@ -56,6 +56,11 @@ impl ColumnType {
         match (self, dialect) {
             (ColumnType::Decimal | ColumnType::Money, Dialect::Sqlite) => SQLITE_DECIMAL,
             (ColumnType::Money, Dialect::Postgres) => "numeric(19,4)",
+            // Code-point order, as Kobra's own `sortedBy` and SQLite's BINARY:
+            // without it Postgres sorts and compares by the database's locale.
+            (ColumnType::Text | ColumnType::Enumeration(_), Dialect::Postgres) => {
+                "text COLLATE \"C\""
+            }
             _ => self.sql(dialect),
         }
     }

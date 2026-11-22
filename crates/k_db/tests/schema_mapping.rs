@@ -75,7 +75,7 @@ fn text_columns() {
     );
     assert_eq!(
         ddl(&t, Dialect::Postgres),
-        ["CREATE TABLE \"t\" (\"c\" text NOT NULL)"]
+        ["CREATE TABLE \"t\" (\"c\" text COLLATE \"C\" NOT NULL)"]
     );
 }
 
@@ -163,7 +163,9 @@ fn enumeration_columns_check_their_cases() {
     );
     assert_eq!(
         ddl(&t, Dialect::Postgres),
-        ["CREATE TABLE \"t\" (\"c\" text NOT NULL CHECK (\"c\" IN ('draft', 'published')))"]
+        [
+            "CREATE TABLE \"t\" (\"c\" text COLLATE \"C\" NOT NULL CHECK (\"c\" IN ('draft', 'published')))"
+        ]
     );
 }
 
@@ -213,7 +215,7 @@ fn optional_fields_are_nullable() {
     t.columns[0].nullable = true;
     assert_eq!(
         ddl(&t, Dialect::Postgres),
-        ["CREATE TABLE \"t\" (\"c\" text)"]
+        ["CREATE TABLE \"t\" (\"c\" text COLLATE \"C\")"]
     );
 }
 
@@ -230,7 +232,7 @@ fn the_note_entity_in_both_dialects() {
     assert_eq!(
         ddl(&t, Dialect::Postgres),
         [
-            "CREATE TABLE \"note\" (\"id\" uuid NOT NULL PRIMARY KEY, \"title\" text NOT NULL, \"body\" text NOT NULL, \"is_pinned\" boolean NOT NULL, \"priority\" bigint NOT NULL, \"category\" text, \"revision\" bigint NOT NULL)"
+            "CREATE TABLE \"note\" (\"id\" uuid NOT NULL PRIMARY KEY, \"title\" text COLLATE \"C\" NOT NULL, \"body\" text COLLATE \"C\" NOT NULL, \"is_pinned\" boolean NOT NULL, \"priority\" bigint NOT NULL, \"category\" text COLLATE \"C\", \"revision\" bigint NOT NULL)"
         ]
     );
 }
@@ -241,7 +243,7 @@ fn to_one_relations_are_indexed_foreign_keys() {
     assert_eq!(
         ddl(&tag_table(), Dialect::Postgres),
         [
-            "CREATE TABLE \"tag\" (\"id\" uuid NOT NULL PRIMARY KEY, \"note_id\" uuid NOT NULL REFERENCES \"note\" (\"id\"), \"name\" text NOT NULL)",
+            "CREATE TABLE \"tag\" (\"id\" uuid NOT NULL PRIMARY KEY, \"note_id\" uuid NOT NULL REFERENCES \"note\" (\"id\"), \"name\" text COLLATE \"C\" NOT NULL)",
             "CREATE INDEX \"tag_note_id_idx\" ON \"tag\" (\"note_id\")",
         ]
     );
@@ -310,7 +312,7 @@ fn the_order_entity_in_both_dialects() {
     assert_eq!(
         ddl(&order_table(), Dialect::Postgres),
         [
-            "CREATE TABLE \"order\" (\"id\" uuid NOT NULL PRIMARY KEY, \"status\" text NOT NULL CHECK (\"status\" IN ('awaitingPayment', 'paid', 'shipped', 'cancelled')), \"total_amount\" numeric(19,4) NOT NULL, \"total_currency\" char(3) NOT NULL)"
+            "CREATE TABLE \"order\" (\"id\" uuid NOT NULL PRIMARY KEY, \"status\" text COLLATE \"C\" NOT NULL CHECK (\"status\" IN ('awaitingPayment', 'paid', 'shipped', 'cancelled')), \"total_amount\" numeric(19,4) NOT NULL, \"total_currency\" char(3) NOT NULL)"
         ]
     );
 }
