@@ -12,6 +12,7 @@
 //! cargo xtask dist archive --target <triple> # a release archive; also docs, checksums, index, smoke
 //! cargo xtask release attach-local v0.2.0    # build the macOS archive here, attach it to the release
 //! cargo xtask ci changed --base <rev> <path>… # did these paths change (for the workflows)
+//! cargo xtask ci check-version 0.2.0         # may the release workflow release this version
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -126,7 +127,7 @@ fn main() -> ExitCode {
                             );
                         } else {
                             eprintln!(
-                                "prepared {v}: run `cargo xtask release check`, then commit and tag v{v}"
+                                "prepared {v}: run `cargo xtask release check`, commit and push, then `gh workflow run release.yml -f version={v}` (add `--ref <branch>` off main), which makes the tag v{v}"
                             );
                         }
                         if !no_verify
@@ -237,6 +238,27 @@ fn main() -> ExitCode {
                 ]),
                 Err(e) => failed(&[e]),
             },
+            CiStep::CheckVersion { version, tagged } => {
+                let current = match bump::current(&root) {
+                    Ok(v) => v,
+                    Err(e) => return failed(&[e]),
+                };
+                let changelog =
+                    std::fs::read_to_string(root.join(release::CHANGELOG)).unwrap_or_default();
+                let tags = match docs::git_tags(&root) {
+                    Ok(t) => t,
+                    Err(e) => return failed(&[e]),
+                };
+                match release::check_version(&version, &current, &changelog, &tags, tagged) {
+                    Ok(v) => outputs(&[
+                        ("version", v.to_string()),
+                        ("tag", format!("v{v}")),
+                        ("minor", v.minor_text()),
+                        ("prerelease", v.is_pre().to_string()),
+                    ]),
+                    Err(problems) => failed(&problems),
+                }
+            }
             CiStep::Notes {
                 version,
                 out,
@@ -316,7 +338,7 @@ fn attach_local(
     if files.is_empty() {
         if tag.strip_prefix('v').unwrap_or(tag) != current.to_string() {
             return failed(&[format!(
-                "this checkout is k {current}, not {tag}: check out the tag (`git switch --detach {tag}`) first"
+                "this checkout is k {current}, not {tag}: fetch and check out the tag release.yml made (`git fetch origin tag {tag} && git switch --detach {tag}`) first"
             )]);
         }
         let targets = if targets.is_empty() {

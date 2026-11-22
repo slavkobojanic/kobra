@@ -8,6 +8,8 @@
 //! * [`start_next`]: sets main's version to the next minor, fragments
 //!   untouched.
 //! * [`gate`]: the commands of the local gate, `release check`.
+//! * [`check_version`]: `ci check-version`, the release workflow's first
+//!   step, which refuses a version that isn't prepared or is tagged already.
 
 use std::path::Path;
 
@@ -326,9 +328,130 @@ pub fn remaining_fragments(root: &Path) -> Vec<String> {
         .collect()
 }
 
+/// `cargo xtask ci check-version`: the version a release workflow was
+/// started with (`gh workflow run release.yml -f version=0.6.0`), checked
+/// before anything runs. `input` may carry a leading `v`. Without
+/// `tagged`, the version must be the checkout's (`current`), prepared
+/// (`CHANGELOG.md` has its section) and not tagged yet; with it
+/// (`publish.yml`), its tag must exist. A nightly is never a release.
+///
+/// # Errors
+///
+/// Each reason the version can't be released, with the command that fixes
+/// it.
+pub fn check_version(
+    input: &str,
+    current: &Version,
+    changelog: &str,
+    tags: &[String],
+    tagged: bool,
+) -> Result<Version, Vec<String>> {
+    let text = input.trim();
+    let text = text.strip_prefix('v').unwrap_or(text);
+    let Some(v) = Version::parse(text) else {
+        return Err(vec![format!(
+            "`{input}` is not a version such as `0.6.0` or `0.6.0-rc.1`"
+        )]);
+    };
+    if v.pre.as_deref().is_some_and(|p| p.starts_with("nightly")) {
+        return Err(vec![format!(
+            "{v} is a nightly: run `gh workflow run nightly.yml` instead (docs/compiler/release.md §8)"
+        )]);
+    }
+    let tag = format!("v{v}");
+    let exists = tags.contains(&tag);
+    if tagged {
+        return if exists {
+            Ok(v)
+        } else {
+            Err(vec![format!(
+                "there is no tag {tag}: release it first with `gh workflow run release.yml -f version={v}`"
+            )])
+        };
+    }
+    let mut problems = Vec::new();
+    if exists {
+        problems.push(format!(
+            "the tag {tag} exists already, and a tag is never moved or reused (docs/compiler/release.md §5): \
+             release the next version, or publish this one with `gh workflow run publish.yml -f version={v}`"
+        ));
+    }
+    if *current != v {
+        problems.push(format!(
+            "this branch is at {current}, not {v}: run `cargo xtask release prepare {v}`, \
+             commit the result to the branch, push it, and start the release again"
+        ));
+    } else if notes(changelog, &v.to_string()).is_none() {
+        problems.push(format!(
+            "CHANGELOG.md has no `## {v} (…)` section: run `cargo xtask release prepare {v}` and commit it"
+        ));
+    }
+    if problems.is_empty() {
+        Ok(v)
+    } else {
+        Err(problems)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn v(text: &str) -> Version {
+        Version::parse(text).unwrap()
+    }
+
+    const CHANGELOG: &str = "# Changelog\n\n## 0.6.0-rc.1 (pre-release of 0.6.0, 2026-11-23)\n\n- A.\n\n## 0.5.0 (2026-10-01)\n";
+
+    #[test]
+    fn a_prepared_untagged_version_may_be_released() {
+        let tags = vec!["v0.5.0".to_owned()];
+        let got = check_version("0.6.0-rc.1", &v("0.6.0-rc.1"), CHANGELOG, &tags, false);
+        assert_eq!(got, Ok(v("0.6.0-rc.1")));
+        // A leading `v` is the tag's spelling; it is accepted.
+        let got = check_version("v0.6.0-rc.1", &v("0.6.0-rc.1"), CHANGELOG, &tags, false);
+        assert_eq!(got, Ok(v("0.6.0-rc.1")));
+    }
+
+    #[test]
+    fn an_unprepared_or_tagged_version_is_refused_with_the_command_to_run() {
+        let one = |input: &str, current: &str, changelog: &str, tags: &[&str]| {
+            let tags: Vec<String> = tags.iter().map(|t| (*t).to_owned()).collect();
+            check_version(input, &v(current), changelog, &tags, false)
+                .unwrap_err()
+                .join("\n")
+        };
+        assert!(one("0.6", "0.6.0", CHANGELOG, &[]).contains("is not a version"));
+        assert!(one("latest", "0.6.0", CHANGELOG, &[]).contains("is not a version"));
+        let other = one("0.6.0", "0.6.0-rc.1", CHANGELOG, &[]);
+        assert!(
+            other.contains("at 0.6.0-rc.1, not 0.6.0")
+                && other.contains("cargo xtask release prepare 0.6.0"),
+            "{other}"
+        );
+        let unprepared = one("0.6.0-rc.1", "0.6.0-rc.1", "# Changelog\n", &[]);
+        assert!(
+            unprepared.contains("no `## 0.6.0-rc.1 (…)` section")
+                && unprepared.contains("cargo xtask release prepare 0.6.0-rc.1"),
+            "{unprepared}"
+        );
+        let tagged = one("0.5.0", "0.5.0", CHANGELOG, &["v0.5.0"]);
+        assert!(tagged.contains("v0.5.0 exists already") && tagged.contains("never moved"));
+        let nightly = one("0.6.0-nightly.20261123", "0.6.0", CHANGELOG, &[]);
+        assert!(nightly.contains("nightly.yml"), "{nightly}");
+    }
+
+    #[test]
+    fn publishing_needs_the_tag() {
+        let tags = vec!["v0.5.0".to_owned()];
+        // The branch has moved on; only the tag matters.
+        assert_eq!(
+            check_version("0.5.0", &v("0.6.0"), "", &tags, true),
+            Ok(v("0.5.0"))
+        );
+        let missing = check_version("0.6.0", &v("0.6.0"), CHANGELOG, &tags, true).unwrap_err();
+        assert!(missing[0].contains("no tag v0.6.0"), "{missing:?}");
+    }
 
     #[test]
     fn release_notes_link_the_repository_at_the_tag() {

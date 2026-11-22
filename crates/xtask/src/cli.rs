@@ -197,6 +197,14 @@ pub enum DistStep {
 pub enum CiStep {
     /// Print `version=`, `minor=` and `prerelease=` from Cargo.toml (also written to `$GITHUB_OUTPUT`).
     Version,
+    /// Check the version a release was started with: prepared on this checkout and not tagged yet (or, with `--tagged`, tagged); print `version=`, `tag=`, `minor=` and `prerelease=` (also written to `$GITHUB_OUTPUT`).
+    CheckVersion {
+        /// The version (`0.6.0`, `0.6.0-rc.1`; a leading `v` is accepted).
+        version: String,
+        /// Require its tag to exist instead (publishing a release made already).
+        #[arg(long)]
+        tagged: bool,
+    },
     /// Write VERSION's section of CHANGELOG.md, the release notes, to OUT.
     Notes {
         /// The version (`0.6.0`) or its tag (`v0.6.0`).

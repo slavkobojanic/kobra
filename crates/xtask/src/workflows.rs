@@ -1,6 +1,7 @@
 //! The CI workflows in `.github/` (`docs/compiler/release.md` §9), read
-//! back so a test can check them without running them: every job is off
-//! until the owner switches CI on, every action is pinned, and every
+//! back so a test can check them without running them: every workflow
+//! runs only when someone starts it ([`TRIGGER`]), no script pastes an
+//! input in, every action is pinned, and every
 //! command a step runs exists in this repository: `cargo xtask …` parses
 //! with this crate's command line, `cargo test -p <crate> --test <binary>
 //! -- <module>::` names a real crate, binary and module, a fuzz target is
@@ -14,11 +15,13 @@ use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::cli::Cli;
 
-/// The switch every job checks (a repository variable).
-pub const CI_SWITCH: &str = "vars.K_CI_ENABLED == 'true'";
-/// The extra switch of the jobs that deploy the docs to GitHub Pages.
+/// The one event every workflow runs on: started by hand, from the
+/// Actions page or `gh workflow run` (design 48, "CI on request").
+pub const TRIGGER: &str = "workflow_dispatch";
+/// The switch of the jobs that deploy the docs to GitHub Pages (a
+/// repository variable; for the day the repository is public).
 pub const PAGES_SWITCH: &str = "vars.K_PAGES_ENABLED == 'true'";
-/// The extra switch of the jobs that publish a release or a nightly.
+/// The switch of the steps and jobs that push toolchain images to GHCR.
 pub const PUBLISH_SWITCH: &str = "vars.K_PUBLISH_ENABLED == 'true'";
 
 /// One workflow file, or a local composite action.
@@ -30,8 +33,23 @@ pub struct Workflow {
     pub jobs: Vec<Job>,
     /// The events it runs on (the `on:` keys).
     pub events: Vec<String>,
+    /// The inputs of its `workflow_dispatch`.
+    pub inputs: Vec<Input>,
     /// `true` for a composite action.
     pub action: bool,
+}
+
+/// One input of a `workflow_dispatch` (`gh workflow run … -f name=value`).
+#[derive(Clone, Debug)]
+pub struct Input {
+    /// Its name.
+    pub name: String,
+    /// Its `required:`.
+    pub required: bool,
+    /// Its `type:` (`string` when absent).
+    pub kind: String,
+    /// Its `default:`.
+    pub default: Option<String>,
 }
 
 /// One job.
@@ -57,6 +75,8 @@ pub struct Job {
 /// One step.
 #[derive(Clone, Debug)]
 pub struct Step {
+    /// Its `if:`.
+    pub condition: Option<String>,
     /// Its `uses:`.
     pub uses: Option<String>,
     /// Its `run:`.
@@ -99,6 +119,7 @@ fn steps(y: &Yaml) -> Vec<Step> {
         .map(|v| {
             v.iter()
                 .map(|s| Step {
+                    condition: text(&s["if"]),
                     uses: text(&s["uses"]),
                     run: text(&s["run"]),
                     dir: text(&s["working-directory"]),
@@ -206,10 +227,26 @@ pub fn parse(path: &str, source: &str) -> Result<Workflow, String> {
         Yaml::Hash(h) => h.keys().filter_map(text).collect(),
         other => list(other),
     };
+    let inputs = doc["on"][TRIGGER]["inputs"]
+        .as_hash()
+        .map(|h| {
+            h.iter()
+                .filter_map(|(name, i)| {
+                    Some(Input {
+                        name: text(name)?,
+                        required: i["required"].as_bool().unwrap_or(false),
+                        kind: text(&i["type"]).unwrap_or_else(|| "string".to_owned()),
+                        default: text(&i["default"]),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     Ok(Workflow {
         path: path.to_owned(),
         jobs,
         events,
+        inputs,
         action,
     })
 }
@@ -556,9 +593,10 @@ fn check_command(root: &Path, dir: Option<&str>, w: &[String], seeded: bool) -> 
     problems
 }
 
-/// Every problem of the workflows in `root`: parse errors, a job not
-/// behind [`CI_SWITCH`], an action not pinned or missing, a command that
-/// doesn't exist.
+/// Every problem of the workflows in `root`: parse errors, a workflow
+/// that runs on anything but [`TRIGGER`], the old `K_CI_ENABLED` switch,
+/// an input pasted into a script, an action not pinned or missing, a
+/// command that doesn't exist.
 #[must_use]
 pub fn check(root: &Path) -> Vec<String> {
     let workflows = match load(root) {
@@ -570,15 +608,45 @@ pub fn check(root: &Path) -> Vec<String> {
         problems.push("no workflow in .github/workflows/".to_owned());
     }
     for w in &workflows {
+        if !w.action && w.events != [TRIGGER] {
+            problems.push(format!(
+                "{}: must run only on `{TRIGGER}` (started from the Actions page or `gh workflow run`), not on `{}`",
+                w.path,
+                w.events.join("`, `")
+            ));
+        }
         for job in &w.jobs {
             let at = format!("{} job `{}`", w.path, job.id);
-            if !w.action
-                && !job
-                    .condition
-                    .as_deref()
-                    .is_some_and(|c| c.starts_with(CI_SWITCH))
-            {
-                problems.push(format!("{at}: its `if:` must start with `{CI_SWITCH}`"));
+            let conditions = job
+                .condition
+                .iter()
+                .chain(job.steps.iter().filter_map(|s| s.condition.as_ref()));
+            for c in conditions {
+                if c.contains("K_CI_ENABLED") {
+                    problems.push(format!(
+                        "{at}: `K_CI_ENABLED` is gone: starting the workflow is the switch (`{c}`)"
+                    ));
+                }
+            }
+            // A workflow's input is text the dispatcher typed: a script
+            // reads it from the environment, never pasted into its source.
+            // (A local action's inputs are written by the workflows.)
+            for step in job.steps.iter().filter(|_| !w.action) {
+                let run = step.run.as_deref().unwrap_or_default();
+                let mut rest = run;
+                while let Some(start) = rest.find("${{") {
+                    let end = rest[start..].find("}}").map_or(rest.len(), |e| start + e);
+                    let expr = rest[start + 3..end].trim();
+                    if let Some(name) = expr.strip_prefix("inputs.") {
+                        problems.push(format!(
+                            "{at}: pass `inputs.{name}` through `env:` and read it as a variable, not `${{{{ {expr} }}}}` in a script"
+                        ));
+                    }
+                    rest = &rest[end.min(rest.len())..];
+                    if rest.starts_with("}}") {
+                        rest = &rest[2..];
+                    }
+                }
             }
             for step in &job.steps {
                 if let Some(uses) = &step.uses {

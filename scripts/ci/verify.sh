@@ -1,9 +1,10 @@
 #!/bin/sh
 # Verifies a downloaded release as a user would: every archive's digest
 # against SHA256SUMS, and its Sigstore bundle against the identity of the
-# workflow that signed it. Run by release.yml's `verify` job; needs `cosign`.
+# workflow that signed it, at the ref it was started on (release.md §9).
+# Run by release.yml's `verify` job; needs `cosign`.
 #
-#   scripts/ci/verify.sh target/dist 'https://github.com/<owner>/<repo>/.github/workflows/release.yml@refs/tags/v0.1.0'
+#   scripts/ci/verify.sh target/dist 'https://github.com/<owner>/<repo>/.github/workflows/release.yml@refs/heads/main'
 set -eu
 dir="$1"
 identity="$2"

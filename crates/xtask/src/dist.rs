@@ -672,7 +672,9 @@ pub fn attach(
             ],
         )
         .map_err(|e| {
-            format!("the release {tag} has no {name} to merge into (has CI made it?): {e}")
+            format!(
+                "the release {tag} has no {name} to merge into (has `gh workflow run release.yml -f version={version}` finished?): {e}"
+            )
         })?;
     }
     let has_index = gh(

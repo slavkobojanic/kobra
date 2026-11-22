@@ -1,29 +1,48 @@
-# A pushed `vX.Y.Z` or `vX.Y.Z-rc.N` tag, and the release that tag's draft
-# becomes (docs/compiler/release.md §6, §7 and §9, "release.yml"): the whole
-# gate on the tag, the Linux and Windows archives with their smoke tests,
-# the book (docs-<version>.tar.gz), SHA256SUMS, signatures and provenance,
-# the extension, the toolchain image, the whole toolchain index, and a
-# draft release. No job runs on macOS (the repository is private, where a
-# macOS minute costs ten Linux ones): the release manager builds the macOS
-# archive and attaches it to the draft with `cargo xtask release
-# attach-local <tag>` (release.md §6). Publishing the draft runs the
-# `publish-*` jobs, and the Pages deploy once the repository is public.
+# A release, started by hand with its version (docs/compiler/release.md §6,
+# §7 and §9, "release.yml"; design 48, "CI on request"):
 #
-# Off until the owner switches it on: every job runs only when the
-# repository variable K_CI_ENABLED is `true` (and only for a `v*` tag, or a
-# published release); pushing images and the release's publish jobs also
-# need K_PUBLISH_ENABLED, and the Pages deploy K_PAGES_ENABLED (release.md
-# §9, "Switching CI on").
+#   gh workflow run release.yml -f version=0.6.0-rc.1                    # from main
+#   gh workflow run release.yml --ref release/0.6 -f version=0.6.0       # from a release branch
+#   gh run watch
+#
+# The version must already be prepared on that branch (`cargo xtask release
+# prepare <version>`, committed and pushed) and not tagged: `check` refuses
+# it otherwise, with the command to run. Then the whole gate on the
+# dispatched commit, the Linux and Windows archives with their smoke tests,
+# the book (docs-<version>.tar.gz), SHA256SUMS, signatures and provenance,
+# (each archive's Sigstore bundle, `k-*.sigstore.json`), the extension, the
+# toolchain image, the whole toolchain index, and, only
+# when all of that passed, `release`: the annotated tag v<version> on that
+# commit, pushed, and the GitHub release (a draft unless `-f draft=false`,
+# a pre-release for a version with a pre-release part). No job runs on
+# macOS (the repository is private, where a macOS minute costs ten Linux
+# ones): the release manager builds the macOS archive and attaches it with
+# `cargo xtask release attach-local v<version>`, then publishes with
+# `gh workflow run publish.yml -f version=<version>` (release.md §6).
+#
+# Pushing the toolchain images needs K_PUBLISH_ENABLED, and the
+# performance job a runner named by K_PERF_RUNNER.
 name: release
 
 on:
-  push:
-    tags: ["v*"]
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to release, prepared on the branch: 0.6.0 or 0.6.0-rc.1"
+        required: true
+        type: string
+      draft:
+        description: "Make the release a draft (publish it with publish.yml after attaching the macOS archive)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
+
+# One release at a time.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,10 +52,33 @@ env:
   K_IMAGE: ghcr.io/slavkobojanic/kobra
 
 jobs:
-  # ---- The gate, on the tag -------------------------------------------------
+  # ---- The version ----------------------------------------------------------
+
+  # The input is a version, the checkout's (prepared, with its CHANGELOG.md
+  # section) and not tagged yet; every later job reads it from here.
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      minor: ${{ steps.v.outputs.minor }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          cache: lint
+      - id: v
+        run: cargo xtask ci check-version "$VERSION"
+        env:
+          VERSION: ${{ inputs.version }}
+
+  # ---- The gate, on the dispatched commit -------------------------------------------------
 
   gate-test:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
     strategy:
       fail-fast: false
       matrix:
@@ -56,7 +98,7 @@ jobs:
         run: "cargo test -p k_cli --test it -- install_script::"
 
   gate-services:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -82,9 +124,9 @@ jobs:
           K_REQUIRE_CHROME: "1"
 
   # Formatting, lints, the book and the site, the compatibility fixtures,
-  # the versions, and no fragment left on the tag.
+  # the versions, and the fragments (none may be left on a release).
   gate-checks:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -99,15 +141,20 @@ jobs:
       # The Kobra code of the examples in `k fmt`'s canonical form (a compiler-only
       # `k`, without V8).
       - run: cargo run -p k_cli --no-default-features --bin k -- fmt --check examples
-      - run: cargo xtask fragments --none-left
+      # A release leaves no fragment; a candidate keeps them (`release
+      # prepare` deletes them only for the release).
+      - if: needs.check.outputs.prerelease != 'true'
+        run: cargo xtask fragments --none-left
+      - if: needs.check.outputs.prerelease == 'true'
+        run: cargo xtask fragments
       - run: "cargo test -p k_cli --test it -- version::"
       - run: cargo test -p xtask
       - run: "cargo test -p k_server --test it -- compat::"
-      - run: cargo xtask docs build --version "${{ github.ref_name }}" --out target/site
+      - run: cargo xtask docs build --version "${{ needs.check.outputs.version }}" --out target/site
 
   # A shorter property run than the nightly's.
   gate-properties:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -128,7 +175,7 @@ jobs:
   # git-ignored, so fuzz/seed-corpus.sh first fills it from committed files
   # (tests/corpus, fuzz/seeds).
   gate-fuzz:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
     strategy:
       fail-fast: false
       matrix:
@@ -147,7 +194,8 @@ jobs:
   # On the performance runner (K_PERF_RUNNER); without one the release
   # manager runs it by hand and records the numbers (release.md §6).
   gate-perf:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') && vars.K_PERF_RUNNER != ''
+    if: vars.K_PERF_RUNNER != ''
+    needs: [check]
     runs-on: ${{ vars.K_PERF_RUNNER }}
     steps:
       - uses: actions/checkout@v4
@@ -162,8 +210,7 @@ jobs:
   # Debian 11 for the glibc 2.31 baseline. macOS is built on the release
   # manager's Mac (`cargo xtask release attach-local`).
   build:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
-    needs: [gate-test, gate-services, gate-checks, gate-properties, gate-fuzz]
+    needs: [check, gate-test, gate-services, gate-checks, gate-properties, gate-fuzz]
     strategy:
       fail-fast: false
       matrix:
@@ -193,8 +240,7 @@ jobs:
   # then `k new`, `k check`, `k test`, `k build`, `dist/app serve` and
   # `dist/app probe`.
   smoke:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
-    needs: [build]
+    needs: [check, build]
     strategy:
       fail-fast: false
       matrix:
@@ -222,8 +268,7 @@ jobs:
   # SHA256SUMS over the archives and the book, and this release's index
   # entry (with the book as `docs`).
   checksums:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
-    needs: [build, docs]
+    needs: [check, build, docs]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -248,8 +293,7 @@ jobs:
 
   # Sigstore keyless signatures and build provenance for every archive.
   sign:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
-    needs: [checksums]
+    needs: [check, checksums]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -273,10 +317,10 @@ jobs:
           path: target/dist/*.sigstore.json
 
   # Downloads the artifacts as a user would and checks digests and
-  # signatures.
+  # signatures, against this workflow's identity at the ref it was started
+  # on (`refs/heads/main`, or the release branch).
   verify:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
-    needs: [sign]
+    needs: [check, sign]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -298,8 +342,7 @@ jobs:
 
   # The VS Code extension, kobra-<version>.vsix (npm runs here only).
   extension:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
-    needs: [gate-checks]
+    needs: [check, gate-checks]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -316,11 +359,10 @@ jobs:
           path: target/dist/*.vsix
 
   # The toolchain image per architecture, checked by building examples/shop
-  # with it; pushed under `<version>-<arch>` when publishing is enabled (the
-  # multi-arch `<version>` tag is made when the release is published).
+  # with it; pushed under `<version>-<arch>` with K_PUBLISH_ENABLED (the
+  # multi-arch `<version>` tag is made by publish.yml).
   image:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
-    needs: [build]
+    needs: [check, build]
     strategy:
       fail-fast: false
       matrix:
@@ -333,17 +375,14 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-      - id: v
-        run: cargo xtask ci version
       - uses: actions/download-artifact@v4
         with:
           name: dist-${{ matrix.target }}
           path: target/dist
       - run: mkdir -p target/image
-      - run: tar -xzf target/dist/k-${{ steps.v.outputs.version }}-${{ matrix.target }}.tar.gz -C target/image --strip-components 1
-      - run: docker build --file docker/toolchain.Dockerfile --tag "${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}-${{ matrix.arch }}" target/image
-      - run: docker build --file examples/shop/Dockerfile --build-arg "K_TOOLCHAIN=${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}-${{ matrix.arch }}" --build-arg APP=shop --tag k-shop:ci .
+      - run: tar -xzf target/dist/k-${{ needs.check.outputs.version }}-${{ matrix.target }}.tar.gz -C target/image --strip-components 1
+      - run: docker build --file docker/toolchain.Dockerfile --tag "${{ env.K_IMAGE }}:${{ needs.check.outputs.version }}-${{ matrix.arch }}" target/image
+      - run: docker build --file examples/shop/Dockerfile --build-arg "K_TOOLCHAIN=${{ env.K_IMAGE }}:${{ needs.check.outputs.version }}-${{ matrix.arch }}" --build-arg APP=shop --tag k-shop:ci .
       - if: vars.K_PUBLISH_ENABLED == 'true'
         uses: docker/login-action@v3
         with:
@@ -351,15 +390,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - if: vars.K_PUBLISH_ENABLED == 'true'
-        run: docker push "${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}-${{ matrix.arch }}"
+        run: docker push "${{ env.K_IMAGE }}:${{ needs.check.outputs.version }}-${{ matrix.arch }}"
 
-  # The book of the tag with the version substituted: for review, and
+  # The book of the release with the version substituted: for review, and
   # packed as docs-<version>.tar.gz, which the release attaches and the
   # installers unpack for `k docs` (there is no public docs site while the
   # repository is private).
   docs:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
-    needs: [gate-checks]
+    needs: [check, gate-checks]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -369,10 +407,8 @@ jobs:
         with:
           mdbook: "true"
           cache: book
-      - run: cargo xtask docs build --version "${{ github.ref_name }}" --out target/site
-      - id: v
-        run: cargo xtask ci version
-      - run: cargo xtask dist docs "target/site/${{ steps.v.outputs.minor }}" --out target/dist
+      - run: cargo xtask docs build --version "${{ needs.check.outputs.version }}" --out target/site
+      - run: cargo xtask dist docs "target/site/${{ needs.check.outputs.minor }}" --out target/dist
       - uses: actions/upload-artifact@v4
         with:
           name: site
@@ -382,23 +418,27 @@ jobs:
           name: book
           path: target/dist/docs-*.tar.gz
 
-  # A draft release: the notes from CHANGELOG.md, every archive, the book,
-  # SHA256SUMS, the index entry, the whole index (every published release's
-  # entry and this one's), the signatures and the .vsix. Nothing is visible
-  # until the release manager publishes it, after attaching the macOS
-  # archive (`cargo xtask release attach-local`).
-  # The performance job may be skipped (no runner yet), but nothing may fail.
-  draft:
-    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') && !cancelled() && !failure()
-    needs: [smoke, verify, extension, image, docs, gate-perf]
+  # Only when every job above passed (a skipped `gate-perf`, without a
+  # performance runner, doesn't stop it; a failed one does): the annotated
+  # tag v<version> on the dispatched commit, the one everything above ran
+  # on, pushed (scripts/ci/tag.sh; a re-run finds it there and goes on,
+  # another commit's tag is refused), then the GitHub release with the
+  # notes from CHANGELOG.md, every archive, the book, SHA256SUMS, the index
+  # entry, the whole index (every published release's entry and this
+  # one's), the signatures and the .vsix: everything `cargo xtask release
+  # attach-local` merges the macOS archive into. A draft (by default) shows
+  # nothing until `publish.yml` publishes it.
+  release:
+    if: ${{ !cancelled() && !failure() }}
+    needs: [check, smoke, verify, extension, image, docs, gate-perf]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
-      - id: v
-        run: cargo xtask ci version
       - uses: actions/download-artifact@v4
         with:
           pattern: dist-*
@@ -423,86 +463,12 @@ jobs:
       - run: scripts/ci/release-index.sh target/dist/index.json target/dist/index-entry.json
         env:
           GH_TOKEN: ${{ github.token }}
-      - run: cargo xtask ci notes "${{ github.ref_name }}" --out target/notes.md --links "${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}"
-      - run: gh release create "${{ github.ref_name }}" --draft --verify-tag --title "Kobra ${{ steps.v.outputs.version }}" --notes-file target/notes.md ${{ steps.v.outputs.prerelease == 'true' && '--prerelease' || '' }} target/dist/k-* target/dist/docs-*.tar.gz target/dist/SHA256SUMS target/dist/index-entry.json target/dist/index.json
+      - run: cargo xtask ci notes "${{ needs.check.outputs.tag }}" --out target/notes.md --links "${{ github.server_url }}/${{ github.repository }}/blob/${{ needs.check.outputs.tag }}"
+      - run: scripts/ci/tag.sh "${{ needs.check.outputs.tag }}" "${{ github.sha }}"
+      - run: gh release create "$TAG" --verify-tag $DRAFT $PRERELEASE --title "Kobra $VERSION" --notes-file target/notes.md target/dist/k-* target/dist/docs-*.tar.gz target/dist/SHA256SUMS target/dist/index-entry.json target/dist/index.json target/dist/*.vsix
         env:
           GH_TOKEN: ${{ github.token }}
-
-  # ---- Publishing the draft (`release: published`) --------------------------
-
-  # The published release's index.json rebuilt from every published
-  # release's entry (the macOS one `attach-local` merged in included), so
-  # the newest release, which `k toolchain` reads, lists every release.
-  publish-index:
-    if: vars.K_CI_ENABLED == 'true' && vars.K_PUBLISH_ENABLED == 'true' && github.event_name == 'release'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-      - run: scripts/ci/release-index.sh target/index.json
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - run: gh release upload "${{ github.event.release.tag_name }}" target/index.json --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-  # The multi-arch image under the version, and for a release (not a
-  # candidate) also `X.Y` and `latest`.
-  publish-image:
-    if: vars.K_CI_ENABLED == 'true' && vars.K_PUBLISH_ENABLED == 'true' && github.event_name == 'release'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-      - id: v
-        run: cargo xtask ci version
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-      - run: docker buildx imagetools create --tag "${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}" "${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}-amd64" "${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}-arm64"
-      - if: steps.v.outputs.prerelease != 'true'
-        run: docker buildx imagetools create --tag "${{ env.K_IMAGE }}:${{ steps.v.outputs.minor }}" --tag "${{ env.K_IMAGE }}:latest" "${{ env.K_IMAGE }}:${{ steps.v.outputs.version }}"
-
-  # The docs site: the newest release at /0.N/ with `/` and `/latest/`
-  # pointing at it, /next/ from main, versions.json, the install scripts and
-  # the index with this release's entry (a candidate's too; its docs aren't
-  # deployed, since `latest` is the newest stable release). Only for the
-  # day the repository is public: GitHub's Free plan has no Pages for a
-  # private one (design 48, "Private distribution").
-  pages:
-    if: vars.K_CI_ENABLED == 'true' && vars.K_PAGES_ENABLED == 'true' && github.event_name == 'release'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    concurrency:
-      group: pages
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/setup
-        with:
-          mdbook: "true"
-          cache: book
-      - uses: ./.github/actions/site
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: target/site
-      - id: deploy
-        uses: actions/deploy-pages@v4
+          TAG: ${{ needs.check.outputs.tag }}
+          VERSION: ${{ needs.check.outputs.version }}
+          DRAFT: ${{ inputs.draft && '--draft' || '' }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease == 'true' && '--prerelease' || '' }}

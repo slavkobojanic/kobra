@@ -1,19 +1,27 @@
-# Once a day on main (docs/compiler/release.md §8 and §9, "nightly.yml"): the
-# nightly column of the gate, then, when everything passed, the nightly
-# build `X.Y.Z-nightly.<date>`.
+# A nightly: main (or the branch it is started on) through the nightly
+# column of the gate, then, when everything passed, the build
+# `X.Y.Z-nightly.<date>` as a pre-release (docs/compiler/release.md §8 and
+# §9, "nightly.yml"). Only on request (design 48, "CI on request"); there
+# is no schedule:
 #
-# Off until the owner switches it on: every job runs only when the
-# repository variable K_CI_ENABLED is `true`; publishing the nightly also
-# needs K_PUBLISH_ENABLED, and the performance job a runner named by
-# K_PERF_RUNNER (release.md §9, "Switching CI on"). No job runs on macOS:
-# the repository is private, where a macOS minute costs ten Linux ones
-# (design 48, "Private distribution"), so nightlies have no macOS archive.
+#   gh workflow run nightly.yml                   # main, published on green
+#   gh workflow run nightly.yml -f publish=false  # the checks only
+#
+# One nightly per day: its version and tag carry the date, so a second
+# published run on the same day fails at `gh release create`. The
+# performance job needs a runner named by K_PERF_RUNNER. No job runs on
+# macOS: the repository is private, where a macOS minute costs ten Linux
+# ones (design 48, "Private distribution"), so nightlies have no macOS
+# archive.
 name: nightly
 
 on:
-  schedule:
-    - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the nightly pre-release when everything passed"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -32,7 +40,6 @@ env:
 jobs:
   # `cargo test --workspace` on every CI target's native runner.
   test:
-    if: vars.K_CI_ENABLED == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -51,7 +58,6 @@ jobs:
 
   # The database tests on Postgres and the browser tests in real Chrome.
   services:
-    if: vars.K_CI_ENABLED == 'true'
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -78,7 +84,6 @@ jobs:
       - run: "cargo test -p k_cli --test it -- install_script::"
 
   lint-and-docs:
-    if: vars.K_CI_ENABLED == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -103,7 +108,6 @@ jobs:
 
   # The property suites with raised case counts (docs/compiler/testing.md §2).
   properties:
-    if: vars.K_CI_ENABLED == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -127,7 +131,6 @@ jobs:
   # Ten minutes per fuzz target (docs/compiler/testing.md §6); a crash is
   # kept as an artifact, to be minimised and committed under fuzz/artifacts/.
   fuzz:
-    if: vars.K_CI_ENABLED == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -152,7 +155,7 @@ jobs:
   # label the owner sets in K_PERF_RUNNER (design 48, "The gate"). Until
   # then this job is skipped and the release manager runs the script by hand.
   perf:
-    if: vars.K_CI_ENABLED == 'true' && vars.K_PERF_RUNNER != ''
+    if: vars.K_PERF_RUNNER != ''
     runs-on: ${{ vars.K_PERF_RUNNER }}
     steps:
       - uses: actions/checkout@v4
@@ -164,7 +167,6 @@ jobs:
   # The nightly's archives, smoke-tested on the runner that built them.
   # Linux builds in Debian 11 for the glibc 2.31 baseline.
   build:
-    if: vars.K_CI_ENABLED == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -200,7 +202,6 @@ jobs:
   # The toolchain image from the Linux archives, then examples/shop built
   # with it (`K_TOOLCHAIN=` the image).
   image:
-    if: vars.K_CI_ENABLED == 'true'
     needs: [build]
     strategy:
       fail-fast: false
@@ -222,9 +223,9 @@ jobs:
 
   # On green: the nightly as a GitHub pre-release (archives, the book,
   # SHA256SUMS, its index entry and the whole index, which `k toolchain`
-  # reads from the newest release). Publishing needs K_PUBLISH_ENABLED.
+  # reads from the newest release), unless started with `publish=false`.
   publish-nightly:
-    if: vars.K_CI_ENABLED == 'true' && vars.K_PUBLISH_ENABLED == 'true'
+    if: inputs.publish
     needs: [test, services, lint-and-docs, properties, fuzz, build, image]
     runs-on: ubuntu-24.04
     permissions:
@@ -253,7 +254,7 @@ jobs:
 
   # On red: one open issue collects the failed nightlies.
   report:
-    if: vars.K_CI_ENABLED == 'true' && failure()
+    if: failure()
     needs: [test, services, lint-and-docs, properties, fuzz, build, image]
     runs-on: ubuntu-24.04
     permissions:

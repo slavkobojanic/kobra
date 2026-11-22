@@ -13,8 +13,10 @@ procedure.
 > lockfile format versions, `k fix`, the stability annotations with the feature table, `k upgrade`, the
 > changelog fragments with `cargo xtask`, the 0.1 wire fixtures, the install scripts, the versioned docs
 > build (`cargo xtask docs build`), the CI workflows in `.github/` and the toolchain version in the
-> editor, then the dry run's fixes. **The workflows are switched off**: every job waits for the repository variable
-> `K_CI_ENABLED` ([§9, "Switching CI on"](#switching-ci-on)), so pushing them runs nothing. Sections
+> editor, then the dry run's fixes. **CI runs only on request**: every workflow's one trigger is
+> `workflow_dispatch`, started from the Actions page or with `gh workflow run`
+> ([§9, "Running CI"](#running-ci)), so pushing commits, branches or tags runs nothing, and the release
+> workflow creates its own tag. Sections
 > marked *(planned)* describe files and commands not built yet. The name (Kobra), the namespace
 > (`slavkobojanic/kobra` on GitHub and GHCR) and the licence (MIT OR Apache-2.0) are decided
 > ([design 48](../design/48-releases-and-versioning.md#owner-decisions)), and so is **private
@@ -65,10 +67,10 @@ Contents:
 | `changes/*.md` | changelog fragments, one per change; `changes/README.md` explains them | exists (the 0.1.0 fragments, one per area) |
 | `changes/_highlights.md` | hand-written release highlights, emptied at each release | exists |
 | `CHANGELOG.md` | every released version's notes, newest first | exists (no version released yet) |
-| `crates/xtask/` | `cargo xtask release prepare`, `check`, `start-next`, `nightly`, `attach-local`; `docs-gate`, `fragments`; `docs build`; `dist archive`, `docs`, `checksums`, `index`, `merge-index`, `smoke`; `ci changed`, `version`, `notes` | exists (`release sync-main` and `release yank` planned) |
-| `.github/workflows/ci.yml`, `nightly.yml`, `release.yml` | the pipeline (§9), on GitHub Actions (owner decision, 2026-11-09); every job off until `K_CI_ENABLED` is set; checked by `crates/xtask/tests/workflows.rs` | exist |
+| `crates/xtask/` | `cargo xtask release prepare`, `check`, `start-next`, `nightly`, `attach-local`; `docs-gate`, `fragments`; `docs build`; `dist archive`, `docs`, `checksums`, `index`, `merge-index`, `smoke`; `ci changed`, `version`, `notes`, `check-version` | exists (`release sync-main` and `release yank` planned) |
+| `.github/workflows/ci.yml`, `nightly.yml`, `release.yml`, `publish.yml` | the pipeline (§9), on GitHub Actions (owner decision, 2026-11-09); each run only when started (`workflow_dispatch`, owner decision 2026-11-23); checked by `crates/xtask/tests/workflows.rs` | exist |
 | `.github/actions/setup/`, `.github/actions/site/` | the workflows' shared steps: Rust, mdBook and the caches; assembling the whole docs site | exist |
-| `scripts/ci/` | the few steps that need `gh` or `cosign`: `release-index.sh`, `sign.sh`, `verify.sh`, `nightly-issue.sh` | exist |
+| `scripts/ci/` | the few steps that need `gh`, `git` or `cosign`: `release-index.sh`, `tag.sh` (the release tag), `publish-release.sh`, `sign.sh`, `verify.sh`, `nightly-issue.sh` | exist |
 | `docker/toolchain.Dockerfile` | the toolchain image, from a Linux release archive's `k` | exists (built only by the workflows) |
 | `scripts/install.sh`, `scripts/install.ps1` | installers for collaborators, piped from the private repository: `gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' \| sh` (`gh api repos/slavkobojanic/kobra/contents/scripts/install.ps1 -H 'Accept: application/vnd.github.raw' \| Out-String \| iex` on Windows); they download with `gh release download` (or curl and `GH_TOKEN`) and install the toolchain and its book; tested by `crates/k_cli/tests/install_script.rs` with a fake `gh` and a fake GitHub API | exist |
 | `Cargo.toml` `[workspace.metadata.project]` | **the** name and namespace: `Kobra`, the repository, the docs site (for the day the repository is public), the image, the extension id; read by `release prepare` and `release attach-local`, checked against the rest by `version.rs` | exists |
@@ -176,20 +178,35 @@ token, the session cookie, `k_job` payloads, the `k-data` payload, the runtime's
   suffix; nightly builds add `-nightly.<date>` at build time, not in `Cargo.toml`.
 - **`release/X.Y`** is cut from main for each minor; `X.Y.*` and docs fixes for `/X.Y/` are made there,
   by cherry-picking fixes that landed on main first (fix on main, then backport, never the reverse).
-- **Tags** are `vX.Y.Z` and `vX.Y.Z-rc.N`, annotated, on the release branch. **A tag is never moved or
-  reused**; a bad release is yanked and fixed by the next patch (§11).
+- **Tags** are `vX.Y.Z` and `vX.Y.Z-rc.N`, annotated, on the release branch (or main, for a release
+  made from it). **The release workflow creates them**, on the commit it gated
+  (`gh workflow run release.yml -f version=…`, §9); nobody pushes a release tag by hand. **A tag is
+  never moved or reused**; a bad release is yanked and fixed by the next patch (§11).
 - **Only the release pipeline publishes.** Nothing is uploaded from a maintainer's machine.
 
 ---
 
 ## 6. Cutting a minor release
 
-Timeline for `0.6.0`, with T the planned release day.
+Timeline for `0.6.0`, with T the planned release day. In short, every release is:
+
+```sh
+cargo xtask release prepare 0.6.0                           # then commit it to the branch and push
+gh workflow run release.yml --ref release/0.6 -f version=0.6.0
+gh run watch                                                # pick the run; ends when the draft exists
+git fetch origin tag v0.6.0 && git switch --detach v0.6.0   # on the owner's Mac
+cargo xtask release attach-local v0.6.0
+gh workflow run publish.yml -f version=0.6.0
+```
+
+`--ref` is the branch whose head is released (and whose `release.yml` runs); without it, main. A
+release made from main (the first ones, before release branches are cut) leaves it out.
 
 ### T−7: branch cut and release candidate
 
-1. **Check main is green:** the nightly of the commit you will cut passed (fuzz, long property runs,
-   performance budgets included). If it didn't, the cut waits; the train doesn't ship red.
+1. **Check main is green:** a nightly of the commit you will cut passed (fuzz, long property runs,
+   performance budgets included; start one with `gh workflow run nightly.yml -f publish=false` if
+   none has run on it). If it didn't, the cut waits; the train doesn't ship red.
 2. **Cut the branch:**
    ```sh
    git switch main && git pull
@@ -223,22 +240,30 @@ Timeline for `0.6.0`, with T the planned release day.
    the same list CI runs, so a failure here saves a pipeline run. Run it in a **fresh clone** of the
    branch, not your working copy: git-ignored files there (a fuzz corpus, an `.env`) hide what CI
    will lack, as the `0.1.0-rc.1` dry run found.
-6. **Commit and tag:**
+6. **Commit, push and start the release** (no tag: the workflow makes it):
    ```sh
    git commit -am "Release 0.6.0-rc.1"
-   git tag -a v0.6.0-rc.1 -m "K 0.6.0-rc.1"
-   git push origin release/0.6 v0.6.0-rc.1
+   git push origin release/0.6
+   gh workflow run release.yml --ref release/0.6 -f version=0.6.0-rc.1
+   gh run watch
    ```
+   Its first job, `check` (`cargo xtask ci check-version`), refuses a version that isn't the branch's,
+   has no `CHANGELOG.md` section or is tagged already, and prints the command that fixes it (usually
+   `cargo xtask release prepare <version>`).
 7. **Bump main** to the next minor in its own pull request: `cargo xtask release start-next 0.7.0`
    sets `0.7.0` and leaves the fragments on main untouched.
-8. The release pipeline (§9) builds the candidate's Linux and Windows archives and makes a **draft
-   pre-release**: archives, the book, checksums, signatures, the index entry and the whole index (its
-   version carries `-rc.1`, so `k toolchain` installs it only when named exactly), the extension
-   `.vsix`, the image tag `0.6.0-rc.1`.
+8. The release workflow (§9) runs the gate on the branch's head, builds the candidate's Linux and
+   Windows archives and, when everything passed, **tags that commit `v0.6.0-rc.1`** (annotated, pushed
+   by the workflow) and makes a **draft pre-release**: archives, the book, checksums, signatures, the
+   index entry and the whole index (its version carries `-rc.1`, so `k toolchain` installs it only when
+   named exactly), the extension `.vsix`, the image tag `0.6.0-rc.1-<arch>` (with
+   `K_PUBLISH_ENABLED`). `-f draft=false` publishes it at once instead, before the macOS archive is
+   there; leave it a draft unless there is no Mac to attach from.
 9. **Attach the macOS archive** from the owner's Mac (no CI job runs on macOS: the repository is
    private, where a macOS minute is billed at ten Linux minutes), in a clean checkout of the tag, signed
    in with `gh auth login` as an account that can write releases:
    ```sh
+   git fetch origin tag v0.6.0-rc.1
    git switch --detach v0.6.0-rc.1
    cargo test --workspace                       # the gate's macOS column, by hand
    K_REQUIRE_CHROME=1 cargo test -p k_cli --test it -- chrome:: dist_browser::
@@ -252,7 +277,8 @@ Timeline for `0.6.0`, with T the planned release day.
    `--archive <file>` attaches an archive built already; `--target` builds another target this Mac
    can build and run. `x86_64-apple-darwin` isn't offered (it needs V8's x86_64 library, an extra
    download, and Rosetta to smoke-test). The macOS archive has no Sigstore bundle or provenance, only
-   its `SHA256SUMS` digest. Then publish the draft (a candidate needs no review beyond the jobs passing).
+   its `SHA256SUMS` digest. Then publish the draft (a candidate needs no review beyond the jobs passing):
+   `gh workflow run publish.yml -f version=0.6.0-rc.1` (§9, "`publish.yml`").
 10. Announce the candidate to the collaborators with its install line (`k toolchain install
    0.6.0-rc.1`, or the install script with `--version 0.6.0-rc.1`: without it the script installs the
    newest stable release, and the newest candidate while there is none), `K_TOOLCHAIN=0.6.0-rc.1` for
@@ -273,19 +299,25 @@ Timeline for `0.6.0`, with T the planned release day.
    ```
    This time the fragments are compiled and **deleted**, `CHANGELOG.md` gets its final section with the
    date, and `_highlights.md` is emptied.
-2. `cargo xtask release check`, then commit, tag `v0.6.0`, push the branch and the tag.
-3. The release pipeline runs the full gate on the tag on Linux and Windows and builds their artifacts
-   and the book. It creates a **draft** release; nothing is visible yet.
+2. `cargo xtask release check`, then commit and push the branch, and start the release:
+   `gh workflow run release.yml --ref release/0.6 -f version=0.6.0`, then `gh run watch`.
+3. The release workflow runs the full gate on the branch's head on Linux and Windows and builds their
+   artifacts and the book; only when all of it passed does it tag that commit `v0.6.0` and push the tag.
+   It creates a **draft** release; nothing is visible yet.
 4. **Attach the macOS archive** from the owner's Mac, as in step 9 of the candidate:
-   `cargo xtask release attach-local v0.6.0` in a checkout of the tag, after the macOS tests.
+   `cargo xtask release attach-local v0.6.0` in a checkout of the tag (`git fetch origin tag v0.6.0`
+   first), after the macOS tests.
 5. **The release manager reviews the draft**: every CI target's smoke test passed and the macOS one
    passed locally, `SHA256SUMS` lists every archive and `docs-0.6.0.tar.gz`, `index.json` lists every
    target, the signature verification job passed, the notes render, and the book (`k docs` after
    installing the draft's archive by hand, or the `site` artifact) looks right.
-6. **Publish the draft.** This one manual step triggers the publish jobs: `publish-index` (the
-   release's `index.json` rebuilt from every published release), the image tags `0.6.0`, `0.6`,
-   `latest`, the extension to its marketplaces (once chosen), package-manager updates (once chosen), and,
-   once the repository is public, the docs deploy of `/0.6/` with `/` and `/latest/` pointing at it.
+6. **Publish the draft:** `gh workflow run publish.yml -f version=0.6.0`. It refuses a release without
+   the macOS archive (`-f macos=false` overrides), publishes the draft, rebuilds its `index.json` from
+   every published release, makes the image tags `0.6.0`, `0.6`, `latest` (with `K_PUBLISH_ENABLED`),
+   and, once the repository is public, deploys `/0.6/` with `/` and `/latest/` pointing at it. *(Planned:
+   the extension to its marketplaces and package-manager updates, once chosen.)* Publishing the draft
+   on the release page instead runs none of the rest; run `publish.yml` afterwards, which leaves a
+   published release as it is and does the rest.
 7. **Merge the release back:** a pull request from `release/0.6` to main carrying `CHANGELOG.md` and the
    book's new changelog and upgrade-guide sections, and deleting on main the fragments that shipped
    (`cargo xtask release sync-main` *(planned)* computes the list).
@@ -296,24 +328,32 @@ Timeline for `0.6.0`, with T the planned release day.
 
 1. The fix is on main, with its fragment (`kind: fix`, or `breaking` for a soundness or security fix).
 2. Cherry-pick it to `release/0.6`, fragment included.
-3. `cargo xtask release prepare 0.6.1`, `cargo xtask release check`, commit, tag `v0.6.1`, push.
+3. `cargo xtask release prepare 0.6.1`, `cargo xtask release check`, commit, push, and
+   `gh workflow run release.yml --ref release/0.6 -f version=0.6.1`.
 4. Steps 3–7 of "T: the release" above (the macOS archive included). The release's book replaces the
    minor's, and once the repository is public the docs deploy replaces `/0.6/`.
 
 `cargo xtask release prepare` refuses a patch whose fragments include `deprecation`, `language`,
 `stdlib` or `preview` kinds, and warns on `breaking`, so a minor's changes can't slip into a patch.
 
-A **docs-only fix** to a released minor needs no tag: merge it into `release/0.6` and run the pipeline's
-"deploy docs" job for that branch, which rebuilds `/0.6/` after the branch's own tests passed.
+A **docs-only fix** to a released minor needs no tag: merge it into `release/0.6`; once the repository
+is public, `gh workflow run publish.yml -f version=<the minor's newest release>` redeploys the site
+*(planned: a deploy of `/0.6/` from the branch's head rather than from the tag)*.
 
 ---
 
 ## 8. Nightly
 
-- **Scheduled once a day** on main *(planned: skipped if main hasn't changed since the last nightly)*.
+- **Only on request** (design 48, "CI on request"): `gh workflow run nightly.yml` builds main's head
+  (`--ref <branch>` for another branch), and `-f publish=false` runs the checks without publishing.
+  There is no schedule: a nightly is a build of main someone asked for, before a branch cut (§6 step 1)
+  or to give collaborators main's latest. The name stays "nightly", as do the version
+  (`X.Y.Z-nightly.<date>`), the channel and `k toolchain install nightly`.
+- **One a day**: the version and the tag carry the date, so a second published nightly on the same day
+  fails at `gh release create`; run it with `-f publish=false`, or wait for the next day.
 - Runs the nightly column of the gate: every target's tests, fuzzing for a fixed time per target, long
   property runs, performance budgets on the dedicated runner, the smoke tests and the image build.
-- **On green**, publishes `0.7.0-nightly.<date>` (the Linux and Windows archives, main's book,
+- **On green**, unless `publish=false`, publishes `0.7.0-nightly.<date>` (the Linux and Windows archives, main's book,
   `SHA256SUMS`, its index entry and the whole index, as a GitHub pre-release). Nightlies have no macOS
   archive. *(Planned: the image tag `nightly` and the extension as a pre-release.)*
 - **On red**, publishes nothing, opens or updates one issue with the failing jobs, and blocks the next
@@ -331,49 +371,67 @@ the few steps that need `gh` or `cosign` are scripts in `scripts/ci/`. The share
 0.5.4, the caches) is the local action `.github/actions/setup`; assembling the whole docs site is
 `.github/actions/site`.
 
-### Switching CI on
+### Running CI
 
-**Nothing runs until the owner switches it on.** Every job's `if:` starts with
-`vars.K_CI_ENABLED == 'true'`, so pushing the workflows to GitHub starts no job (they show as skipped).
-The switches are repository variables (Settings → Secrets and variables → Actions → Variables):
+**CI runs only on request** (owner decision, 2026-11-23; design 48, "CI on request"). Every workflow's
+one trigger is `workflow_dispatch`: nothing runs on a pull request, a push, a tag, a published release
+or a schedule. A run is started from the repository's Actions page ("Run workflow") or with the GitHub
+CLI:
+
+| Command | Runs |
+|---|---|
+| `gh workflow run ci.yml --ref <branch>` | the change checks on the branch's head, against `origin/main` (`-f base=<rev>` for another base) |
+| `gh workflow run nightly.yml` | a nightly of main (`--ref` for another branch); `-f publish=false` runs it without publishing |
+| `gh workflow run release.yml [--ref release/0.6] -f version=0.6.0` | a release of the branch's head: the gate, the artifacts, the tag `v0.6.0`, a draft release (`-f draft=false` publishes it at once) |
+| `gh workflow run publish.yml -f version=0.6.0` | publishing that release once the macOS archive is attached: the draft published, its index refreshed, the image tags, the docs deploy |
+| `gh run watch`, `gh run list --workflow release.yml` | follow a run, list them |
+
+`--ref` names the branch whose head is checked out **and** whose copy of the workflow runs, so the
+workflow and the code it checks are always one commit. Since starting a workflow is the switch, the
+old `K_CI_ENABLED` variable is gone. What remains are repository variables (Settings → Secrets and
+variables → Actions → Variables) for parts that cost something or can't run yet:
 
 | Variable | Turns on |
 |---|---|
-| `K_CI_ENABLED` = `true` | every job: pull requests, pushes, the nightly, the release jobs of a pushed `v*` tag |
-| `K_PAGES_ENABLED` = `true` | also the Pages deploys (`pages` in `ci.yml` and `release.yml`); first set Settings → Pages → Source to "GitHub Actions". **Leave it unset while the repository is private** (GitHub's Free plan has no Pages for a private repository); it is for the day the repository goes public (design 48, "Private distribution") |
-| `K_PUBLISH_ENABLED` = `true` | also anything that publishes: the nightly pre-release, pushing toolchain images, the `publish-*` jobs of a published release |
+| `K_PAGES_ENABLED` = `true` | the Pages deploys (`pages` in `ci.yml` and `publish.yml`); first set Settings → Pages → Source to "GitHub Actions". **Leave it unset while the repository is private** (GitHub's Free plan has no Pages for a private repository); it is for the day the repository goes public (design 48, "Private distribution") |
+| `K_PUBLISH_ENABLED` = `true` | pushing the toolchain images to GHCR (`image` in `release.yml`, `publish-image` in `publish.yml`): a private repository's packages count against the plan's storage, so the images are built and checked on every release but pushed only with it. Releases and nightlies are published by being started, without it |
 | `K_PERF_RUNNER` = a runner label | the performance budgets (`perf`, `gate-perf`) on that self-hosted runner; unset, they are skipped |
 
-Removing a variable (or setting it to anything but `true`) switches its jobs off again. Which jobs are
-required checks for merging is a separate owner decision (branch protection; design 48 recommends
-every pull-request row of the gate). `crates/xtask/tests/workflows.rs` fails if a job lacks the
-switch, if a Pages or publish job lacks its own, if an action isn't pinned to a release, if a command
-names a script, crate, test module, fuzz target, Dockerfile or `cargo xtask` command that doesn't exist,
-or if a row of design 48's gate isn't run where its columns say.
+Removing a variable (or setting it to anything but `true`) switches its jobs off again. With no
+pull-request trigger, nothing reports checks on a pull request by itself: a reviewer starts `ci.yml` on
+its branch (the run's checks show on the branch's head commit), and branch protection's required
+checks stay an owner decision (design 48). `crates/xtask/tests/workflows.rs` fails if a workflow has
+any trigger but `workflow_dispatch`, if anything names `K_CI_ENABLED`, if a script pastes a
+`${{ inputs.… }}` in instead of reading it from `env:`, if a Pages deploy or an image push lacks its
+switch, if `release.yml` lacks its `version` input or tags in any job but `release` or before the gate
+and the builds passed, if an action isn't pinned to a release, if a command names a script, crate, test
+module, fuzz target, Dockerfile or `cargo xtask` command that doesn't exist, or if a row of design 48's
+gate isn't run where its columns say.
 
-### `ci.yml`: every pull request and every push to main or a release branch
+### `ci.yml`: the change checks, on request
 
 | Job | Runner | Runs |
 |---|---|---|
 | `lint` | Linux x86_64 | `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `k fmt --check examples` (a compiler-only `k`: `cargo run -p k_cli --no-default-features`) |
 | `test-linux` | Linux x86_64, with a Postgres service and Chrome | `cargo test --workspace` with `K_TEST_POSTGRES_URL` and `K_REQUIRE_CHROME=1` |
-| `book` | Linux x86_64 | `cargo xtask docs build --version next` (the book, any mdBook warning or error fails), the link check (`book_links::`; the other freshness checks are inside `cargo test`); when `docs/book/` or `crates/xtask/` changed (`cargo xtask ci changed`), the built site uploaded as an artifact (the PR preview until the owner picks a host with previews) |
-| `fragments` | Linux x86_64; pull requests only | `cargo test -p xtask`; `cargo xtask docs-gate <base>` (a fragment when `crates/`, `editors/` or `docs/book/` changed, and its pages in the diff) |
-| `install-scripts` | Linux x86_64; only when `scripts/install.*` or their tests changed | `install_script::`: each installer against a fake release, with a fake `gh` and a fake GitHub API on loopback |
-| `pages` | Linux x86_64; pushes to main, after the jobs above; needs `K_PAGES_ENABLED` (unset while the repository is private) | the whole site (the newest release from its tag, `/next/` from main, the index) deployed to GitHub Pages |
+| `book` | Linux x86_64 | `cargo xtask docs build --version next` (the book, any mdBook warning or error fails), the link check (`book_links::`; the other freshness checks are inside `cargo test`); when `docs/book/` or `crates/xtask/` changed since the `base` input (`cargo xtask ci changed`), the built site uploaded as an artifact (the change's preview until the owner picks a host with previews) |
+| `fragments` | Linux x86_64 | `cargo test -p xtask`; `cargo xtask docs-gate <base>` (a fragment when `crates/`, `editors/` or `docs/book/` changed since the base, and its pages in the diff; nothing to check on main itself) |
+| `install-scripts` | Linux x86_64; only when `scripts/install.*` or their tests changed since the base | `install_script::`: each installer against a fake release, with a fake `gh` and a fake GitHub API on loopback |
+| `pages` | Linux x86_64; a run of main, after the jobs above; needs `K_PAGES_ENABLED` (unset while the repository is private) | the whole site (the newest release from its tag, `/next/` from main, the index) deployed to GitHub Pages |
 
-**Linux only.** The repository is private, where GitHub bills a macOS minute at ten Linux minutes and a
-Windows minute at two: pull requests and pushes run on Linux, Windows is tested by the tag's and the
-nightly's gate, and macOS on the owner's Mac before each release (§6). `workflows.rs` fails when a
-workflow names a macOS runner or target.
+The `base` input (default `origin/main`) is what a pull request's base was: the commit the change is
+compared with. **Linux only.** The repository is private, where GitHub bills a macOS minute at ten
+Linux minutes and a Windows minute at two: `ci.yml` runs on Linux, Windows is tested by the release's
+and the nightly's gate, and macOS on the owner's Mac before each release (§6). `workflows.rs` fails
+when a workflow names a macOS runner or target.
 
 Caching: the cargo registry, `~/.cargo/bin` (mdBook, `cargo-fuzz`) and `target/`, keyed by `Cargo.lock`,
 the runner and the job; `target/` holds the V8 library that `deno_core`'s build downloads.
 
-### `nightly.yml`: scheduled
+### `nightly.yml`: a nightly, on request
 
-Daily at 03:17 UTC, and by hand (`workflow_dispatch`). *(Planned: skipping a day on which main didn't
-change.)*
+`gh workflow run nightly.yml` (§8); there is no schedule. The `publish` input (default `true`) decides
+whether a green run publishes.
 
 | Job | Runner | Runs |
 |---|---|---|
@@ -385,26 +443,39 @@ change.)*
 | `perf` | `K_PERF_RUNNER` | `scripts/bench-check.sh` |
 | `build` | one per CI target; Linux in `rust:bullseye` (glibc 2.31) | `cargo xtask release nightly` (the version `X.Y.Z-nightly.<date>`, in the checkout only), `cargo build --release -p k_cli --locked`, `cargo xtask dist archive`, `cargo xtask dist smoke` |
 | `image` | Linux x86_64 and arm64 | build `docker/toolchain.Dockerfile` from the archive's `k`, then `examples/shop/Dockerfile` with it |
-| `publish-nightly` | needs every job above but `perf`; needs `K_PUBLISH_ENABLED` | `cargo xtask dist docs` (main's book as `docs-<version>.tar.gz`), `SHA256SUMS`, the index entry, the whole index (`scripts/ci/release-index.sh`), and a GitHub pre-release `v<version>` with them and the archives |
+| `publish-nightly` | needs every job above but `perf`; skipped with `-f publish=false` | `cargo xtask dist docs` (main's book as `docs-<version>.tar.gz`), `SHA256SUMS`, the index entry, the whole index (`scripts/ci/release-index.sh`), and a GitHub pre-release `v<version>` with them and the archives |
 | `report` | when anything failed | opens or comments on the one `nightly-failure` issue (`scripts/ci/nightly-issue.sh`) |
 
 *(Planned: the nightly's image tag `nightly` and the extension pre-release; marketplaces wait for the
 name.)*
 
-### `release.yml`: a pushed `v*` tag
+### `release.yml`: a release, started with its version
 
-1. **The gate** on the tag: `gate-test` (`cargo test --workspace` and `install_script::` on Linux
+`gh workflow run release.yml [--ref release/0.6] -f version=0.6.0`, with the inputs `version`
+(required: `0.6.0`, `0.6.0-rc.1`; a leading `v` is accepted) and `draft` (default `true`). The version
+comes from the input, never from the name of a pushed ref, and every job checks out the dispatched
+commit, so the gate, the artifacts and the tag are of one commit.
+
+0. **`check`**: `cargo xtask ci check-version <version>` in a checkout with the tags. It refuses a
+   version that isn't one, a nightly, a version other than the branch's `Cargo.toml` (it names
+   `cargo xtask release prepare <version>` to run, commit and push first), one with no `CHANGELOG.md`
+   section, and one whose tag exists (a tag is never moved or reused, §5). The workflow doesn't run
+   `prepare` itself: what is released is a commit someone reviewed, and CI commits nothing. Its
+   outputs (`version`, `tag`, `minor`, `prerelease`) are what every later job reads, so every job
+   `needs: check`.
+1. **The gate** on the commit: `gate-test` (`cargo test --workspace` and `install_script::` on Linux
    x86_64 and arm64 and Windows x86_64), `gate-services` (Postgres, real Chrome on Linux), `gate-checks`
-   (formatting, lints, `k fmt --check examples`, `cargo xtask fragments --none-left`, `version::`, `cargo test -p xtask`,
-   `compat::`, `cargo xtask docs build --version <tag>`), `gate-properties` (a shorter run),
+   (formatting, lints, `k fmt --check examples`, `cargo xtask fragments --none-left` for a release and
+   `cargo xtask fragments` for a candidate, which keeps its fragments, `version::`, `cargo test -p xtask`,
+   `compat::`, `cargo xtask docs build --version <version>`), `gate-properties` (a shorter run),
    `gate-fuzz` (each target over its seeds, no new inputs: `fuzz/seed-corpus.sh` fills the
    git-ignored `fuzz/corpus` from committed files, then `cargo +nightly fuzz run <target>
    fuzz/corpus/<target> -- -runs=0`), `gate-perf` (on `K_PERF_RUNNER`; skipped without
    one, and then run by hand, §6). The macOS column runs on the owner's Mac (§6).
 2. **`build`**: per CI target (Linux x86_64 and arm64, Windows x86_64) on its native runner,
    `--locked`; Linux in `rust:bullseye` for the glibc 2.31 baseline; `cargo xtask dist archive` names it
-   `k-<version>-<target>.tar.gz` (`.zip` on Windows). The macOS archive is attached later from the
-   owner's Mac (`cargo xtask release attach-local`, §6).
+   `k-<version>-<target>.tar.gz` (`.zip` on Windows), with the README and both licences. The macOS
+   archive is attached later from the owner's Mac (`cargo xtask release attach-local`, §6).
 3. **`smoke`**: on a fresh runner of the target: unpack the archive, then `cargo xtask dist smoke`
    (`k new hello`, `k check`, `k test`, `k build`, `dist/app serve`, `dist/app probe …/_k/health`).
 4. **`checksums`**: `cargo xtask dist checksums` (`SHA256SUMS`, over the archives and the book) and
@@ -413,37 +484,57 @@ name.)*
 5. **`sign`**: a Sigstore bundle per archive (`scripts/ci/sign.sh`, keyless, `id-token: write`) and
    build provenance (`actions/attest-build-provenance`), then **`verify`**, which downloads the
    artifacts as a user would and checks the digests and the signatures against the workflow's
-   identity (`scripts/ci/verify.sh`).
+   identity at the ref it was started on (`…/release.yml@refs/heads/release/0.6`;
+   `scripts/ci/verify.sh`).
 6. **`extension`**: `npm ci` and `npx @vscode/vsce package` in `editors/vscode` (npm is used here and only
    here, [architecture.md §15](architecture.md#15-dependencies)): `kobra-<version>.vsix`.
 7. **`image`**: the toolchain image per architecture, checked by building `examples/shop` with it; pushed
    as `<version>-amd64` and `<version>-arm64` only with `K_PUBLISH_ENABLED`.
-8. **`docs`**: `cargo xtask docs build --version <tag>`, the book with the version substituted, uploaded
-   as an artifact for review, and `cargo xtask dist docs target/site/<minor>`, the book as
+8. **`docs`**: `cargo xtask docs build --version <version>`, the book with the version substituted,
+   uploaded as an artifact for review, and `cargo xtask dist docs target/site/<minor>`, the book as
    `docs-<version>.tar.gz`, which the release attaches and the installers unpack for `k docs`.
-9. **`draft`**: a draft release (a pre-release for a candidate) with the notes from `CHANGELOG.md`
-   (`cargo xtask ci notes --links <repository>/blob/<tag>`, which makes the book links absolute: a
-   release page doesn't resolve relative ones), every archive, the book, `SHA256SUMS`,
-   `index-entry.json`, `index.json` (every published release's entry merged with this one's,
-   `scripts/ci/release-index.sh`), the signatures and the `.vsix`. It waits for every job above; a
-   skipped `gate-perf` doesn't block it, a failed one does.
+9. **`release`**, only when every job above passed (a skipped `gate-perf` doesn't block it, a failed
+   one does), and the only job that may write the repository (`contents: write`):
+   `scripts/ci/release-index.sh` (`index.json`, every published release's entry merged with this
+   one's), `cargo xtask ci notes <tag> --links <repository>/blob/<tag>` (the notes from
+   `CHANGELOG.md`, with the book links made absolute: a release page doesn't resolve relative ones),
+   then **`scripts/ci/tag.sh`**, which creates the annotated tag `v<version>` ("Kobra <version>") on
+   the dispatched commit and pushes it (a re-run of the job finds it on that commit and goes on; a tag
+   on another commit is refused), then `gh release create --verify-tag`: a draft (unless
+   `draft=false`), a pre-release for a version with a pre-release part, with every archive and its
+   Sigstore bundle, the book, `SHA256SUMS`, `index-entry.json`, `index.json` and the `.vsix`. That is
+   everything `attach-local` merges the macOS archive into. Pushing with the workflow's token starts no
+   other workflow, and none would start on a tag anyway.
 
-**On publishing the draft** (`release: published`), the same file runs (a separate `publish.yml` was
-folded in, so one test covers the whole release): `publish-index` (the release's `index.json` rebuilt
-from every published release's `index-entry.json`, the macOS entry `attach-local` merged included, and
-uploaded over the draft's; needs `K_PUBLISH_ENABLED`), `publish-image` (the multi-arch `<version>` tag,
-and for a release, not a candidate, `X.Y` and `latest`; needs `K_PUBLISH_ENABLED`) and, once the
-repository is public, `pages` (needs `K_PAGES_ENABLED`): the site rebuilt whole by `.github/actions/site`: `cargo xtask docs build --version
-latest` (the newest stable release, from its tag, with `/` and `/latest/` pointing at it), `--version
-next --from origin/main`, `versions.json`, the install scripts with the release host filled in, and
-`index.json` merged from every published release's `index-entry.json` (`scripts/ci/release-index.sh`,
-`cargo xtask dist merge-index`). A candidate's publication updates the index but not the docs. Each job
-is idempotent, so a failed one is re-run on its own. *(Planned: the marketplace and package-manager jobs,
-once the owner enables them; yanking through the index, with `cargo xtask release yank`.)*
+### `publish.yml`: publishing a release, on request
+
+`gh workflow run publish.yml -f version=0.6.0` once the macOS archive is attached (inputs `version`,
+required, and `macos`, default `true`). Publishing used to be the `release: published` jobs of
+`release.yml`; with no event triggers they are their own workflow, started like the others.
+
+1. **`check`**: `cargo xtask ci check-version <version> --tagged`: a version whose tag exists.
+2. **`publish`** (`contents: write`): `scripts/ci/publish-release.sh` refuses a release without the
+   `aarch64-apple-darwin` archive unless `-f macos=false`, and publishes the draft (`gh release edit
+   --draft=false`; a published one is left as it is); then the release's `index.json` rebuilt from
+   every published release's `index-entry.json`, the macOS entry `attach-local` merged included
+   (`scripts/ci/release-index.sh`), uploaded over the draft's.
+3. **`publish-image`** (`K_PUBLISH_ENABLED`): the multi-arch `<version>` tag, and for a release, not a
+   candidate, `X.Y` and `latest`.
+4. **`pages`** (`K_PAGES_ENABLED`, once the repository is public): the site rebuilt whole by
+   `.github/actions/site`: `cargo xtask docs build --version latest` (the newest stable release, from
+   its tag, with `/` and `/latest/` pointing at it), `--version next --from origin/main`,
+   `versions.json`, the install scripts with the release host filled in, and `index.json` merged from
+   every published release's `index-entry.json` (`scripts/ci/release-index.sh`, `cargo xtask dist
+   merge-index`). A candidate's publication updates the index but not the docs.
+
+Each job is idempotent, so a failed one is re-run on its own, and so is the whole workflow.
+*(Planned: the marketplace and package-manager jobs, once the owner enables them; yanking through the
+index, with `cargo xtask release yank`.)*
 
 **Permissions:** the workflow token is read-only by default; only `sign` (`id-token`, `attestations`),
-`draft` and `publish-index` (`contents`), `image` and `publish-image` (`packages`), `pages` (`pages`, `id-token`),
-`publish-nightly` (`contents`) and `report` (`issues`) get write access, which `workflows.rs` checks.
+`release` and `publish` (`contents`; in `release.yml`, `release` alone), `image` and `publish-image`
+(`packages`), `pages` (`pages`, `id-token`), `publish-nightly` (`contents`) and `report` (`issues`) get
+write access, which `workflows.rs` checks.
 Marketplace and package-manager tokens, once chosen, are environment secrets scoped to a `release`
 environment that requires a maintainer's approval.
 
@@ -484,8 +575,8 @@ environment that requires a maintainer's approval.
 ## 12. Implementation plan
 
 Each step starts with failing tests, in the style of [testing.md](testing.md). No step publishes anything
-or needs an account; step 13 writes CI files that stay switched off until the owner turns them on
-([§9](#switching-ci-on)).
+or needs an account; step 13 writes CI files that run only when the owner starts them
+([§9](#running-ci)).
 
 **Scheduling:** these steps are run in the rounds of the combined plan in
 [design 49](../design/49-documentation.md#implementation-plan), together with the documentation work:
@@ -714,7 +805,7 @@ in round 5.
     `index.json` format of `crates/k_cli/src/index.rs`), `dist smoke`, `release nightly`, `fragments
     --none-left`, `ci changed`, `ci version` and `ci notes`. Tests: `cargo test -p xtask --test it --
     workflows:: dist::`. `workflows.rs` reads the YAML with `yaml-rust2` (`xtask/src/workflows.rs`) and
-    checks everything listed in [§9, "Switching CI on"](#switching-ci-on); its gate check reads design
+    checks everything listed in [§9, "Running CI"](#running-ci); its gate check reads design
     48's gate table and requires each row's command in the workflow of each column that runs it
     (`ci.yml` for pull requests, `nightly.yml`, `release.yml`), through a table of the text each row
     runs, so a new gate row fails the test until it is wired in. `dist::` unpacks the archives with the
@@ -726,6 +817,13 @@ in round 5.
     smoke` against a debug `k`, the archive and index steps in the tests), and the first enabled run
     will need fixes. Not built: the nightly's image tag and extension pre-release, skipping an
     unchanged nightly, marketplace and package-manager jobs, yanking (`release yank`).
+    *Revised (2026-11-23), CI on request:* every workflow runs only on `workflow_dispatch`, and
+    `K_CI_ENABLED` is gone; `release.yml` takes the version as an input, checks it first
+    (`cargo xtask ci check-version`, unit-tested in `xtask/src/release.rs`), and creates and pushes the
+    tag itself in its `release` job (`scripts/ci/tag.sh`) after the gate and the builds; the
+    `release: published` jobs moved to `publish.yml`; `K_PUBLISH_ENABLED` now guards only the image
+    pushes. Tests: `workflows::` (the trigger, the inputs, the one tagging job and its `needs`, the tag
+    script against a local `origin`, the publish workflow). Design 48, "CI on request".
 14. **Extension version and `serverInfo`.** Test in `k_lsp/tests/server.rs` that `initialize` returns
     `serverInfo.version`; the extension shows it. The extension's version is checked by step 1.
     *As built (2026-11-12):* the server already answered `serverInfo: { name: "k", version }` with the
@@ -803,10 +901,11 @@ in round 5.
     **What only the owner can do** before a real `0.1.0-rc.1`
     ([design 48, "Owner decisions"](../design/48-releases-and-versioning.md#owner-decisions)): rename
     the GitHub repository to `slavkobojanic/kobra` (GitHub redirects the old name), keep it private and
-    push `main`; switch CI on (`K_CI_ENABLED`), then publishing (`K_PUBLISH_ENABLED`; not
-    `K_PAGES_ENABLED`, which waits for the repository to go public); choose the required checks and
-    the performance runner (`K_PERF_RUNNER`); check that the Sigstore identity `verify.sh` expects is
-    the repository's; push `release/0.1` and the tag `v0.1.0-rc.1` (§6 step 6), which starts the
-    first real pipeline run, expected to need fixes since no workflow has run on GitHub yet; then
-    attach the macOS archive (`cargo xtask release attach-local v0.1.0-rc.1`, §6 step 9) and publish
-    the draft. Until a release is published, `gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | sh` has nothing to install; it says so.
+    push `main`; decide on image pushes (`K_PUBLISH_ENABLED`; not `K_PAGES_ENABLED`, which waits for
+    the repository to go public); choose the required checks and the performance runner
+    (`K_PERF_RUNNER`); check that the Sigstore identity `verify.sh` expects is the repository's;
+    prepare `0.1.0-rc.1` and push it (§6 steps 3–6), then `gh workflow run release.yml -f
+    version=0.1.0-rc.1` (add `--ref release/0.1` if the branch is cut), the first real pipeline run,
+    expected to need fixes since no workflow has run on GitHub yet; then attach the macOS archive
+    (`cargo xtask release attach-local v0.1.0-rc.1`, §6 step 9) and publish
+    (`gh workflow run publish.yml -f version=0.1.0-rc.1`). Until a release is published, `gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | sh` has nothing to install; it says so.

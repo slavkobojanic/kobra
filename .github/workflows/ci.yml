@@ -1,21 +1,27 @@
-# Every pull request, and every push to main or a release branch
-# (docs/compiler/release.md §9, "ci.yml"). Each step is a command that also
-# runs locally.
+# The checks of a change, run only on request (docs/compiler/release.md §9,
+# "ci.yml"; design 48, "CI on request"): from the Actions page, or
 #
-# Off until the owner switches it on: every job runs only when the
-# repository variable K_CI_ENABLED is `true`, and the Pages deploy also
-# needs K_PAGES_ENABLED (release.md §9, "Switching CI on").
+#   gh workflow run ci.yml --ref <branch>             # against origin/main
+#   gh workflow run ci.yml --ref <branch> -f base=origin/release/0.6
 #
-# Linux only: the repository is private, where a macOS minute is billed at
-# ten Linux minutes and a Windows minute at two (design 48, "Private
-# distribution"). macOS is tested on the owner's Mac before each release
-# (release.md §6), and Windows by the tag's gate.
+# Nothing runs on a pull request or a push: the repository is private, where
+# every minute is billed, and the owner starts each run. Each step is a
+# command that also runs locally. The Pages deploy also needs
+# K_PAGES_ENABLED (for the day the repository is public).
+#
+# Linux only: a macOS minute is billed at ten Linux minutes and a Windows
+# minute at two (design 48, "Private distribution"). macOS is tested on the
+# owner's Mac before each release (release.md §6), and Windows by the
+# release's gate.
 name: ci
 
 on:
-  pull_request:
-  push:
-    branches: [main, "release/**"]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "The commit the change is compared with (the fragments, the docs gate, what changed)"
+        type: string
+        default: origin/main
 
 permissions:
   contents: read
@@ -30,7 +36,6 @@ env:
 
 jobs:
   lint:
-    if: vars.K_CI_ENABLED == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +49,6 @@ jobs:
       - run: cargo run -p k_cli --no-default-features --bin k -- fmt --check examples
 
   test-linux:
-    if: vars.K_CI_ENABLED == 'true'
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -74,7 +78,6 @@ jobs:
           K_REQUIRE_CHROME: "1"
 
   book:
-    if: vars.K_CI_ENABLED == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -88,9 +91,11 @@ jobs:
       - run: cargo xtask docs build --version next --out target/site
       - run: "cargo test -p k_sema --test it -- book_links::"
       - id: changed
-        run: cargo xtask ci changed --base "${{ github.event.pull_request.base.sha || github.event.before }}" docs/book/ crates/xtask/
-      # The pull request's preview: the built site as an artifact (until
-      # the owner picks a host with previews).
+        run: cargo xtask ci changed --base "$BASE" docs/book/ crates/xtask/
+        env:
+          BASE: ${{ inputs.base }}
+      # The change's preview: the built site as an artifact (until the
+      # owner picks a host with previews).
       - if: steps.changed.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
         with:
@@ -99,7 +104,6 @@ jobs:
           retention-days: 14
 
   fragments:
-    if: vars.K_CI_ENABLED == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -109,12 +113,13 @@ jobs:
         with:
           cache: lint
       - run: cargo test -p xtask
-      # A fragment when crates/, editors/ or docs/book/ changed, and each
-      # fragment's book pages in the diff.
-      - run: cargo xtask docs-gate "${{ github.event.pull_request.base.sha }}"
+      # A fragment when crates/, editors/ or docs/book/ changed since the
+      # base, and each fragment's book pages in the diff.
+      - run: cargo xtask docs-gate "$BASE"
+        env:
+          BASE: ${{ inputs.base }}
 
   install-scripts:
-    if: vars.K_CI_ENABLED == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -123,21 +128,23 @@ jobs:
       - uses: ./.github/actions/setup
       - id: changed
         shell: bash
-        run: cargo xtask ci changed --base "${{ github.event.pull_request.base.sha || github.event.before }}" scripts/install. crates/k_cli/tests/install_script.rs crates/k_cli/tests/support/release.rs
+        run: cargo xtask ci changed --base "$BASE" scripts/install. crates/k_cli/tests/install_script.rs crates/k_cli/tests/support/release.rs
+        env:
+          BASE: ${{ inputs.base }}
       # Each installer against a fake release with a fake `gh` and a fake
       # GitHub API on loopback; the PowerShell one where pwsh is (the
-      # tag's Windows gate).
+      # release's Windows gate).
       - if: steps.changed.outputs.changed == 'true'
         shell: bash
         run: "cargo test -p k_cli --test it -- install_script::"
 
   # /next/ (and the newest release, the redirects, versions.json, the
-  # install scripts and the index) on GitHub Pages after each push to main:
+  # install scripts and the index) on GitHub Pages when the run is of main:
   # only for the day the repository is public (GitHub's Free plan has no
   # Pages for a private one), behind K_PAGES_ENABLED (design 48, "Private
   # distribution").
   pages:
-    if: vars.K_CI_ENABLED == 'true' && vars.K_PAGES_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: vars.K_PAGES_ENABLED == 'true' && github.ref == 'refs/heads/main'
     needs: [lint, test-linux, book]
     runs-on: ubuntu-24.04
     permissions:

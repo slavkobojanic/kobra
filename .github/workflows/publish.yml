@@ -1,0 +1,143 @@
+# Publishing a release that release.yml made (docs/compiler/release.md §6
+# and §9, "publish.yml"; design 48, "CI on request"), started by hand once
+# the macOS archive is attached:
+#
+#   cargo xtask release attach-local v0.6.0          # on the owner's Mac
+#   gh workflow run publish.yml -f version=0.6.0
+#
+# It publishes the draft (refusing one without the macOS archive unless
+# `-f macos=false`), rebuilds that release's index.json from every
+# published release's index-entry.json, tags the multi-arch toolchain image
+# (with K_PUBLISH_ENABLED) and, once the repository is public, deploys the
+# docs site (with K_PAGES_ENABLED). Each job is idempotent, so a failed one
+# is re-run on its own, and so is the whole workflow.
+name: publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The released version, whose tag release.yml made: 0.6.0 or 0.6.0-rc.1"
+        required: true
+        type: string
+      macos:
+        description: "Require the macOS archive (cargo xtask release attach-local) before publishing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # The project's toolchain image (Cargo.toml's [workspace.metadata.project];
+  # crates/k_cli/tests/version.rs checks they agree).
+  K_IMAGE: ghcr.io/slavkobojanic/kobra
+
+jobs:
+  # The input is a version whose tag exists.
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      minor: ${{ steps.v.outputs.minor }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          cache: lint
+      - id: v
+        run: cargo xtask ci check-version "$VERSION" --tagged
+        env:
+          VERSION: ${{ inputs.version }}
+
+  # The draft published, then its index.json rebuilt from every published
+  # release's entry (the macOS one `attach-local` merged in included), so
+  # the newest release, which `k toolchain` reads, lists every release.
+  publish:
+    needs: [check]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: scripts/ci/publish-release.sh "$TAG" $NO_MACOS
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.check.outputs.tag }}
+          NO_MACOS: ${{ !inputs.macos && '--no-macos' || '' }}
+      - run: scripts/ci/release-index.sh target/index.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - run: gh release upload "$TAG" target/index.json --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.check.outputs.tag }}
+
+  # The multi-arch image under the version, and for a release (not a
+  # candidate) also `X.Y` and `latest`, from the per-architecture images
+  # release.yml pushed.
+  publish-image:
+    if: vars.K_PUBLISH_ENABLED == 'true'
+    needs: [check, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - run: docker buildx imagetools create --tag "${{ env.K_IMAGE }}:${{ needs.check.outputs.version }}" "${{ env.K_IMAGE }}:${{ needs.check.outputs.version }}-amd64" "${{ env.K_IMAGE }}:${{ needs.check.outputs.version }}-arm64"
+      - if: needs.check.outputs.prerelease != 'true'
+        run: docker buildx imagetools create --tag "${{ env.K_IMAGE }}:${{ needs.check.outputs.minor }}" --tag "${{ env.K_IMAGE }}:latest" "${{ env.K_IMAGE }}:${{ needs.check.outputs.version }}"
+
+  # The docs site: the newest release at /0.N/ with `/` and `/latest/`
+  # pointing at it, /next/ from main, versions.json, the install scripts and
+  # the index with this release's entry (a candidate's too; its docs aren't
+  # deployed, since `latest` is the newest stable release). Only for the
+  # day the repository is public: GitHub's Free plan has no Pages for a
+  # private one (design 48, "Private distribution").
+  pages:
+    if: vars.K_PAGES_ENABLED == 'true'
+    needs: [check, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          mdbook: "true"
+          cache: book
+      - uses: ./.github/actions/site
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/site
+      - id: deploy
+        uses: actions/deploy-pages@v4
