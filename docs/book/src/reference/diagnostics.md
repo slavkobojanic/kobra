@@ -5883,6 +5883,52 @@ error[K3307]: `dark` is declared twice
 
 **Fix:** Remove the duplicate token, variant or override.
 
+### K3308 `font-file-not-found`
+
+**Error.** A `FontFace` names a file that isn't in the package that declares it.
+
+**Fix:** Put the font file in the package that declares the theme, and write its path relative to that package's root (`fonts/Inter.woff2`), without `..`.
+
+### K3309 `unsupported-font-file`
+
+**Error.** A `FontFace` names a file that isn't a WOFF2 or WOFF font.
+
+**Fix:** Convert the font to WOFF2 (for example with `woff2_compress`), and name the `.woff2` file.
+
+### K3310 `conflicting-font-faces`
+
+**Error.** Two `FontFace`s of one family have the same weight and style but different files.
+
+**Fix:** Give each weight and style of a family one file: change the `weight:` or `style:` of one face, or point both at the same file.
+
+### K3311 `font-face-outside-theme`
+
+**Error.** A `FontFace` is used outside a theme's `Font`, the only place a face is shipped from.
+
+Example (`tests/corpus/sema/ui/themes/font-face-outside-theme.k`):
+
+```k,ignore
+// A `FontFace` ships only from a theme's font token (07-themes-and-units.md,
+// "Shipped fonts"), so one anywhere else is K3311.
+component Label {
+    let face: FontFace = FontFace("fonts/Inter.woff2")
+
+    view {
+        text("x")
+    }
+}
+```
+
+```text
+error[K3311]: a `FontFace` is shipped only from a theme's font token: `font body: Font = Font(family:size:faces:)`
+ --> src/corpus/font-face-outside-theme.k:4:26
+  |
+4 |     let face: FontFace = FontFace("fonts/Inter.woff2")
+  |                          ^^^^^^^^
+```
+
+**Fix:** Declare the face in a theme's font token, `Font(family:size:faces:)`; other code uses the token (`font: .body`).
+
 ## K4000–K4999: Services, dependency injection, layering, server/client boundary
 
 ### K4001 `missing-implementation`

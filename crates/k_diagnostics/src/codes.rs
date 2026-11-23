@@ -677,6 +677,18 @@ codes! {
     /// A theme declares a token or variant twice, or a variant overrides a token twice.
     DUPLICATE_THEME_MEMBER = 3307, "duplicate-theme-member", Error,
         "A theme declares a token or variant twice, or a variant overrides a token twice.";
+    /// A `FontFace` names a file that isn't in the package that declares it.
+    FONT_FILE_NOT_FOUND = 3308, "font-file-not-found", Error,
+        "A `FontFace` names a file that isn't in the package that declares it.";
+    /// A `FontFace` names a file that isn't a WOFF2 or WOFF font.
+    UNSUPPORTED_FONT_FILE = 3309, "unsupported-font-file", Error,
+        "A `FontFace` names a file that isn't a WOFF2 or WOFF font.";
+    /// Two `FontFace`s of one family have the same weight and style but different files.
+    CONFLICTING_FONT_FACES = 3310, "conflicting-font-faces", Error,
+        "Two `FontFace`s of one family have the same weight and style but different files.";
+    /// A `FontFace` is used outside a theme's `Font`, the only place a face is shipped from.
+    FONT_FACE_OUTSIDE_THEME = 3311, "font-face-outside-theme", Error,
+        "A `FontFace` is used outside a theme's `Font`, the only place a face is shipped from.";
 
     // ---------------------------------------------------------------- services, di, layering and the server/client boundary
     /// An injected interface has no implementation.

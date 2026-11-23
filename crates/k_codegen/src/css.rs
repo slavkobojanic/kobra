@@ -516,6 +516,25 @@ fn font_shorthand(n: &SyntaxNode) -> Option<String> {
     Some(format!("{} {family}, {}", size?, fallback_stack(&family)))
 }
 
+/// The family of the app's `font body` token, decoded (`PP Neue Gstaad`):
+/// the base stylesheet's font, whose face the document preloads. `None`
+/// without the token or when its family isn't a string literal.
+pub(crate) fn body_family(g: &Gen<'_>) -> Option<String> {
+    let value = tokens(g)
+        .into_iter()
+        .find(|t| t.category == "font" && t.name == "body")?
+        .value?;
+    let call = ast::CallExpr::cast(value)?;
+    call.arg_list()?
+        .args()
+        .find(|a| a.label().is_some_and(|l| l.text() == "family"))
+        .and_then(|a| a.value())
+        .and_then(|v| match v {
+            ast::Expr::StringLit(s) => s.plain_value(),
+            _ => None,
+        })
+}
+
 /// The first of `names` that is a color token of the app: the token the
 /// base stylesheet takes a page colour from.
 fn first_color<'t>(all: &'t [Token], names: &[&str]) -> Option<&'t Token> {
@@ -615,8 +634,9 @@ fn library_rules(g: &Gen<'_>) -> String {
 }
 
 /// The stylesheet files: `app.[hash].css` with the theme and every
-/// component's rules.
-pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
+/// component's rules; an app's starts with the base rules, then the
+/// `@font-face` rules of the `faces` it ships (`crate::fonts`).
+pub(crate) fn files(g: &Gen<'_>, faces: &[crate::fonts::Face]) -> Vec<OutputFile> {
     let mut css = String::new();
     // Where each style rule and declaration came from (development source
     // maps, codegen.md §18).
@@ -751,7 +771,8 @@ pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
     if is_app {
         // Every app links one stylesheet, so the document's shape doesn't
         // depend on whether the project has styles.
-        let base = base_rules(&all);
+        let mut base = base_rules(&all);
+        base.push_str(&crate::fonts::rules(faces));
         for m in &mut marks {
             m.pos += base.len();
         }

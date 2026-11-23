@@ -68,7 +68,40 @@ A `font` token is a family and a size: `font body: Font = Font(family: "Inter", 
   - `ui-serif, Georgia, Cambria, "Times New Roman", serif` for a family whose name says `Serif` (and not `Sans`);
   - `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace` for one whose name says `Mono` or `Code`.
 - **Without a `font body` token, the page uses the system sans-serif stack.**
-- **Kobra loads a font only when the app ships it.** A named family is used if the reader has it installed, otherwise the fallback. There is no font asset pipeline yet, so no `@font-face` and no preload tag is emitted; never one that points at a third-party font host (see the open questions).
+- **Kobra loads a font only when a package ships it** ([below](#shipped-fonts)). A family without shipped faces is used if the reader has it installed, otherwise the fallback. Kobra never points at a third-party font host.
+
+## Shipped fonts
+
+**Decided 2026-11-24.** A package (an app, or a library, workspace libraries included) ships a font family's files with its theme, and every app that uses the theme serves them:
+
+```k
+// brand/src/brand/BrandTokens.k: the files are brand/fonts/*.woff2
+public theme BrandTokens {
+    font body: Font = Font(
+        family: "PP Neue Gstaad",
+        size: 16px,
+        faces: [
+            FontFace("fonts/PPNeueGstaad-Regular.woff2", weight: 400),
+            FontFace("fonts/PPNeueGstaad-Bold.woff2", weight: 700),
+            FontFace("fonts/PPNeueGstaad-Italic.woff2", weight: 400, style: .italic),
+        ]
+    )
+}
+```
+
+- **`Font` has a third field, `faces: List<FontFace> = []`.** A `FontFace` is one file of the family: `FontFace(_ file: String, weight: Int = 400, style: FontStyle = .normal)`, with `FontStyle` `.normal` or `.italic`. The initializer is a checked literal (like `Url("…")`): the path, the weight and the style are literals, checked when you compile.
+- **The path is relative to the root of the package whose theme declares the face** (the directory of its `k.toml`), so the asset belongs to that package: an app that uses a library's token gets the library's file. A file of another package is out of reach, which is also why there is no `..`.
+- **A font file can live anywhere in the package** (`fonts/` is the convention). Every `.woff2` and `.woff` file of a package is an asset the compiler reads; a workspace mounts a library's assets into each member that depends on it, as it mounts its sources.
+- **WOFF2 and WOFF only.** WOFF2 is what every browser Kobra targets reads and the smallest; WOFF is accepted for old files. TTF and OTF are refused with "convert it to WOFF2" rather than shipped uncompressed. The compiler sniffs the signature (`wOF2`, `wOFF`), so a renamed or broken file is a compile error, not a silent fallback in the browser.
+- **The type is `FontFace`, not a general `asset("…")`.** A font face is the only thing a package ships today; a general asset type would have to decide images, hashing of references from code and CSS `url()` first, and `FontFace("…")` reads like the other checked literals. Images can get their own literal later without changing this one.
+- **Faces are per family, not per token.** `@font-face` rules are global, so a face declared on any token applies to every token of that family: an app's `font heading: Font = Font(family: "PP Neue Gstaad", size: 40px)` uses the faces `brand` ships without repeating them. Faces of one family, weight and style dedupe into one rule; two *different* files for one is an error.
+- **Only from a theme.** `FontFace` anywhere but in a theme's token value is a compile error: a face is shipped by a theme, and other code uses the token (`font: .heading`).
+- **The CSS.** One rule per face, after the base rules and before `:root`: `@font-face { font-family: "PP Neue Gstaad"; src: url("/assets/fonts/PPNeueGstaad-Regular.3f2a1b9c.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }`. `swap` draws text in the fallback stack at once and swaps the face in when it arrives, so text is never invisible. The token keeps its fallback stack after the family.
+- **One preload.** Every document (server-rendered pages, status pages, a static-only app's `index.html`) links `<link rel="preload" href="…" as="font" type="font/woff2" crossorigin>` for **one face: the `font body` family's upright face whose weight is closest to 400** (the lighter on a tie). The body font is the base stylesheet's, so every page's first paint uses it. Other faces aren't preloaded: a preload the page doesn't use within a few seconds wastes bandwidth and logs a browser warning, and they still load the moment text uses them. `crossorigin` is required because fonts are always fetched in CORS mode.
+- **Serving.** The files ship below `/assets/fonts/` with content-hashed names (`PPNeueGstaad-Regular.3f2a1b9c.woff2`), served `font/woff2` (or `font/woff`) with `Cache-Control: public, max-age=31536000, immutable`, like every hashed asset. `dist/app` embeds them, `k build` writes them to `dist/public/assets/fonts/` (and its cleanup removes an earlier build's), `k run`, `k dev` and `k preview` serve them, a static-only app's `dist/public` holds them, and an `@Offline` app's worker precaches them. Each app serves its own copy of a library's files; the same bytes get the same name in every app.
+- **Errors:** a path outside the package or a file it doesn't have is K3308 (with the closest font file of the package as a fix), a file that isn't WOFF2 or WOFF is K3309, two files for one family, weight and style are K3310, a `FontFace` outside a theme is K3311, and a weight outside 1–1000 is K2404.
+- **Stable, not a preview feature.** The surface is one field and one literal whose shape follows CSS `@font-face` closely, and apps depend on it for their brand; there is nothing in it we expect to change.
+- **Later:** completion and hover of the font file path in the editor (the files of the package), `unicode-range` subsets, variable fonts' weight ranges (`weight: 100...900`), and `size-adjust` fallback metrics to remove the layout shift of the swap.
 
 ## Base styles
 
@@ -182,5 +215,4 @@ clock.every(30.seconds) { refresh() }
 
 ## Open questions
 
-- **Shipped fonts.** An app should be able to ship a font file (for example `fonts/Inter.woff2`), and the compiler would then emit its `@font-face`, a preload tag and a `font-display: swap`. That needs a project asset pipeline, which doesn't exist yet. Until then a family is used only where it is installed.
 - **Scoped variants**, applying a variant to one subtree (for example a dark sidebar in a light app), would need a `.theme(.dark)` modifier.

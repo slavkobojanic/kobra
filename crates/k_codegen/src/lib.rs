@@ -47,6 +47,7 @@ mod cx;
 mod db;
 mod decl;
 pub mod dist;
+mod fonts;
 pub mod hash;
 mod icons;
 mod jobs;
@@ -179,6 +180,17 @@ pub struct OutputFile {
     pub kind: FileKind,
 }
 
+/// One generated binary file: a shipped font.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct BinaryFile {
+    /// The URL path below `/assets/` (`fonts/Inter.3f2a1b9c.woff2`).
+    pub path: String,
+    /// The file's bytes.
+    pub bytes: Vec<u8>,
+    /// Its media type, the `Content-Type` it is served with (`font/woff2`).
+    pub media_type: String,
+}
+
 /// A page route, for the front and `k routes`.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct RouteEntry {
@@ -286,6 +298,12 @@ pub struct Output {
     /// (`docs/compiler/codegen.md` §19). Empty for most apps.
     #[serde(default)]
     pub root: Vec<OutputFile>,
+    /// The binary client files, served below `/assets/` like
+    /// [`Output::client`] with content-hashed names: the fonts the themes
+    /// ship (`fonts/Inter.3f2a1b9c.woff2`, 07-themes-and-units.md, "Shipped
+    /// fonts"). Empty for most apps.
+    #[serde(default)]
+    pub binary: Vec<BinaryFile>,
     /// The server modules; empty for a static-only app.
     pub server: Vec<OutputFile>,
     /// The specifier of the server entry module: `k:/app/$server.js`, or
@@ -645,7 +663,28 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
     // Only the workers the client reaches ship.
     workers.retain(|(w, _)| client.contains_key(w));
     output.client = bundle::client_files(g, &client, &pages, entry, &from_server, &workers);
-    output.client.extend(css::files(g));
+    // The fonts the themes ship (07-themes-and-units.md, "Shipped fonts"):
+    // their files below `/assets/fonts/`, their `@font-face` rules in the
+    // stylesheet, and the body font's preload in the asset table.
+    let faces = if g
+        .view
+        .decls
+        .iter()
+        .any(|d| d.named_kind() == Some(k_sema::stdlib::DeclarationKind::App) && !d.stdlib)
+    {
+        fonts::faces(g)
+    } else {
+        Vec::new()
+    };
+    output.client.extend(css::files(g, &faces));
+    output.binary = faces
+        .iter()
+        .map(|f| BinaryFile {
+            path: f.path.clone(),
+            bytes: f.bytes.clone(),
+            media_type: f.format.media_type().to_owned(),
+        })
+        .collect();
     // An app's release client is shaken, minified and renamed as a whole
     // (codegen.md §17).
     if bundle::linked(g) {
@@ -663,11 +702,12 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
     if !tests {
         output
             .root
-            .extend(bundle::service_worker(g, &output.client));
+            .extend(bundle::service_worker(g, &output.client, &output.binary));
     }
     // The server entry names the hashed client files it links.
     if let Some(entry) = &output.server_entry {
-        let assets = server::assets_json(g, &output.client);
+        let preload = fonts::preload(&faces, css::body_family(g).as_deref());
+        let assets = server::assets_json(g, &output.client, preload);
         for f in output.server.iter_mut().filter(|f| &f.path == entry) {
             if let Some(i) = f.contents.rfind(server::ASSETS_PLACEHOLDER) {
                 f.contents

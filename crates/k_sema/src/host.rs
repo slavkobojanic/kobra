@@ -910,10 +910,20 @@ fn run_sema(state: &State, deliver: impl FnOnce(SemaResult)) {
             )
         })
         .collect();
+    // The assets (fonts) of the project and its mounted libraries, which
+    // `FontFace` names (`crate::fonts`).
+    let assets: Vec<(String, Arc<str>)> = state
+        .files
+        .iter()
+        .flatten()
+        .filter(|f| f.kind == FileKind::Asset)
+        .map(|f| (f.path.as_str().to_owned(), Arc::clone(&f.text)))
+        .collect();
     crate::check::analyze(
         inputs,
         lockfiles,
         manifests,
+        assets,
         state.prev_cache.as_deref(),
         deliver,
     );

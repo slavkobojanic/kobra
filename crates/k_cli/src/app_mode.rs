@@ -205,6 +205,15 @@ fn serve(payload: AppPayload) -> ExitCode {
             body: f.text.into_bytes().into(),
         })
         .collect();
+    // The fonts the themes ship, under content-hashed names.
+    options
+        .assets
+        .extend(payload.binary.into_iter().map(|f| StaticAsset {
+            content_type: f.media_type,
+            immutable: true,
+            path: f.path,
+            body: f.bytes.into(),
+        }));
     match Server::start(options) {
         Ok(server) => {
             eprintln!(

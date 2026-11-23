@@ -226,8 +226,59 @@ installed: `Font(family: "Inter", size: 16px)` becomes `16px "Inter", system-ui,
 family whose name says `Serif` falls back to serif faces, one that says `Mono` or `Code` to
 monospaced ones.
 
-Kobra doesn't load fonts from the web. A named family is drawn where the reader has it installed, and the
-fallback stack everywhere else.
+Kobra never loads fonts from a third-party host. A family is drawn where the reader has it installed, and
+the fallback stack everywhere else, unless your package ships its files.
+
+### Shipping a font
+
+Put the family's `.woff2` files in your package (`fonts/` is the convention) and list them as the
+token's `faces`, one `FontFace` per weight and style:
+
+```k,ignore
+// brand/src/brand/BrandTokens.k, with brand/fonts/PPNeueGstaad-Regular.woff2 and -Bold.woff2
+public theme BrandTokens {
+    font body: Font = Font(
+        family: "PP Neue Gstaad",
+        size: 16px,
+        faces: [
+            FontFace("fonts/PPNeueGstaad-Regular.woff2", weight: 400),
+            FontFace("fonts/PPNeueGstaad-Bold.woff2", weight: 700),
+        ]
+    )
+}
+```
+
+- **The path is relative to the root of the package that declares the theme,** the directory of its
+  `k.toml`. Here that is the workspace library `brand`, so every app that depends on `brand` serves
+  brand's files; an app doesn't copy them.
+- **`FontFace(_:weight:style:)`** takes literals: the path, a weight from 1 to 1000 (400 by default), and
+  `style: .italic` for an italic file (`.normal` by default).
+- **The files are checked when you compile:** a missing file or a path with `..` is `K3308` (with the
+  closest font file as a fix), a file that isn't WOFF2 or WOFF is `K3309` (convert a `.ttf` or `.otf` to
+  WOFF2 first), and two files for the same weight and style of a family are `K3310`.
+- **Faces belong to the family,** not to the token. An app's own token of the same family uses brand's
+  faces without listing them:
+
+  ```k,ignore
+  // site/src/ui/SiteTheme.k: the app depends on brand
+  public theme SiteTheme {
+      font heading: Font = Font(family: "PP Neue Gstaad", size: 40px)
+  }
+  ```
+
+  Brand's `font body` is the app's body font as soon as the app depends on brand (library tokens are on
+  `:root`), and `font: .heading` in a style draws with brand's files.
+
+What the compiler does with them:
+
+- each face becomes an `@font-face` rule whose display is `swap`: text shows at once in the fallback
+  stack and switches to the family when the file arrives, so it is never invisible;
+- the files are served below `/assets/fonts/` under content-hashed names
+  (`PPNeueGstaad-Regular.3f2a1b9c.woff2`), as `font/woff2` and cached for a year, by `dist/app`, `k run`,
+  `k dev` and `k preview`; `k build` writes them to `dist/public/assets/fonts/`, for a static-only app
+  too;
+- every page preloads one file, the `font body` family's regular face (upright, the weight nearest
+  400), which the first paint draws with. Other faces load when text first uses them.
 
 ### Base styles
 

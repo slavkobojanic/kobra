@@ -92,7 +92,7 @@ Rules that hold for every part:
 |---|---|
 | `generate(&Analysis, &Options) -> Result<Output, CodegenError>` | The only entry point. |
 | `Options { profile, environment, entry }` | `Profile::{Development, Release, Test}`; `Environment::{Production, Development, Test}` selects `use … in` rules; `Entry::{App, Main(name)}`. |
-| `Output { client, server, server_entry, manifest, database }` | Client files (JS, CSS, maps; URL paths below `/assets/`), server modules (specifiers `k:/app/…`), the entry module, the [manifest](#19-output-layout-of-dist), and the database manifest (`k_db::manifest::DbManifest`: every statement by number in both dialects, the migrations, the unique indexes; `None` without persistence, [db.md §6](db.md#6-drivers-the-manifest-and-ops)). |
+| `Output { client, binary, server, server_entry, manifest, database }` | Client files (JS, CSS, maps; URL paths below `/assets/`), binary client files (`BinaryFile { path, bytes, media_type }`: the shipped fonts, below `/assets/fonts/`), server modules (specifiers `k:/app/…`), the entry module, the [manifest](#19-output-layout-of-dist), and the database manifest (`k_db::manifest::DbManifest`: every statement by number in both dialects, the migrations, the unique indexes; `None` without persistence, [db.md §6](db.md#6-drivers-the-manifest-and-ops)). |
 | `Manifest { name, rpc_paths, routes, endpoints, config, static_only }` | What the server front and `dist/app` need without reading code: rpc paths from the protocols with an implementation, endpoints with their methods and `uses_session`, and one `ConfigEntry { env, declared_at, ty, secret, required, default, cases, range }` per `@Env` field the production graph reads (the project's configs, `k.server.ServerConfig`, and `SessionConfig`/`DatabaseConfig`/`JobConfig` when the app signs users in, persists or has jobs; read from the embedded stdlib's syntax). |
 | `CodegenError::{HasErrors { count }, Unsupported { what }, Cancelled}` | Why nothing was produced. |
 | `check_client_bundle(&Output, forbidden) -> Vec<SplitViolation>` | The independent split check ([§16](#16-the-clientserver-split)). |
@@ -737,9 +737,19 @@ metadata or view of the component is lowered on the server, and nothing is writt
   generic fallback stack: `--k-font-body: 16px "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
   "Helvetica Neue", Arial, sans-serif;` (the Kobra string literal is the CSS string; the stack is serif or
   monospace instead when the family's name says `Serif` or `Mono`/`Code`), in `:root` and in variants
-  alike, so `font: .body` is valid CSS and a family that isn't installed never falls back to Times. No
-  `@font-face` is emitted: there is no font asset pipeline yet (`css::fallback_stack`,
-  `codegen/ui/themes/font-token-is-a-font-shorthand`). Every other value prints as written.
+  alike, so `font: .body` is valid CSS and a family that isn't installed never falls back to Times
+  (`css::fallback_stack`, `codegen/ui/themes/font-token-is-a-font-shorthand`). Every other value prints
+  as written.
+- **Shipped fonts** (`crate::fonts`, [07](../design/07-themes-and-units.md#shipped-fonts)): every
+  `FontFace` of an app's themes (its own and its mounted libraries', those first) is one file of
+  `Output::binary`, `fonts/<stem>.<hash>.<ext>` (`fonts/<stem>.[hash].<ext>` under `Profile::Test`) with the
+  content hash of its bytes, read back from the analysis input (`k_sema::assets::bytes_of`). One rule per
+  family, weight and style follows the base rules, before `:root`: `@font-face { font-family: "PP Neue
+  Gstaad"; src: url("/assets/fonts/….woff2") format("woff2"); font-weight: 400; font-style: normal;
+  font-display: swap; }`. The asset table's `fonts` (`server::assets_json`) holds one `{href, type}`: the
+  `font body` family's upright face nearest weight 400 (`fonts::preload`), which `head()` in `app.js`
+  links as `<link rel="preload" as="font" type="…" crossorigin>` in every document, status pages and a
+  static-only `index.html` included (`codegen/ui/themes/shipped-fonts/`).
 - **Library tokens.** The stdlib `theme`s of the modules the project imports from (`k.charts`'
   `ChartTokens`, `k.drag`'s `DragTokens`), or whose tokens the project's theme assigns, come first in
   `:root` with their defaults. A top-level assignment (`chartGrid = #CBD5E1`) replaces the default in
@@ -1470,6 +1480,7 @@ dist/
       app.5a6b7c8d.css
       pages/product.0a1b2c3d.js
       workers/note-search.4e5f6a7b.js   a @Worker service's chunk (§13.4)
+      fonts/Inter-Regular.6c7d8e9f.woff2  a font a theme ships (§12, `Output::binary`)
       *.map
 ```
 
@@ -1477,7 +1488,9 @@ dist/
   migrations appended as a trailer (format: [server.md §12](server.md#12-packaging-distapp)). v0 uses the
   `k` binary itself as the runtime executable; a slim runtime binary without the compiler is *deferred*.
 - `dist/public` holds the same client assets for teams that serve them from a CDN.
-- Hashed files are served with `Cache-Control: public, max-age=31536000, immutable`.
+- Hashed files are served with `Cache-Control: public, max-age=31536000, immutable`; fonts as
+  `font/woff2` or `font/woff`. `dist/app`'s trailer carries the binary files base64-encoded
+  (`AppPayload::binary`).
 - **The service worker, `k-sw.js`** (`Output::root`, `bundle::service_worker`): emitted for an app whose
   client ships the notifications or the push chunk ([45-web-platform.md](../design/45-web-platform.md#notifications),
   [50-push.md](../design/50-push.md)), which register it. It is `runtime/sw.js` as written (compacted in a release build, so dev and release
@@ -1497,7 +1510,7 @@ dist/
   - **An `@Offline` app's worker** ([54-offline.md](../design/54-offline.md)) is the list
     `self.kOffline = {build, files, shell, version};`, then `runtime/sw-offline.js`, then `runtime/sw.js`,
     compacted together in a release build. `bundle::service_worker` runs after linking (§17), since the list
-    names the linked files: `files` is every client file but source maps, as `/assets/<path>`; `build` the
+    names the linked files: `files` is every client file but source maps (shipped fonts included), as `/assets/<path>`; `build` the
     entry chunk's; `shell` `"/"` for a client-rendered app, else `null`; `version` the content hash of
     `files`. So, unlike the notification worker, it changes with every build, which is what makes a new
     build a new worker and a new cache. A development build (`Profile::Development`: `k run`, `k dev`) sets

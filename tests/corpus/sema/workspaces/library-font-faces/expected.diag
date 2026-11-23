@@ -1,0 +1,12 @@
+error[K3308] brand/src/brand/BrandTokens.k:8:22-8:53: there is no `fonts/PPNeueGstaad-Bolt.woff2` in this package
+  note: a font file's path is relative to the root of the package that declares the theme, the directory of its `k.toml`
+  fix "Replace it with `\"fonts/PPNeueGstaad-Bold.woff2\"`" maybe-incorrect
+    edit 8:22-8:53 "\"fonts/PPNeueGstaad-Bold.woff2\""
+error[K3308] brand/src/brand/BrandTokens.k:9:22-9:49: `../site/fonts/Other.woff2` is not a path inside the package: a font file's path is relative to the package root, without `.` or `..`
+error[K3309] brand/src/brand/BrandTokens.k:10:22-10:53: `.ttf` files can't be shipped: a font face is a `.woff2` or `.woff` file; convert it to WOFF2
+error[K3309] brand/src/brand/BrandTokens.k:11:22-11:43: `fonts/Renamed.woff2` is a WOFF file, not WOFF2: name it `.woff`
+error[K3309] brand/src/brand/BrandTokens.k:12:22-12:42: `fonts/Broken.woff2` is not a WOFF2 file: it doesn't start with `wOF2`
+error[K2404] brand/src/brand/BrandTokens.k:13:66-13:70: a font weight is 1 to 1000, not 1200
+error[K3311] site/src/home/Home.k:9:16-9:24: a `FontFace` is shipped only from a theme's font token: `font body: Font = Font(family:size:faces:)`
+error[K3310] site/src/ui/SiteTheme.k:8:26-8:47: `PP Neue Gstaad` already has an upright face of weight 700, from another file
+  label brand/src/brand/BrandTokens.k:7:22-7:53: first declared here

@@ -2348,7 +2348,14 @@ pub(crate) fn server_entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)
 /// `<link rel="modulepreload">` (the page's for the page it renders), so
 /// the browser fetches the whole graph at once instead of one level of
 /// imports per round trip (server.md §7).
-pub(crate) fn assets_json(g: &Gen<'_>, client: &[crate::OutputFile]) -> String {
+///
+/// `fonts` lists the face the document preloads (`crate::fonts::preload`)
+/// as `{href, type}`, linked as `<link rel="preload" as="font" crossorigin>`.
+pub(crate) fn assets_json(
+    g: &Gen<'_>,
+    client: &[crate::OutputFile],
+    preload_font: Option<&crate::fonts::Face>,
+) -> String {
     let mut styles: Vec<String> = client
         .iter()
         .filter(|f| f.kind == crate::FileKind::Css)
@@ -2405,7 +2412,11 @@ pub(crate) fn assets_json(g: &Gen<'_>, client: &[crate::OutputFile]) -> String {
         .into_iter()
         .map(|p| format!("/assets/{p}"))
         .collect();
-    serde_json::json!({ "styles": styles, "scripts": scripts, "preload": preload, "pages": pages })
+    let fonts: Vec<serde_json::Value> = preload_font
+        .map(|f| serde_json::json!({ "href": f.url(), "type": f.format.media_type() }))
+        .into_iter()
+        .collect();
+    serde_json::json!({ "styles": styles, "scripts": scripts, "preload": preload, "pages": pages, "fonts": fonts })
         .to_string()
 }
 

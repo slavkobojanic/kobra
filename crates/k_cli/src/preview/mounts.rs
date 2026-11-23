@@ -27,6 +27,7 @@ pub(crate) struct Bundle {
     /// The endpoint templates without a session (no forgery check).
     forgery_exempt: Vec<String>,
     /// Every file the frame loads: the client chunks under `/_k/c/`, the
+    /// shipped fonts under `/assets/fonts/`, the
     /// runtime under `/_k/rt/`, the server modules test code may import
     /// under `/_k/app/`.
     assets: Vec<StaticAsset>,
@@ -58,6 +59,14 @@ impl Bundle {
                 immutable: false,
             })
             .collect();
+        // The fonts the themes ship, at the `/assets/` URLs the stylesheet
+        // names (07-themes-and-units.md, "Shipped fonts").
+        assets.extend(output.binary.iter().map(|f| StaticAsset {
+            path: format!("/assets/{}", f.path),
+            content_type: f.media_type.clone(),
+            body: f.bytes.clone().into(),
+            immutable: false,
+        }));
         assets.extend(k_runtime::modules().iter().map(|m| StaticAsset {
             path: format!("/_k/rt/{}", m.path),
             content_type: content_type(m.path).to_owned(),

@@ -1529,6 +1529,10 @@ function head(m, spec, prepaint = "", page = null) {
   }
   if (m.structuredData !== undefined) h += `<script type="application/ld+json">${serializeData(schemaOrg(m.structuredData))}</script>`;
   for (const href of spec.assets.styles) h += `<link rel="stylesheet" href="${escapeAttribute(href)}">`;
+  // The body font's face, which the first paint draws text with
+  // (07-themes-and-units.md, "Shipped fonts"); fonts are fetched in CORS
+  // mode, so the preload is too, or the browser fetches the file twice.
+  for (const f of spec.assets.fonts ?? []) h += `<link rel="preload" href="${escapeAttribute(f.href)}" as="font" type="${escapeAttribute(f.type)}" crossorigin>`;
   // The whole static module graph at once, instead of one level of
   // imports per round trip (server.md §7); a document without scripts
   // (a status page) preloads nothing.
@@ -1711,7 +1715,7 @@ function statusPage(spec, status, text, stack) {
   m.title = text;
   // A development 500 shows the panic's stack, mapped to `.k` lines.
   const trace = stack ? `<pre class="k-stack">${escapeText(stack)}</pre>` : "";
-  return respond(status, HTML, documentHtml({ ...spec, assets: { styles: spec.assets.styles, scripts: [] } }, null, m, `<p>${escapeText(text)}</p>${trace}`, null));
+  return respond(status, HTML, documentHtml({ ...spec, assets: { styles: spec.assets.styles, fonts: spec.assets.fonts, scripts: [] } }, null, m, `<p>${escapeText(text)}</p>${trace}`, null));
 }
 
 /**

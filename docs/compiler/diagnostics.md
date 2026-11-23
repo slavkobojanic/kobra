@@ -359,6 +359,10 @@ Messages and detail lines for this range that the corpus pins exactly:
 | K3305 | `token-category-mismatch` | error | The declared type. | Replace it with the category's type (machine-applicable). |
 | K3306 | `variant-named-base` | error | The variant's name. | — |
 | K3307 | `duplicate-theme-member` | error | The second token, variant or override name; label `first declared here` at the first. | — |
+| K3308 | `font-file-not-found` | error | The `FontFace` path literal. | — |
+| K3309 | `unsupported-font-file` | error | The `FontFace` path literal. | — |
+| K3310 | `conflicting-font-faces` | error | The later face's path literal; label `first declared here` at the earlier one. | — |
+| K3311 | `font-face-outside-theme` | error | The `FontFace` call's name. | — |
 
 #### Quick-fix and label wording (K3000–K3399)
 

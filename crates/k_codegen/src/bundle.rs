@@ -914,7 +914,11 @@ fn bind_deferred(stmts: &mut [Stmt], deferred: &[Deferred]) {
 /// bytes it fetches differ, so a new build is a new worker and a new cache,
 /// and a worker without the list carries no build hash. A development build
 /// (`k dev`, `k run`) sets the list to `null` ([`uncached_service_worker`]).
-pub(crate) fn service_worker(g: &Gen<'_>, client: &[OutputFile]) -> Option<OutputFile> {
+pub(crate) fn service_worker(
+    g: &Gen<'_>,
+    client: &[OutputFile],
+    binary: &[crate::BinaryFile],
+) -> Option<OutputFile> {
     let offline = g.offline() && g.options.entry == crate::Entry::App;
     let registers = FEATURE_CHUNKS
         .iter()
@@ -939,7 +943,7 @@ pub(crate) fn service_worker(g: &Gen<'_>, client: &[OutputFile]) -> Option<Outpu
     } else {
         format!(
             "self.kOffline = {};\n{}{source}",
-            offline_list(g, client),
+            offline_list(g, client, binary),
             k_runtime::module("k:/runtime/sw-offline.js")?.source
         )
     };
@@ -971,14 +975,15 @@ pub fn uncached_service_worker() -> String {
 }
 
 /// `self.kOffline`'s value for `client` (54-offline.md, "What is
-/// precached"): every client file below `/assets/` but the source maps, the
-/// entry chunk's path, the shell of a client-rendered app, and the cache's
+/// precached"): every client file below `/assets/` but the source maps (the
+/// shipped fonts too), the entry chunk's path, the shell of a client-rendered app, and the cache's
 /// version, a hash of the list, so a new build is a new cache.
-fn offline_list(g: &Gen<'_>, client: &[OutputFile]) -> String {
+fn offline_list(g: &Gen<'_>, client: &[OutputFile], binary: &[crate::BinaryFile]) -> String {
     let files: Vec<String> = client
         .iter()
         .filter(|f| f.kind != FileKind::SourceMap)
         .map(|f| format!("/assets/{}", f.path))
+        .chain(binary.iter().map(|f| format!("/assets/{}", f.path)))
         .collect();
     let build = client
         .iter()

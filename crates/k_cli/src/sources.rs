@@ -246,9 +246,11 @@ pub fn load_tree(root: &Path) -> Group {
 }
 
 /// Reads the files `plan` names below `root` into a [`Group`]: for a
-/// project, the files a project path classifies as manifest, lockfile or
-/// source; for a workspace, every manifest, lockfile and `.k` file (its
-/// members classify them later). Unreadable files, files that aren't
+/// project, the files a project path classifies as manifest, lockfile,
+/// source or asset; for a workspace, every manifest, lockfile, `.k` file
+/// and asset (its members classify them later). An asset (a font,
+/// [`k_sema::assets`]) is read as bytes and given in the analysis's text
+/// encoding for them. Unreadable files, files that aren't
 /// UTF-8 and invalid project paths become [`Group::problems`].
 fn load_group(root: PathBuf, plan: Plan) -> Group {
     let mut paths: BTreeSet<PathBuf> = plan.files;
@@ -279,7 +281,7 @@ fn load_group(root: PathBuf, plan: Plan) -> Group {
             continue;
         };
         // A workspace's files are classified relative to their member,
-        // later; here, keep every manifest, lockfile and K source.
+        // later; here, keep every manifest, lockfile, K source and asset.
         let wanted = if group.scope == Scope::Project {
             project_path.kind() != FileKind::Other
         } else {
@@ -287,12 +289,13 @@ fn load_group(root: PathBuf, plan: Plan) -> Group {
             name == MANIFEST
                 || k_sema::LockfileKind::from_file_name(name).is_some()
                 || name.ends_with(".k")
+                || k_sema::assets::is_asset_name(name)
         };
         if !wanted {
             continue;
         }
         match fs::read(&path) {
-            Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(bytes) => match k_sema::assets::file_text(&project_path, bytes) {
                 Ok(text) => group.files.push((project_path, text)),
                 Err(error) => {
                     let offset = error.utf8_error().valid_up_to();

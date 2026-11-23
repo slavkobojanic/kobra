@@ -71,6 +71,7 @@ k.toml           manifest
 App.k            the app declaration (apps only)
 src/             source; each directory is a module (src/weather/Place.k → weather.Place)
 migrations/      database migrations, NNNN_description.k; not a module (19-persistence.md)
+fonts/           by convention: .woff2 files the theme ships (07, "Shipped fonts"); any directory works
 routes.lock      generated and committed
 schema.lock      generated and committed
 storage.lock     generated and committed
@@ -85,6 +86,7 @@ dist/            build output; git-ignored
 
 - **The layout is fixed**, like the formatter: there is no `source = "src"` key. Every Kobra repository looks the same.
 - **A project with an `App.k` is an app; one without is a library package.**
+- **A package's `.woff2` and `.woff` files are its assets,** wherever they are: a theme's `FontFace("fonts/Inter.woff2")` names one relative to the package root, and every app that uses the theme serves it ([07](07-themes-and-units.md#shipped-fonts)).
 
 ## Creating a project: `k new`
 

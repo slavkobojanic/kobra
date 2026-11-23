@@ -137,7 +137,8 @@ impl ProjectPath {
     /// A file of a library mounted into a member that depends on it
     /// ([`ProjectPath::mounted`]) is classified by its path inside the
     /// library, except that only its sources take part: its `k.toml`,
-    /// lockfiles, migrations and an `App.k` are [`FileKind::Other`].
+    /// lockfiles, migrations and an `App.k` are [`FileKind::Other`]
+    /// (its assets are [`FileKind::Asset`], served by the apps that use it).
     ///
     /// * `k.toml` is the [`FileKind::Manifest`];
     /// * `App.k` is [`FileKind::App`];
@@ -146,6 +147,7 @@ impl ProjectPath {
     /// * `src/<dir>/…/<Name>.k` with at least one directory is a
     ///   [`FileKind::Source`] file of the module named by its directories;
     /// * `migrations/<name>.k` is a [`FileKind::Migration`];
+    /// * a font file (`.woff2`, `.woff`) anywhere is a [`FileKind::Asset`];
     /// * any other `.k` file (at the root, directly in `src/`, in a nested
     ///   directory of `migrations/`, or whose directories are not valid
     ///   module names) is [`FileKind::Stray`], which semantic analysis
@@ -155,7 +157,7 @@ impl ProjectPath {
     pub fn kind(&self) -> FileKind {
         if let Some((_, inner)) = self.dependency() {
             return match inner.kind() {
-                kind @ (FileKind::Source { .. } | FileKind::Stray) => kind,
+                kind @ (FileKind::Source { .. } | FileKind::Stray | FileKind::Asset) => kind,
                 _ => FileKind::Other,
             };
         }
@@ -167,6 +169,9 @@ impl ProjectPath {
         }
         if let Some(kind) = LockfileKind::from_file_name(text) {
             return FileKind::Lockfile(kind);
+        }
+        if crate::assets::is_asset_name(self.file_name()) {
+            return FileKind::Asset;
         }
         if !text.ends_with(".k") {
             return FileKind::Other;
@@ -222,6 +227,12 @@ pub enum FileKind {
     Migration,
     /// A `.k` file outside the places the layout allows.
     Stray,
+    /// A file the package ships to the browser: a font (`.woff2`,
+    /// `.woff`) anywhere in the package. Its bytes are given as text in
+    /// the encoding of [`crate::assets::text_of`]; a theme's
+    /// `FontFace("fonts/Inter.woff2")` names it
+    /// (07-themes-and-units.md, "Shipped fonts").
+    Asset,
     /// Any other file; ignored by the analysis.
     Other,
 }

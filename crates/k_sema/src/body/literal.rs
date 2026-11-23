@@ -7,6 +7,7 @@
 //! string included, is **K2403**, with a fix to the type's `parse` when it
 //! has one. A literal its type's parser refuses is **K2404**, with the
 //! reason; the parsers are the runtime's, ported in [`crate::literals`]. A
+//! `FontFace("…")` outside a theme's font token is **K3311**. A
 //! money amount such as `1.005.usd` with more significant decimal places
 //! than its currency is K2404 too, and adding or subtracting amounts whose
 //! literal currencies differ (`1.usd + 2.eur`) is **K2407**.
@@ -114,6 +115,21 @@ impl Checker<'_, '_, '_> {
             None => self.cx.p.decl(d).name.clone(),
         };
         let type_name = self.cx.p.decl(d).name.clone();
+        // A face is shipped only from a theme's font token (K3311); its
+        // file is checked with the package's assets (`crate::fonts`).
+        if qualified == "k.core.FontFace"
+            && !expr
+                .syntax()
+                .ancestors()
+                .any(|a| matches!(a.kind(), SyntaxKind::ThemeToken | SyntaxKind::ThemeOverride))
+        {
+            self.err(
+                codes::FONT_FACE_OUTSIDE_THEME,
+                name_range,
+                "a `FontFace` is shipped only from a theme's font token: `font body: Font = Font(family:size:faces:)`",
+            );
+            return;
+        }
         let wanted = if qualified == "k.http.HttpStatus" {
             Wanted::Integer
         } else {

@@ -68,6 +68,7 @@ pub(crate) fn analyze(
     inputs: Vec<InputFile<'_>>,
     lockfiles: Vec<crate::locks::Lockfile>,
     manifests: Vec<(String, FileId, Arc<str>)>,
+    assets: Vec<(String, Arc<str>)>,
     prev: Option<&BodyCache>,
     deliver: impl FnOnce(SemaResult),
 ) {
@@ -92,6 +93,7 @@ pub(crate) fn analyze(
     program.lockfiles = lockfiles;
     program.manifests = manifests;
     program.manifest_ids = manifest_ids;
+    program.assets = assets.into_iter().collect();
     generate(&mut program);
     let cx = Cx::new(&program);
     cx.set_hooks(
@@ -182,6 +184,8 @@ pub(crate) fn analyze(
     let storage = crate::locks::check(&cx);
     crate::activation::check(&cx);
     crate::element_refs::check(&cx);
+    // Reads the assets, which aren't body inputs: never replayed.
+    crate::fonts::check(&cx);
     crate::channels::opened_during_ssr(&cx);
     // The `rpc.lock` check reads no body: replayed while its inputs are
     // unchanged (`warm::PassFacts`).

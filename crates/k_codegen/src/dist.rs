@@ -8,6 +8,7 @@
 //!     index.html            only for static-only apps
 //!     k-sw.js               the service worker, only for apps that notify
 //!     assets/*.js *.css *.map   hashed client files
+//!     assets/fonts/*.woff2      hashed fonts the themes ship
 //!   manifest.json           the build manifest
 //! ```
 
@@ -17,7 +18,8 @@ use std::path::{Component, Path};
 
 use crate::Output;
 
-/// Writes `output.client` below `dist/public/assets/`, `output.root` (the
+/// Writes `output.client` and `output.binary` (shipped fonts) below
+/// `dist/public/assets/`, `output.root` (the
 /// service worker) in `dist/public/`, and the manifest to
 /// `dist/manifest.json`. Existing files are replaced, and every other file
 /// below `dist/public/assets/` (the hashed chunks, styles and maps of
@@ -55,25 +57,34 @@ use crate::Output;
 pub fn write_public(output: &Output, dist: &Path) -> io::Result<()> {
     let assets = dist.join("public").join("assets");
     fs::create_dir_all(&assets)?;
-    let wanted: std::collections::BTreeSet<std::path::PathBuf> =
-        output.client.iter().map(|f| assets.join(&f.path)).collect();
+    let wanted: std::collections::BTreeSet<std::path::PathBuf> = output
+        .client
+        .iter()
+        .map(|f| assets.join(&f.path))
+        .chain(output.binary.iter().map(|f| assets.join(&f.path)))
+        .collect();
     remove_stale(&assets, &wanted)?;
-    for file in &output.client {
-        let relative = Path::new(&file.path);
+    let files = output
+        .client
+        .iter()
+        .map(|f| (&f.path, f.contents.as_bytes()))
+        .chain(output.binary.iter().map(|f| (&f.path, &f.bytes[..])));
+    for (path, contents) in files {
+        let relative = Path::new(path);
         if relative
             .components()
             .any(|c| !matches!(c, Component::Normal(_)))
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("bad output path {}", file.path),
+                format!("bad output path {path}"),
             ));
         }
         let target = assets.join(relative);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(target, &file.contents)?;
+        fs::write(target, contents)?;
     }
     // The files served at the site's root (`k-sw.js`): written next to
     // `assets/`, and one an earlier build wrote that this one doesn't is

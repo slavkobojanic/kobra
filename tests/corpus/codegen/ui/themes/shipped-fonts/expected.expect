@@ -1,0 +1,11 @@
+css contains @font-face {
+css contains   font-family: "PP Neue Gstaad";
+css contains   src: url("/assets/fonts/PPNeueGstaad-Regular.[hash].woff2") format("woff2");
+css contains   src: url("/assets/fonts/PPNeueGstaad-Bold.[hash].woff2") format("woff2");
+css contains   font-weight: 700;
+css contains   src: url("/assets/fonts/Gstaad-Italic.[hash].woff") format("woff");
+css contains   font-style: italic;
+css contains   font-display: swap;
+css contains   --k-font-body: 16px "PP Neue Gstaad", system-ui
+server contains "fonts":[{"href":"/assets/fonts/PPNeueGstaad-Regular.[hash].woff2","type":"font/woff2"}]
+css lacks fonts.googleapis.com

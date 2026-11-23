@@ -181,6 +181,10 @@ K3304: Start the token with a category: `color`, `space`, `radius`, `fontSize`, 
 K3305: Give the token its category's type, such as `space md: Spacing`.
 K3306: Choose another variant name; `base` means the theme without a variant.
 K3307: Remove the duplicate token, variant or override.
+K3308: Put the font file in the package that declares the theme, and write its path relative to that package's root (`fonts/Inter.woff2`), without `..`.
+K3309: Convert the font to WOFF2 (for example with `woff2_compress`), and name the `.woff2` file.
+K3310: Give each weight and style of a family one file: change the `weight:` or `style:` of one face, or point both at the same file.
+K3311: Declare the face in a theme's font token, `Font(family:size:faces:)`; other code uses the token (`font: .body`).
 K4001: Declare a service that implements the interface, or bind one with `use` in `App.k`.
 K4002: Choose one with `use Impl for Interface` in `App.k`, optionally per environment.
 K4003: Break the cycle: extract what both need into a third service, or pass a value instead of injecting.

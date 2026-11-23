@@ -7,7 +7,7 @@
 ## What `k build` produces
 
 - **`dist/app` embeds the server bundle, the JavaScript runtime, the hashed client assets** (served with long-lived cache headers) **and the migrations.** Copying that one file is a complete deployment: code, assets and schema can't be out of step.
-- The same client assets are also written to `dist/public/`, for teams that serve them from a CDN.
+- The same client assets are also written to `dist/public/`, for teams that serve them from a CDN. They include the fonts the themes ship, below `dist/public/assets/fonts/` ([07](07-themes-and-units.md#shipped-fonts)).
 - `k build` always builds the `.production` environment ([23-app-structure.md](23-app-structure.md#environments)). Environment differences are compile-time `use` rules plus runtime configuration ([25-config-and-secrets.md](25-config-and-secrets.md)); there is no `K_ENV` to set.
 - The executable links glibc (V8 needs it). The smallest supported base image is therefore `gcr.io/distroless/cc` or an equivalent; `scratch` and musl-based images are not supported.
 

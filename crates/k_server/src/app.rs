@@ -31,6 +31,78 @@ pub struct EmbeddedFile {
     pub text: String,
 }
 
+/// One embedded binary asset: a font a theme ships
+/// (07-themes-and-units.md, "Shipped fonts").
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct EmbeddedBinary {
+    /// Its URL path, `/assets/fonts/Inter.3f2a1b9c.woff2`.
+    pub path: String,
+    /// Its `Content-Type`, `font/woff2`.
+    pub media_type: String,
+    /// Its bytes, base64 (RFC 4648, padded) in the trailer's JSON.
+    #[serde(with = "base64_bytes")]
+    pub bytes: Vec<u8>,
+}
+
+/// Bytes as a base64 string in JSON, a third larger rather than the four
+/// times of an array of numbers.
+mod base64_bytes {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    /// The standard alphabet.
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    /// Encodes `bytes`, padded.
+    pub(super) fn encode(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+        for chunk in bytes.chunks(3) {
+            let b = [
+                chunk[0],
+                chunk.get(1).copied().unwrap_or(0),
+                chunk.get(2).copied().unwrap_or(0),
+            ];
+            let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+            for i in 0..4 {
+                if i <= chunk.len() {
+                    out.push(char::from(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize]));
+                } else {
+                    out.push('=');
+                }
+            }
+        }
+        out
+    }
+
+    /// Decodes padded base64; `None` for anything else.
+    pub(super) fn decode(text: &str) -> Option<Vec<u8>> {
+        let text = text.trim_end_matches('=');
+        let mut out = Vec::with_capacity(text.len() * 3 / 4);
+        let mut acc: u32 = 0;
+        let mut bits = 0;
+        for c in text.bytes() {
+            let v = ALPHABET.iter().position(|&a| a == c)?;
+            acc = (acc << 6) | u32::try_from(v).ok()?;
+            bits += 6;
+            if bits >= 8 {
+                bits -= 8;
+                out.push(u8::try_from((acc >> bits) & 0xFF).ok()?);
+            }
+        }
+        Some(out)
+    }
+
+    /// Writes `bytes` as a base64 string.
+    pub(super) fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&encode(bytes))
+    }
+
+    /// Reads a base64 string.
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let text = String::deserialize(d)?;
+        decode(&text).ok_or_else(|| serde::de::Error::custom("invalid base64"))
+    }
+}
+
 /// Everything `dist/app` carries besides its own code.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct AppPayload {
@@ -44,6 +116,10 @@ pub struct AppPayload {
     pub rpc_paths: Vec<String>,
     /// The hashed client assets, by URL path.
     pub assets: Vec<EmbeddedFile>,
+    /// The hashed binary client assets (shipped fonts), by URL path.
+    /// Absent from archives written before they existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub binary: Vec<EmbeddedBinary>,
     /// Every `@Env` field the build reads at startup (the build manifest's
     /// config table). Absent from archives written before it existed.
     #[serde(default)]
@@ -294,6 +370,11 @@ mod tests {
             entry: "k:/app/server.js".into(),
             rpc_paths: vec!["/demo.A/B".into()],
             assets: vec![],
+            binary: vec![EmbeddedBinary {
+                path: "/assets/fonts/Inter.3f2a1b9c.woff2".into(),
+                media_type: "font/woff2".into(),
+                bytes: vec![b'w', b'O', b'F', b'2', 0, 0xFF, 7],
+            }],
             config: ConfigSpec::server_defaults(),
             forgery_exempt: vec!["/hooks/{id}".into()],
             database: None,
@@ -309,6 +390,17 @@ mod tests {
         std::fs::write(&path, &bytes).expect("writes");
         assert_eq!(read_file(&path).expect("reads"), Some(payload()));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn binary_assets_are_base64_in_the_trailer() {
+        for n in 0..8usize {
+            let bytes: Vec<u8> = (0..n).map(|i| (i * 37 + 200) as u8).collect();
+            let text = base64_bytes::encode(&bytes);
+            assert_eq!(text.len() % 4, 0);
+            assert_eq!(base64_bytes::decode(&text), Some(bytes));
+        }
+        assert_eq!(base64_bytes::encode(b"wOF2"), "d09GMg==");
     }
 
     #[test]

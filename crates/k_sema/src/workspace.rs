@@ -1215,10 +1215,11 @@ impl Workspace {
 }
 
 /// `true` for the library files a dependent member's analysis mounts: its
-/// manifest and its non-test sources.
+/// manifest, its non-test sources and its assets (the fonts its theme
+/// ships, which every app using it serves).
 fn mounts(path: &ProjectPath) -> bool {
     match path.kind() {
-        FileKind::Manifest => true,
+        FileKind::Manifest | FileKind::Asset => true,
         FileKind::Source { is_test, .. } => !is_test,
         _ => false,
     }

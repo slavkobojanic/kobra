@@ -60,6 +60,7 @@
 
 mod activation;
 mod app;
+pub mod assets;
 mod body;
 mod channels;
 mod check;
@@ -69,6 +70,7 @@ mod di;
 mod doclinks;
 mod element_refs;
 pub mod features;
+pub mod fonts;
 mod framework;
 pub use framework::CRYPTO_TEXT_COLUMNS;
 mod fx;

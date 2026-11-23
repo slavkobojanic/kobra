@@ -297,6 +297,10 @@ pub(crate) struct Program<'a> {
     /// The host's file id of each manifest in [`Program::manifests`], by
     /// project path, for diagnostics in them (`crate::stability`).
     pub(crate) manifest_ids: FxHashMap<String, FileId>,
+    /// The assets of the project and its mounted libraries (fonts, in the
+    /// text encoding of `crate::assets`), by project path
+    /// (`fonts/Inter.woff2`, `.deps/brand/fonts/Inter.woff2`).
+    pub(crate) assets: FxHashMap<String, std::sync::Arc<str>>,
 }
 
 /// The project files given to [`Program::build`]: id, path, text and root.
@@ -333,6 +337,7 @@ impl<'a> Program<'a> {
             lockfiles: Vec::new(),
             manifests: Vec::new(),
             manifest_ids: FxHashMap::default(),
+            assets: FxHashMap::default(),
         };
         let stdlib = Stdlib::get();
         for (index, file) in stdlib.files().iter().enumerate() {

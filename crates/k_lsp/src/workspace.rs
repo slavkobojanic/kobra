@@ -187,8 +187,12 @@ impl Project {
         self.generation += 1;
     }
 
-    /// Opens (or reopens) a document.
+    /// Opens (or reopens) a document. An asset (a font) opened in the
+    /// editor keeps its bytes from disk.
     pub fn open(&mut self, path: ProjectPath, version: i32, text: String) {
+        if path.kind() == FileKind::Asset {
+            return;
+        }
         self.set(&path, &text);
         self.open.insert(path, (version, text));
     }
@@ -219,7 +223,7 @@ impl Project {
                 if !self.loose
                     && (path.kind() != FileKind::Other || path.dependency().is_some()) =>
             {
-                change.set_file(path.clone(), String::from_utf8_lossy(&bytes).into_owned());
+                change.set_file(path.clone(), disk_text(path, bytes));
             }
             _ => change.remove_file(path.clone()),
         }
@@ -451,7 +455,8 @@ fn collect_tree(dir: &Path, root: &Path, out: &mut Vec<(ProjectPath, String)>) {
         }
         let wanted = name == MANIFEST
             || k_sema::LockfileKind::from_file_name(&name).is_some()
-            || name.ends_with(".k");
+            || name.ends_with(".k")
+            || k_sema::assets::is_asset_name(&name);
         if !wanted {
             continue;
         }
@@ -462,9 +467,17 @@ fn collect_tree(dir: &Path, root: &Path, out: &mut Vec<(ProjectPath, String)>) {
             continue;
         };
         if let Ok(bytes) = fs::read(&path) {
-            out.push((project_path, String::from_utf8_lossy(&bytes).into_owned()));
+            let text = disk_text(&project_path, bytes);
+            out.push((project_path, text));
         }
     }
+}
+
+/// The analysis text of a file read from disk: an asset's bytes in the
+/// encoding of [`k_sema::assets::text_of`], anything else as lossy UTF-8.
+fn disk_text(path: &ProjectPath, bytes: Vec<u8>) -> String {
+    k_sema::assets::file_text(path, bytes)
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
 /// The nearest directory at or above `dir` with a `k.toml`.
@@ -532,7 +545,8 @@ fn collect(dir: &Path, root: &Path, out: &mut Vec<(ProjectPath, String)>) {
             continue;
         }
         if let Ok(bytes) = fs::read(&path) {
-            out.push((project_path, String::from_utf8_lossy(&bytes).into_owned()));
+            let text = disk_text(&project_path, bytes);
+            out.push((project_path, text));
         }
     }
 }

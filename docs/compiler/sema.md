@@ -195,7 +195,8 @@ Implemented in `crates/k_sema/src/project.rs`. The layout is fixed ([24-projects
 | `src/<dirs>/<Name>.test.k` | `Source { is_test: true }` | same module; see test files below |
 | `migrations/<name>.k` | `Migration` | not a module; holds one `migration` |
 | `routes.lock`, `schema.lock`, `storage.lock`, `rpc.lock`, `k.lock`; `protocol.lock` (recognized, never read: folded into `rpc.lock`) | `Lockfile` | inputs to the lockfile checks (§12.16) |
-| `.deps/<dir>/<path>` | the kind of `<path>`, sources only | a library mounted by the workspace layer (§4.1); its `k.toml` is mounted as an inert `Other` file |
+| `*.woff2`, `*.woff` anywhere | `Asset` | a font a theme's `FontFace` ships (§12.5); its bytes are given as text, one character per byte (`k_sema::assets`) |
+| `.deps/<dir>/<path>` | the kind of `<path>`, sources and assets only | a library mounted by the workspace layer (§4.1); its `k.toml` is mounted as an inert `Other` file |
 | any other `.k` file | `Stray` | parsed, then K1001 **v0** |
 | anything else | `Other` | ignored |
 
@@ -291,7 +292,7 @@ library is documented, reviewable Kobra and the checker has no second declaratio
 
 | Module | Contents (selection) | Design |
 |---|---|---|
-| `k.core` (the prelude) | `Int`, `Double`, `Decimal`, `Bool`, `String`, `Bytes`, `Url`, `Void`, `Optional`, `Result`, `List`, `Map`, `Set`, ranges, `Stream`, `Binding`, `Builder`, `View`, `Error`, `Equatable`, `Hashable`, `Comparable`, `Codable`, `Copyable`, units (`Length`, `Duration`, `Angle`, `Percent`, `Color`, `Spacing`, `Radius`, `FontSize`, `Font`), `Date`, `DateStyle`, `NumberStyle`, `Money`, `Currency`, `RoundingRule`, `Secret`, `ConfigValue`, `Environment`, `Page`, `Endpoint`, `ThemeVariant`, `MediaCondition`, `Event`, `Classes`, framework annotations (`@Prop`, `@Binding`, `@State`, `@Derived`, `@Effect`, `@Load`, `@Emits`, `@Slot`, `@Stylable`, `@Inject`, `@Param`, `@Scope`, `@Env`, `@Get`/`@Post`/`@Put`/`@Patch`/`@Delete`, `@Layout`, `@NoLayout`, `@Rendering`, `@Offline`, `@SignInPage`, `@Breaking`), `LoadState`, `onCleanup`, `untracked`, `global` | 08, 20 |
+| `k.core` (the prelude) | `Int`, `Double`, `Decimal`, `Bool`, `String`, `Bytes`, `Url`, `Void`, `Optional`, `Result`, `List`, `Map`, `Set`, ranges, `Stream`, `Binding`, `Builder`, `View`, `Error`, `Equatable`, `Hashable`, `Comparable`, `Codable`, `Copyable`, units (`Length`, `Duration`, `Angle`, `Percent`, `Color`, `Spacing`, `Radius`, `FontSize`, `Font`, `FontFace`, `FontStyle`), `Date`, `DateStyle`, `NumberStyle`, `Money`, `Currency`, `RoundingRule`, `Secret`, `ConfigValue`, `Environment`, `Page`, `Endpoint`, `ThemeVariant`, `MediaCondition`, `Event`, `Classes`, framework annotations (`@Prop`, `@Binding`, `@State`, `@Derived`, `@Effect`, `@Load`, `@Emits`, `@Slot`, `@Stylable`, `@Inject`, `@Param`, `@Scope`, `@Env`, `@Get`/`@Post`/`@Put`/`@Patch`/`@Delete`, `@Layout`, `@NoLayout`, `@Rendering`, `@Offline`, `@SignInPage`, `@Breaking`), `LoadState`, `onCleanup`, `untracked`, `global` | 08, 20 |
 | `k.ui` | `Theme` (with `apply(_:)`), `Router`, `Stack`, `Grid`, `Spacer`, `Icon`, `IconName`, `ErrorBoundary`, `VisuallyHidden`, `Locale`, `AriaRole`, `ButtonType`, `ImageLoading`, `Axis`, `MetadataEntries`, `StructuredData` | 04, 05, 07, 22 |
 | `k.http` | `HttpClient`, `FetchHttpClient`, `HttpRequest`, `HttpResponse`, `HttpMethod`, `HttpHeaders`, `HttpBody`, `HttpStatus` (enum with `.other(Int)`), `HttpError`, `DecodingError`, `IncomingRequest`, `WebSocketClient`, `StandardWebSocketClient`, `WebSocketRequest`, `WebSocket`, `WebSocketMessage`, `WebSocketState`, `WebSocketError` | 32, 27, 44 |
 | `k.time` | `Clock` (a stdlib service: `now`, `sleep(for:)`, `every(_:_:)`, `after(_:_:)`), `TimerHandle`, `TimeZone`, `TimeOfDay`, `Weekday`, `Backoff` (the channels' reconnect delays) | 35, 44 |
@@ -781,6 +782,14 @@ Accessibility lints beyond required accessible names are **deferred**.
   level of a theme and in `variant name matches .condition { }` must name a declared token (**K3301**)
   and have its type; re-declaring a library token → **K3302** with a fix to the override form; `matches`
   takes a `MediaCondition`. The generated `ThemeVariant` enum has one case per variant.
+- **Shipped fonts** (`crate::fonts`, [07](../design/07-themes-and-units.md#shipped-fonts)): a
+  `FontFace("path", weight:, style:)` in a theme's token value names an `Asset` of the package that declares
+  the theme (`.deps/<dir>/` + path for a mounted library). A path outside the package or a file it lacks →
+  **K3308** (fix: the closest font file of the package, maybe-incorrect); a file that isn't `.woff2`/`.woff`
+  or doesn't start with `wOF2`/`wOFF` → **K3309**; two different files for one family, weight and style, in
+  any themes → **K3310**; a weight outside 1–1000 → K2404, a non-literal weight or style → K2403. The pass
+  reads the assets, so it runs in every revision and is never replayed (`crate::warm`). `FontFace` outside
+  a theme's token or override → **K3311**, from the body check (`body/literal.rs`).
 - `@container` and `@layer` preludes are parsed but their values are **deferred**.
 
 ### 12.6 Services, DI, layering, server/client boundary

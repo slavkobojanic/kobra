@@ -733,3 +733,256 @@ fn the_notes_example_runs_with_no_database_url() {
     assert_ne!(status, 0);
     stop(child);
 }
+
+/// A tiny file with the WOFF2 signature and header size, as the compiler
+/// checks (07-themes-and-units.md, "Shipped fonts"); `tag` makes each one's
+/// bytes, so its hashed name, differ.
+fn woff2(tag: u8) -> Vec<u8> {
+    let mut bytes = b"wOF2\x00\x01\x00\x00".to_vec();
+    bytes.extend_from_slice(&48u32.to_be_bytes());
+    bytes.extend_from_slice(&[0; 35]);
+    bytes.push(tag);
+    bytes
+}
+
+/// One HTTP/1.1 GET with `Connection: close`: the status, the lower-cased
+/// head and the body's bytes.
+fn get_bytes(port: u16, path: &str) -> (u16, String, Vec<u8>) {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    write!(
+        s,
+        "GET {path} HTTP/1.1\r\nhost: 127.0.0.1:{port}\r\nconnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let mut raw = Vec::new();
+    s.read_to_end(&mut raw).unwrap();
+    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = text(&raw[..split]).to_ascii_lowercase();
+    let status = head.split(' ').nth(1).unwrap().parse().unwrap();
+    let mut body = raw[split + 4..].to_vec();
+    if head.contains("transfer-encoding: chunked") {
+        let mut out = Vec::new();
+        let mut rest = &body[..];
+        while let Some(i) = rest.windows(2).position(|w| w == b"\r\n") {
+            let n = usize::from_str_radix(text(&rest[..i]).trim(), 16).unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            out.extend_from_slice(&rest[i + 2..i + 2 + n]);
+            rest = &rest[i + 2 + n + 2..];
+        }
+        body = out;
+    }
+    (status, head, body)
+}
+
+/// The URL path of the hashed font named `<stem>.<hash>.woff2` in `html`
+/// (a stylesheet or a document).
+fn font_url(css: &str, stem: &str) -> String {
+    let start = css
+        .find(&format!("/assets/fonts/{stem}."))
+        .unwrap_or_else(|| panic!("{stem} in {css}"));
+    let end = start + css[start..].find(".woff2").unwrap() + ".woff2".len();
+    css[start..end].to_owned()
+}
+
+/// The wedded case (07-themes-and-units.md, "Shipped fonts"): the `brand`
+/// library owns PP Neue Gstaad's files and its theme's `font body`; an app
+/// that depends on it serves them under content-hashed names from
+/// `dist/app`, `k build --out` writes them, and a static-only app's
+/// `index.html` preloads the body face too.
+#[test]
+fn a_workspace_library_ships_its_fonts_to_every_app() {
+    let dir = TempDir::new("fonts");
+    let root = &dir.0;
+    write(
+        root,
+        "k.toml",
+        "[workspace]\nmembers = [\"brand\", \"site\", \"studio\"]\n",
+    );
+    write(root, "brand/k.toml", &package("brand", &[]));
+    fs::create_dir_all(root.join("brand/fonts")).unwrap();
+    fs::write(
+        root.join("brand/fonts/PPNeueGstaad-Regular.woff2"),
+        woff2(1),
+    )
+    .unwrap();
+    fs::write(root.join("brand/fonts/PPNeueGstaad-Bold.woff2"), woff2(2)).unwrap();
+    write(
+        root,
+        "brand/src/brand/BrandTokens.k",
+        r#"public theme BrandTokens {
+    font body: Font = Font(
+        family: "PP Neue Gstaad",
+        size: 16px,
+        faces: [
+            FontFace("fonts/PPNeueGstaad-Regular.woff2", weight: 400),
+            FontFace("fonts/PPNeueGstaad-Bold.woff2", weight: 700),
+        ]
+    )
+}
+"#,
+    );
+    let home = r#"public page Home at "/" {
+    metadata { title("Home") }
+
+    view {
+        heading(level: 1) { "Ana & Luka" }
+            .class(.title)
+    }
+
+    style {
+        .title { font: .heading; }
+    }
+}
+"#;
+    let theme = r#"public theme SiteTheme {
+    font heading: Font = Font(family: "PP Neue Gstaad", size: 40px)
+}
+"#;
+    for (app, rendering) in [("site", ""), ("studio", "@Rendering(.client)\n")] {
+        write(root, &format!("{app}/k.toml"), &package(app, &["brand"]));
+        write(
+            root,
+            &format!("{app}/App.k"),
+            &format!("{rendering}public app {} {{}}\n", app.to_uppercase()),
+        );
+        write(root, &format!("{app}/src/home/Home.k"), home);
+        write(root, &format!("{app}/src/home/SiteTheme.k"), theme);
+    }
+    let out = k(&["check", "--color", "never", "."], root);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+
+    // `k build --out` writes the hashed files next to the other assets.
+    let built = root.join("site-out");
+    let out = k(&["build", "site", "--out", built.to_str().unwrap()], root);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let assets = built.join("public/assets");
+    let css_file = fs::read_dir(&assets)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|e| e == "css"))
+        .unwrap();
+    let css = fs::read_to_string(css_file).unwrap();
+    assert!(css.contains("font-display: swap"), "{css}");
+    let regular = font_url(&css, "PPNeueGstaad-Regular");
+    let bold = font_url(&css, "PPNeueGstaad-Bold");
+    assert_eq!(
+        fs::read(built.join("public").join(regular.trim_start_matches('/'))).unwrap(),
+        woff2(1)
+    );
+    assert_eq!(
+        fs::read(built.join("public").join(bold.trim_start_matches('/'))).unwrap(),
+        woff2(2)
+    );
+
+    // `dist/app` serves them, immutable, and every document preloads the
+    // body's regular face.
+    let port = free_port();
+    let child = serve(root, "site-out", port, &[]);
+    let (status, _, page) = get_bytes(port, "/");
+    let page = text(&page);
+    assert_eq!(status, 200, "{page}");
+    assert!(
+        page.contains(&format!(
+            r#"<link rel="preload" href="{regular}" as="font" type="font/woff2" crossorigin>"#
+        )),
+        "{page}"
+    );
+    assert!(
+        !page.contains(&format!(r#"rel="preload" href="{bold}""#)),
+        "{page}"
+    );
+    let (status, head, body) = get_bytes(port, &regular);
+    assert_eq!(status, 200, "{head}");
+    assert!(head.contains("content-type: font/woff2"), "{head}");
+    assert!(
+        head.contains("cache-control: public, max-age=31536000, immutable"),
+        "{head}"
+    );
+    assert_eq!(body, woff2(1));
+    stop(child);
+
+    // A static-only app ships the library's files and preloads in its
+    // `index.html`.
+    let out = k(&["build", "studio"], root);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let public = root.join("studio/dist/public");
+    let index = fs::read_to_string(public.join("index.html")).unwrap();
+    assert!(!root.join("studio/dist/app").exists());
+    let regular_static = font_url(&index, "PPNeueGstaad-Regular");
+    assert_eq!(regular_static, regular, "same bytes, same name");
+    assert_eq!(
+        fs::read(public.join(regular.trim_start_matches('/'))).unwrap(),
+        woff2(1)
+    );
+
+    // An edited font is a new name; the rebuild removes the old file.
+    fs::write(
+        root.join("brand/fonts/PPNeueGstaad-Regular.woff2"),
+        woff2(9),
+    )
+    .unwrap();
+    let out = k(&["build", "site", "--out", built.to_str().unwrap()], root);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(
+        !built
+            .join("public")
+            .join(regular.trim_start_matches('/'))
+            .exists()
+    );
+    assert!(
+        built
+            .join("public")
+            .join(bold.trim_start_matches('/'))
+            .exists()
+    );
+}
+
+/// `k run` serves the fonts a workspace library ships, like `dist/app`.
+#[test]
+fn run_serves_a_library_font() {
+    let dir = TempDir::new("fonts_run");
+    let root = &dir.0;
+    write(
+        root,
+        "k.toml",
+        "[workspace]\nmembers = [\"brand\", \"site\"]\n",
+    );
+    write(root, "brand/k.toml", &package("brand", &[]));
+    fs::create_dir_all(root.join("brand/fonts")).unwrap();
+    fs::write(root.join("brand/fonts/Gstaad.woff2"), woff2(3)).unwrap();
+    write(
+        root,
+        "brand/src/brand/BrandTokens.k",
+        "public theme BrandTokens {\n    font body: Font = Font(family: \"PP Neue Gstaad\", size: 16px, faces: [FontFace(\"fonts/Gstaad.woff2\")])\n}\n",
+    );
+    write(root, "site/k.toml", &package("site", &["brand"]));
+    write(root, "site/App.k", "public app Site {}\n");
+    write(
+        root,
+        "site/src/home/Home.k",
+        "public page Home {\n    metadata { title(\"Home\") }\n\n    view {\n        paragraph { \"Hello\" }\n    }\n}\n",
+    );
+    let port = free_port();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_k"))
+        .args(["run", "site", "--port", &port.to_string()])
+        .current_dir(root)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn_guarded()
+        .unwrap();
+    wait_for(port, &mut child, "k run");
+    let (status, _, page) = get_bytes(port, "/home");
+    let page = text(&page);
+    assert_eq!(status, 200, "{page}");
+    let url = font_url(&page, "Gstaad");
+    let (status, head, body) = get_bytes(port, &url);
+    assert_eq!(status, 200, "{head}");
+    assert!(head.contains("content-type: font/woff2"), "{head}");
+    assert!(head.contains("immutable"), "{head}");
+    assert_eq!(body, woff2(3));
+    stop(child);
+}

@@ -133,7 +133,16 @@ pub fn load(case: &Case) -> Result<LoadedCase, String> {
             }
             let project_path = ProjectPath::new(&relative)
                 .map_err(|e| format!("`{relative}` is not a valid project path: {e}"))?;
-            files.push((project_path, read_text(&path)?));
+            // An asset (a font) is bytes, given in the analysis's text
+            // encoding for them.
+            let text = if project_path.kind() == k_sema::FileKind::Asset {
+                let bytes =
+                    fs::read(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+                k_sema::assets::text_of(&bytes)
+            } else {
+                read_text(&path)?
+            };
+            files.push((project_path, text));
         }
         return Ok(LoadedCase { files, home: None });
     }

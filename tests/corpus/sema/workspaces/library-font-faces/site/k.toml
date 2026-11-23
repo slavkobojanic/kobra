@@ -1,0 +1,6 @@
+[package]
+name = "site"
+k = "0.1"
+
+[dependencies]
+brand = { workspace = true }

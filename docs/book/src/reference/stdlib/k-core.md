@@ -40,7 +40,9 @@ The core module needs no import: its declarations are in scope in every file.
 | [`extend Double`](#extend-double) | Money literals with a fraction: `24.00.usd`. |
 | [`extend Int`](#extend-int) | Money literals on whole numbers: `10.eur`, `1500.jpy`. |
 | [`Font`](#font) | The `font` token category: a family and a size, used by the `font` property. |
+| [`FontFace`](#fontface) | One file of a font family a package ships, in a theme's [`Font`](#font): `FontFace("fonts/Inter-Bold.woff2", weight: 700)`. |
 | [`FontSize`](#fontsize) | The `fontSize` token category: a [`Length`](k-validation.md#length) used for the `fontSize` property. |
+| [`FontStyle`](#fontstyle) | Whether a [`FontFace`](#fontface) draws upright or italic text, its `@font-face` rule's `font-style`. |
 | [`Get`](#get) | Marks the `GET` handler of an endpoint page (`docs/design/27-endpoint-pages.md`). |
 | [`global`](#global) | Refers to a class from global CSS, escaping scoping: `.class(global("btn-primary"))` (`docs/design/06-styles.md`, "Scoping"). |
 | [`HalfOpenRange`](#halfopenrange) | The values from `lowerBound` up to but not including `upperBound`, written `a..<b`; see also [`ClosedRange`](#closedrange). |
@@ -682,6 +684,35 @@ keeps a readable face where the family isn't installed.
   The font family, such as `"Inter"`.
 - `let size: Length`
   The font size, a [`Length`](k-validation.md#length).
+- `let faces: List<FontFace> = []`
+  The family's files the package ships, one [`FontFace`](#fontface) per weight
+  and style. Each becomes an `@font-face` rule, and every app that
+  uses the theme serves the files; without faces, the family is drawn
+  only where it is installed.
+
+## FontFace
+
+```k,ignore
+public struct FontFace implements Equatable, Codable
+```
+
+One file of a font family a package ships, in a theme's
+[`Font`](#font): `FontFace("fonts/Inter-Bold.woff2", weight: 700)`. It
+becomes an `@font-face` rule that swaps the face in when it loads, and
+every app that uses the theme serves the file under a content-hashed
+name below `/assets/`; never from a third-party host. A face exists
+only at compile time, so it has no members.
+
+**Members**
+
+- `init(_ file: String, weight: Int = 400, style: FontStyle = .normal)`
+  A face from a file of the package, checked when you compile: a
+  string literal naming a `.woff2` or `.woff` file relative to the
+  root of the package whose theme declares it.
+
+  - Parameter file: the path, such as `"fonts/Inter-Regular.woff2"`.
+  - Parameter weight: the CSS font weight the file draws, 1 to 1000.
+  - Parameter style: whether the file draws upright or italic text.
 
 ## FontSize
 
@@ -691,6 +722,22 @@ public struct FontSize implements Equatable, Codable
 
 The `fontSize` token category: a [`Length`](k-validation.md#length) used for the `fontSize`
 property.
+
+## FontStyle
+
+```k,ignore
+public enum FontStyle implements Equatable, Codable
+```
+
+Whether a [`FontFace`](#fontface) draws upright or italic text, its
+`@font-face` rule's `font-style`.
+
+**Members**
+
+- `case normal`
+  Upright text.
+- `case italic`
+  Italic text.
 
 ## Get
 

@@ -251,6 +251,16 @@ fn write(output: &Output, out: &Path) -> std::io::Result<()> {
                 text: f.contents.clone(),
             }))
             .collect(),
+        // The fonts the themes ship, hashed like the other assets.
+        binary: output
+            .binary
+            .iter()
+            .map(|f| k_server::app::EmbeddedBinary {
+                path: format!("/assets/{}", f.path),
+                media_type: f.media_type.clone(),
+                bytes: f.bytes.clone(),
+            })
+            .collect(),
         config: output
             .manifest
             .config
@@ -584,6 +594,15 @@ fn start(
             immutable: true,
         })
         .collect();
+    // The fonts the themes ship (07-themes-and-units.md, "Shipped fonts").
+    options
+        .assets
+        .extend(output.binary.iter().map(|f| StaticAsset {
+            path: format!("/assets/{}", f.path),
+            content_type: f.media_type.clone(),
+            body: f.bytes.clone().into(),
+            immutable: true,
+        }));
     // The service worker at the site's root (`/k-sw.js`), revalidated on
     // every fetch so a rebuild reaches the browser's next update check
     // (codegen.md §19).
@@ -1094,6 +1113,8 @@ fn content_type(path: &str) -> &'static str {
         Some("js") => "text/javascript; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
         Some("map") => "application/json",
+        Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
         _ => "application/octet-stream",
     }
 }
