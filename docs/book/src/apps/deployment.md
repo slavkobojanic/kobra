@@ -139,7 +139,7 @@ expand/contract: a column is retired in one release and dropped in a later one
 With the toolchain image, a multi-stage build looks like this:
 
 ```text
-FROM ghcr.io/slavkobojanic/kobra:0.1.0-rc.1 AS build
+FROM ghcr.io/slavkobojanic/kobra:0.1.0-rc.2 AS build
 WORKDIR /src
 COPY . .
 # k check fails on any type error, lockfile drift (schema.lock included) or failing test.
@@ -286,7 +286,7 @@ an empty `#k-app`. The host should:
 The Kanban example's image does exactly that with nginx:
 
 ```text
-FROM ghcr.io/slavkobojanic/kobra:0.1.0-rc.1 AS build
+FROM ghcr.io/slavkobojanic/kobra:0.1.0-rc.2 AS build
 WORKDIR /src
 COPY . .
 RUN k check
@@ -312,5 +312,5 @@ location / {
 
 Until the toolchain image is published, `examples/kanban/Dockerfile` builds `k` from this repository in
 a first stage, as the shop's does (its build context is the repository root;
-`--build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0-rc.1` switches to the published image). Its `k check` runs
+`--build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0-rc.2` switches to the published image). Its `k check` runs
 the tests too.

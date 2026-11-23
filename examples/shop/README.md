@@ -181,7 +181,7 @@ in as `admin@shop.example` with the password `init-secrets.sh` printed (it is al
 `argon2` in a throwaway container), and fails, writing no hash, when none of them is available.
 
 - The **Dockerfile** builds the `k` toolchain from this repository (no published image or registry
-  account is needed; pass `--build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0-rc.1` to use a published one), runs
+  account is needed; pass `--build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0-rc.2` to use a published one), runs
   `k check` (which runs the tests) at the workspace root, and copies only `dist/<app>/app` into
   `gcr.io/distroless/cc`. The same Dockerfile builds both images, `k-paybox:local` and `k-shop:local`,
   with `APP=paybox` or `APP=shop`. The first build compiles the toolchain and takes a few minutes; later

@@ -1690,7 +1690,7 @@ dependencies = [
 
 [[package]]
 name = "k_cli"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "clap",
  "flate2",
@@ -1715,7 +1715,7 @@ dependencies = [
 
 [[package]]
 name = "k_codegen"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "criterion",
  "flate2",
@@ -1741,7 +1741,7 @@ dependencies = [
 
 [[package]]
 name = "k_corpus"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "k_codegen",
  "k_diagnostics",
@@ -1753,7 +1753,7 @@ dependencies = [
 
 [[package]]
 name = "k_db"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "bytes",
  "proptest",
@@ -1767,14 +1767,14 @@ dependencies = [
 
 [[package]]
 name = "k_diagnostics"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "text-size",
 ]
 
 [[package]]
 name = "k_fmt"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "arbitrary",
  "k_corpus",
@@ -1786,7 +1786,7 @@ dependencies = [
 
 [[package]]
 name = "k_lsp"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "arbitrary",
  "k_diagnostics",
@@ -1803,7 +1803,7 @@ dependencies = [
 
 [[package]]
 name = "k_mcp"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "flate2",
  "k_diagnostics",
@@ -1813,14 +1813,14 @@ dependencies = [
 
 [[package]]
 name = "k_runtime"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "flate2",
 ]
 
 [[package]]
 name = "k_sema"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "arbitrary",
  "criterion",
@@ -1834,7 +1834,7 @@ dependencies = [
 
 [[package]]
 name = "k_server"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "arbitrary",
  "argon2",
@@ -1874,7 +1874,7 @@ dependencies = [
 
 [[package]]
 name = "k_syntax"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "arbitrary",
  "criterion",
@@ -4312,7 +4312,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "clap",
  "flate2",

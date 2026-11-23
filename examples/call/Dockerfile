@@ -13,7 +13,7 @@
 # The toolchain to build with: compiled from this repository's source by
 # default, so nothing needs an account or a published image. With a
 # published toolchain image, pass
-# --build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0-rc.1 and the source stage is
+# --build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0-rc.2 and the source stage is
 # skipped.
 ARG K_TOOLCHAIN=k-toolchain-from-source
 ARG RUST_VERSION=1.99
