@@ -1870,13 +1870,6 @@ fn huddle_post(tab: &mut Tab, text: &str) {
     tab.role("button", &format!("Delete “{text}”"));
 }
 
-/// Two people in two browsers (two Chromes, so two sessions) on one `k
-/// dev`: Ana creates `#team` and moderates it; Bob joins it once and goes
-/// back to the lobby, where Ana's message shows as unread the moment she
-/// posts it, and the count goes once he has read it. Then Bob posts, Ana
-/// deletes his message as its room's moderator, and it vanishes from
-/// Bob's screen too (docs/design/44-channels.md, "Example app").
-
 /// Clicks the link named `name` until the page leaves its current path: a
 /// click that lands while the page is still hydrating (slow CI machines) is
 /// the browser's own and may not navigate.
@@ -1885,16 +1878,23 @@ fn huddle_follow(tab: &mut Tab, name: &str) {
     for _ in 0..10 {
         let link = tab.role("link", name);
         tab.click(&link);
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        while std::time::Instant::now() < deadline {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
             if tab.path() != from {
                 return;
             }
-            std::thread::sleep(std::time::Duration::from_millis(50));
+            std::thread::sleep(Duration::from_millis(50));
         }
     }
     panic!("following {name:?} never left {from}");
 }
+
+/// Two people in two browsers (two Chromes, so two sessions) on one `k
+/// dev`: Ana creates `#team` and moderates it; Bob joins it once and goes
+/// back to the lobby, where Ana's message shows as unread the moment she
+/// posts it, and the count goes once he has read it. Then Bob posts, Ana
+/// deletes his message as its room's moderator, and it vanishes from
+/// Bob's screen too (docs/design/44-channels.md, "Example app").
 
 #[test]
 fn huddle_counts_unread_live_and_a_moderator_deletes_for_everyone_in_chrome() {
