@@ -1595,7 +1595,7 @@ function remoteHandle(w) {
  */
 export function parsePreviewValue(type, text, parse) {
   const t = String(text).trim();
-  const lit = /^(-?\d[\d_]*(?:\.\d[\d_]*)?)\.([a-z]+)$/.exec(t);
+  const lit = new RegExp("^(-?\\d[\\d_]*(?:\\.\\d[\\d_]*)?)\\.([a-z]+)$").exec(t);
   const STDLIB = {
     "k.core.Int": intParse,
     "k.core.Double": doubleParse,
@@ -1614,7 +1614,7 @@ export function parsePreviewValue(type, text, parse) {
     }
     if (type === "k.core.Duration") {
       const UNITS = { millisecond: 1, second: 1000, minute: 60000, hour: 3600000, day: 86400000, week: 604800000 };
-      const unit = lit ? lit[2].replace(/s$/, "") : "";
+      const unit = lit ? lit[2].replace(new RegExp("s$"), "") : "";
       if (!lit || !Object.hasOwn(UNITS, unit)) return undefined;
       return Math.round(Number(lit[1].replaceAll("_", "")) * UNITS[unit]);
     }
@@ -1742,7 +1742,7 @@ export async function framePreview(groups, previews, routes, gi) {
   };
   const fail = (e) => {
     const d = describe(e, { start: -1, end: -1 });
-    const message = d.message.replace(/^the test /, "the preview ") + d.values.map(([what, value]) => `\n${what}: ${value}`).join("");
+    const message = d.message.replace(new RegExp("^the test "), "the preview ") + d.values.map(([what, value]) => `\n${what}: ${value}`).join("");
     const box = document.createElement("pre");
     box.className = "k-preview-failure";
     box.textContent = message;
