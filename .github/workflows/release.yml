@@ -323,7 +323,7 @@ jobs:
   # signatures, against this workflow's identity at the ref it was started
   # on (`refs/heads/main`, or the release branch).
   verify:
-    needs: [check, sign]
+    needs: [check, sign, docs]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -332,6 +332,10 @@ jobs:
           pattern: dist-*
           path: target/dist
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: book
+          path: target/dist
       - uses: actions/download-artifact@v4
         with:
           name: checksums
