@@ -623,11 +623,13 @@ fn worker_thread(
                 {
                     crate::inspector::serve(listener, sessions, "Kobra server".to_owned());
                 }
+                // Ready before `start` hears of it, so a request right after
+                // `Server::start` returns finds the worker taking requests.
+                ctx.queues.ready[ctx.index].store(true, Ordering::Release);
+                metrics.gauge("k_workers_ready", &[], 1);
                 if let Some(s) = started.take() {
                     let _ = s.send(Ok(()));
                 }
-                ctx.queues.ready[ctx.index].store(true, Ordering::Release);
-                metrics.gauge("k_workers_ready", &[], 1);
                 let outcome = engine.run_main(&entry);
                 ctx.queues.ready[ctx.index].store(false, Ordering::Release);
                 metrics.gauge("k_workers_ready", &[], -1);
