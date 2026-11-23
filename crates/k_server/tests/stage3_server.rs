@@ -2093,22 +2093,24 @@ fn configs_are_required_only_where_the_graph_reaches_them() {
 // dist/app: the single executable
 // ---------------------------------------------------------------------------
 
-/// The `k` binary next to this test binary (`target/<profile>/k`).
+/// The `k` binary in this test binary's profile directory
+/// (`target/<profile>/k`): the nearest ancestor with a `deps` directory,
+/// which holds whether Cargo puts test binaries in `deps/` or in
+/// `build/<package>/<hash>/`.
 fn k_binary() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let dir = exe
-        .parent()
-        .and_then(Path::parent)
-        .ok_or("no target directory")?;
-    let k = dir.join(if cfg!(windows) { "k.exe" } else { "k" });
-    if k.is_file() {
-        Ok(k)
-    } else {
-        Err(format!(
-            "{} not found; build it with `cargo build -p k_cli`",
-            k.display()
-        ))
-    }
+    let name = if cfg!(windows) { "k.exe" } else { "k" };
+    exe.ancestors()
+        .skip(1)
+        .find(|d| d.join("deps").is_dir())
+        .map(|d| d.join(name))
+        .filter(|k| k.is_file())
+        .ok_or_else(|| {
+            format!(
+                "no `{name}` in the profile directory above {}; build it with `cargo build -p k_cli`",
+                exe.display()
+            )
+        })
 }
 
 /// Runs `k build` on `projects/dist-smoke` into a fresh directory and

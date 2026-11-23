@@ -184,7 +184,11 @@ fn serve(
         .collect();
     o.database = k_server::db::DatabaseSetup::from_config(output.database.clone(), &o.config);
     configure(&mut o);
-    Server::start(o).unwrap_or_else(|e| panic!("starts: {e}"))
+    let workers = o.workers;
+    ready(
+        Server::start(o).unwrap_or_else(|e| panic!("starts: {e}")),
+        workers,
+    )
 }
 
 /// A hand-written server bundle of one module.
@@ -202,7 +206,19 @@ fn script_server(source: &str, configure: impl FnOnce(&mut ServerOptions)) -> Se
     o.shutdown_grace = Duration::from_secs(5);
     o.log = LogOutput::Capture;
     configure(&mut o);
-    Server::start(o).expect("starts")
+    let workers = o.workers;
+    ready(Server::start(o).expect("starts"), workers)
+}
+
+/// Waits until every worker isolate has started: they start after the
+/// listener, and a slow machine is still starting them when `start` returns.
+fn ready(server: Server, workers: usize) -> Server {
+    let metrics = server.channels().metrics.clone();
+    let workers = i64::try_from(workers).unwrap_or(i64::MAX);
+    eventually("every worker ready", Duration::from_secs(60), || {
+        metrics.gauge_value("k_workers_ready", &[]) == workers
+    });
+    server
 }
 
 /// Waits (at most `limit`) until `ready` holds.
