@@ -420,6 +420,7 @@ gate isn't run where its columns say.
 | `test-linux` | Linux x86_64, with a Postgres service and Chrome | `cargo test --workspace` with `K_TEST_POSTGRES_URL` and `K_REQUIRE_CHROME=1` |
 | `book` | Linux x86_64 | `cargo xtask docs build --version next` (the book, any mdBook warning or error fails), the link check (`book_links::`; the other freshness checks are inside `cargo test`); when `docs/book/` or `crates/xtask/` changed since the `base` input (`cargo xtask ci changed`), the built site uploaded as an artifact (the change's preview until the owner picks a host with previews) |
 | `fragments` | Linux x86_64 | `cargo test -p xtask`; `cargo xtask docs-gate <base>` (a fragment when `crates/`, `editors/` or `docs/book/` changed since the base, and its pages in the diff; nothing to check on main itself) |
+| `vscode` | Linux x86_64, Node 22 | `node --test` in `editors/vscode`: the preview client and panel against a fake `k preview` and a stub of the `vscode` module (no npm install; the test against a real `k` skips, as the job builds none) |
 | `intellij` | Linux x86_64, Java 25 | `./gradlew test buildPlugin verifyPlugin` in `editors/intellij`: the JetBrains plugin's tests in a headless IDE, the plugin verifier, and the zip uploaded as an artifact |
 | `install-scripts` | Linux x86_64; only when `scripts/install.*` or their tests changed since the base | `install_script::`: each installer against a fake release, docs site and GitHub API on loopback |
 | `pages` | Linux x86_64; a run of main, after the jobs above; needs `K_PAGES_ENABLED` (set) | the whole site (the newest release from its tag, `/next/` from main, `install.sh`, `install.ps1` and the index at its root) deployed to GitHub Pages |
@@ -491,7 +492,7 @@ commit, so the gate, the artifacts and the tag are of one commit.
    artifacts as a user would and checks the digests and the signatures against the workflow's
    identity at the ref it was started on (`…/release.yml@refs/heads/release/0.6`;
    `scripts/ci/verify.sh`).
-6. **`extension`**: `npm ci` and `npx @vscode/vsce package` in `editors/vscode` (npm is used here and only
+6. **`extension`**: `npm ci`, `node --test` (the preview panel's tests) and `npx @vscode/vsce package` in `editors/vscode` (npm is used here and only
    here, [architecture.md §15](architecture.md#15-dependencies)): `kobra-<version>.vsix`. Beside it,
    **`intellij`**: `./gradlew test buildPlugin verifyPlugin` in `editors/intellij` (Java 25; Gradle,
    the IntelliJ Platform Gradle Plugin and the IDE from Gradle's and JetBrains' repositories): the

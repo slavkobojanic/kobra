@@ -105,6 +105,11 @@ extension's own version is. Clicking it restarts the server.
 Highlighting comes from the extension's own grammar, so after you update the repository, package and install
 the extension again to pick up its fixes.
 
+In a project with previews, the extension also shows them in a **Kobra Preview** panel beside the editor,
+following the file you edit ([Preview views](../apps/previews.md#in-vs-code)). Its one setting is
+`kobra.preview.autoOpen` (default `true`), which opens the panel when a file with previews becomes the
+active editor.
+
 ## JetBrains IDEs
 
 The Kobra plugin works in IntelliJ IDEA, WebStorm, PyCharm, GoLand, RustRover and the other JetBrains IDEs,

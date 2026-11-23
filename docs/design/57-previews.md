@@ -160,6 +160,54 @@ building it:
 - **The panel is plain HTML, CSS and JavaScript served from the `k` binary**, with no build step, as the
   rest of the toolchain has no npm ([13-tooling.md](13-tooling.md)).
 
+**Round 3 (2026-11-24): the VS Code panel.** `editors/vscode/preview/`: `client.js`, the client of
+`k preview --editor` with only Node's built-ins (the process, its restarts, the buffers, what `k` last
+said), and `index.js`, the VS Code side (the **Kobra Preview** webview, the status bar item, the commands
+`kobra.preview.open`, `kobra.preview.toggleGrid` and `kobra.preview.revealError`, the setting
+`kobra.preview.autoOpen`). Tested with `node --test` in `editors/vscode`, against a fake `k preview`, a stub
+of the `vscode` module and, when a `k` is built, the real one on the `previewing` fixture; `ci.yml`'s
+`vscode` job runs them. The JetBrains panel (round 4) is next. Decided while building it:
+
+- **One process per project that enables previews**, started the first time a `.k` file of it is open:
+  the project is the nearest `k.toml` at or above the file (not above the workspace folder), and only one
+  whose text names `view-previews` gets a process, since a preview anywhere else is K8108. A workspace with
+  several apps runs one per app that previews. The process is `k.server.path` with `k.server.extraEnv`, the
+  language server's settings, and a change to them restarts both.
+- **The client keeps the open buffers** and sends them to each new process after its `ready`, so a
+  restart loses nothing. A process that stops is restarted after 0.5, 1, 2, 5, 10, then every 30 seconds;
+  six stops in a row, each within a minute of its start, give up with an error message naming `k`'s last
+  line on standard error (an old `k` without `preview`, say).
+- **The editor sends `select` for every cursor position at or after a file's first `preview` keyword**
+  (throttled to one per 150 ms, the latest position), and `k` decides whether it is inside a declaration.
+  The `previews` message has only the keywords' ranges, and `k` already tells the pages only when the
+  selection changes, so a range check in the editor would duplicate `k`'s with less information.
+- **Switching files switches the loaded page by message** (`{kpreview: "select", file, index}`) when it is
+  the same process, keeping the environment bar; a different project, the grid toggle, a theme change and
+  a restarted process load the page's URL again (the page reads `theme` and `mode` only from its URL, and
+  keeps the environment bar in its session storage across the reload).
+- **Closing the panel stops the automatic opening** until a command or a CodeLens opens it again (until
+  the window reloads otherwise): reopening a panel the user has just closed on the next file switch would
+  fight them. `kobra.preview.autoOpen` is in the `kobra.` namespace the CodeLens command already uses,
+  while the language server's settings keep their `k.` names.
+- **The page is reached through `vscode.env.asExternalUri`**, which forwards the port in a remote window
+  and is the identity locally, and the webview's content security policy allows frames from that origin
+  only, scripts only with a nonce. `portMapping` isn't used: it maps the webview's own requests, not an
+  iframe's. The page is kept while the panel is hidden (`retainContextWhenHidden`), so its mounts and
+  controls survive switching tabs. The extension runs where the workspace is (`extensionKind:
+  workspace`), as `k` does.
+- **The status bar item shows the error of the project the panel shows** (else the active file's), as
+  "Preview: error at line N", and clicking it opens the file at the line and column; `built` hides it. It
+  is a plain status bar item rather than a diagnostic: the language server already reports the same
+  error, and a second diagnostic would duplicate it in the Problems view.
+- **The extension's version doesn't change**: it is the toolchain's
+  ([48](48-releases-and-versioning.md#the-vs-code-extension)), `0.1.0-rc.1`, set by the release.
+- **No new npm dependency.** The panel is a webview with an iframe and a dozen lines of inline script; the
+  tests use Node's built-in runner, so `npm install` is still needed only to package the extension.
+- **Not built:** in VS Code for the Web (a Codespace in the browser) the frames don't load, because each
+  mount serves its frame from `127.0.0.1` on a port of its own, which only the panel's page is forwarded
+  for; serving the frames through the page's port, or forwarding each mount's port, is a later item. In a
+  desktop remote window they show once VS Code forwards the mount's port to the same number.
+
 ## Rejected
 
 - **Previews in sibling `Name.preview.k` files** (as `.test.k` is). This keeps production files free of test-only code, but Swift's inline placement keeps the preview where the view is edited, which is the point. Scoping preview bodies as test-only code gets the fixtures without a second file.

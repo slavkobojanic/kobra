@@ -9,12 +9,17 @@
 // delegates to the project's pinned toolchain, so this is the version the
 // project uses, whatever the extension's own version is.
 //
+// The preview panel (`preview/`) runs `k preview --editor` beside the
+// language server, with the same `k` and environment, and shows each
+// file's `preview` declarations in a webview.
+//
 // Plain JavaScript on purpose: the extension has no build step.
 
 "use strict";
 
 const vscode = require("vscode");
 const { LanguageClient } = require("vscode-languageclient/node");
+const { Previews } = require("./preview");
 
 /**
  * The running client; replaced by `k.restartServer`, `undefined` after
@@ -28,6 +33,12 @@ let client;
  * @type {vscode.LanguageStatusItem | undefined}
  */
 let status;
+
+/**
+ * The preview processes and panel; `undefined` after deactivation.
+ * @type {Previews | undefined}
+ */
+let previews;
 
 /**
  * Starts `client` and shows the version it reports, or that it isn't
@@ -94,6 +105,7 @@ function createClient() {
  * @param {vscode.ExtensionContext} context
  */
 async function activate(context) {
+  previews = new Previews(context);
   client = createClient();
   status = vscode.languages.createLanguageStatusItem("k.toolchain", { language: "k" });
   status.name = "Kobra toolchain";
@@ -127,9 +139,13 @@ async function activate(context) {
   }
 }
 
-/** Stops the language server. */
+/** Stops the preview processes and the language server. */
 async function deactivate() {
   status = undefined;
+  if (previews) {
+    await previews.dispose();
+    previews = undefined;
+  }
   if (client) {
     await client.stop();
     client = undefined;

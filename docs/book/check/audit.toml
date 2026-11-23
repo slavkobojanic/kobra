@@ -175,7 +175,7 @@ unpinned = [
 [pages."getting-started/editor-setup.md"]
 commit = "0dd7625"
 date = "2026-11-09"
-note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: completion (`.on(` events, style properties, keywords, tokens, classes) and hover on tokens and classes; no findings"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: completion (`.on(` events, style properties, keywords, tokens, classes) and hover on tokens and classes; no findings. 2026-11-24, on top of 87b436de: the paragraph on the VS Code preview panel and `kobra.preview.autoOpen`, checked against editors/vscode/package.json and test/panel.test.js"
 unpinned = [
     "renaming a public declaration renames its file",
     "events an earlier `.on(…)` of the chain handles are left out of completion",
@@ -749,13 +749,14 @@ unpinned = [
 ]
 
 [pages."apps/previews.md"]
-commit = "f658ffa8"
+commit = "87b436de"
 date = "2026-11-24"
-note = "new with view previews rounds 1-2 (docs/design/57-previews.md); claims checked against the k_sema previews::, k_server previews::, k_cli preview:: and check-mounts tests; fixed: the environment bar's locale only sets the document language"
+note = "new with view previews rounds 1-2 (docs/design/57-previews.md); claims checked against the k_sema previews::, k_server previews::, k_cli preview:: and check-mounts tests; fixed: the environment bar's locale only sets the document language. Round 3 (2026-11-24) added \"In VS Code\", checked against editors/vscode/preview and its node --test tests (test/client.test.js, test/panel.test.js: the panel opening beside the editor, following it, the grid, the theme, the CodeLens command, the error status item, select)"
 unpinned = [
     "reduced motion and forced colours in the environment bar change the frame's media rules",
     "Hold loading keeps every `@Load` in its `loading` state",
     "the grid shows each preview's controls in a popover",
+    "the panel leaves the focus in the editor and the Open Preview button shows in a .k editor's title bar (VS Code's behaviour; the tests run on a stub of the vscode module)",
 ]
 
 [pages."reference/design-status.md"]

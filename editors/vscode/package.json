@@ -1,7 +1,7 @@
 {
   "name": "kobra",
   "displayName": "Kobra",
-  "description": "Kobra language support: syntax highlighting and the Kobra language server (`k lsp`).",
+  "description": "Kobra language support: syntax highlighting, the Kobra language server (`k lsp`) and the preview panel (`k preview`).",
   "version": "0.1.0-rc.1",
   "publisher": "slavkobojanic",
   "license": "MIT OR Apache-2.0",
@@ -18,8 +18,12 @@
     "Programming Languages"
   ],
   "main": "./extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
   "activationEvents": [
-    "workspaceContains:**/k.toml"
+    "workspaceContains:**/k.toml",
+    "onLanguage:k"
   ],
   "contributes": {
     "languages": [
@@ -64,6 +68,11 @@
           ],
           "default": "off",
           "description": "Traces the communication between VS Code and the Kobra language server in the output panel."
+        },
+        "kobra.preview.autoOpen": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Open the Kobra Preview panel beside the editor when a `.k` file with a `preview` becomes the active editor. Closing the panel keeps it closed until **Kobra: Open Preview** or a **▶ Preview** CodeLens opens it again. The panel runs `k preview --editor` with `#k.server.path#` and `#k.server.extraEnv#`."
         }
       }
     },
@@ -79,8 +88,46 @@
       {
         "command": "k.restartServer",
         "title": "Kobra: Restart Language Server"
+      },
+      {
+        "command": "kobra.preview.open",
+        "title": "Kobra: Open Preview",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "kobra.preview.toggleGrid",
+        "title": "Kobra: Toggle Preview Grid",
+        "icon": "$(layout)"
+      },
+      {
+        "command": "kobra.preview.revealError",
+        "title": "Kobra: Go to Preview Error"
       }
-    ]
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "kobra.preview.open",
+          "when": "resourceLangId == k",
+          "group": "navigation"
+        },
+        {
+          "command": "kobra.preview.toggleGrid",
+          "when": "activeWebviewPanelId == 'kobra.preview'",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "kobra.preview.open",
+          "when": "editorLangId == k"
+        },
+        {
+          "command": "kobra.preview.revealError",
+          "when": "false"
+        }
+      ]
+    }
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

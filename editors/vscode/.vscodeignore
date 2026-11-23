@@ -1,0 +1,3 @@
+# Not packaged into the .vsix: the tests of the extension's preview client
+# (`node --test test/`).
+test/**

@@ -1,0 +1,76 @@
+#!/usr/bin/env node
+// A fake `k preview --editor --no-open <root>` for the client's tests: it
+// speaks the editor protocol (docs/compiler/preview.md §5) over a toy
+// "build" that lists the `preview` keywords at the start of a line.
+//
+// Environment:
+// - FAKE_K_LOG: a file each received line is appended to;
+// - FAKE_K_CRASH: exit 3 right after `ready` (counted in FAKE_K_CRASH_FILE,
+//   once per run until it holds FAKE_K_CRASH lines);
+// - FAKE_K_FAIL: exit 2 at once, saying why on standard error.
+
+"use strict";
+
+const fs = require("node:fs");
+const path = require("node:path");
+const readline = require("node:readline");
+const { fileURLToPath } = require("node:url");
+
+const args = process.argv.slice(2);
+if (args[0] !== "preview" || !args.includes("--editor") || !args.includes("--no-open")) {
+  process.stderr.write(`fake k: unexpected arguments ${JSON.stringify(args)}\n`);
+  process.exit(2);
+}
+if (process.env.FAKE_K_FAIL) {
+  process.stderr.write("error: unrecognized subcommand 'preview'\n");
+  process.exit(2);
+}
+
+const root = args[args.length - 1];
+const send = (m) => process.stdout.write(`${JSON.stringify(m)}\n`);
+process.stderr.write(`previews on http://127.0.0.1:4999/\n`);
+send({ type: "ready", url: "http://127.0.0.1:4999/" });
+
+if (process.env.FAKE_K_CRASH) {
+  const file = process.env.FAKE_K_CRASH_FILE;
+  const runs = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").filter(Boolean).length : 0;
+  fs.appendFileSync(file, "run\n");
+  if (runs < Number(process.env.FAKE_K_CRASH)) process.exit(3);
+}
+
+let build = 0;
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  if (process.env.FAKE_K_LOG) fs.appendFileSync(process.env.FAKE_K_LOG, `${line}\n`);
+  const m = JSON.parse(line);
+  if (m.type === "shutdown") process.exit(0);
+  if (m.type === "didOpen" || m.type === "didChange") {
+    if (m.text.includes("BROKEN")) {
+      const before = m.text.slice(0, m.text.indexOf("BROKEN"));
+      send({ type: "error", uri: m.uri, message: "cannot find `BROKEN` in scope", line: before.split("\n").length, column: 1 });
+      return;
+    }
+    build += 1;
+    send({ type: "built", build });
+    const list = [];
+    // The files needn't exist: the tests' buffers are only in memory.
+    const full = fileURLToPath(m.uri);
+    const real = path.join(fs.realpathSync(path.dirname(full)), path.basename(full));
+    const file = path.relative(fs.realpathSync(root), real).split(path.sep).join("/");
+    const re = /^preview\b(?: "([^"]*)")?/gm;
+    let match;
+    while ((match = re.exec(m.text))) {
+      const index = list.length;
+      list.push({
+        index,
+        label: match[1] || "Unnamed",
+        line: m.text.slice(0, match.index).split("\n").length,
+        start: match.index,
+        end: match.index + 7,
+        path: `/p/${file}/${index}`,
+      });
+    }
+    send({ type: "previews", uri: m.uri, list });
+  }
+});
+rl.on("close", () => process.exit(0));

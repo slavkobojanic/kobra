@@ -358,6 +358,8 @@ jobs:
           node-version: 22
       - run: npm ci
         working-directory: editors/vscode
+      - run: node --test
+        working-directory: editors/vscode
       - run: mkdir -p target/dist
       - run: npx --yes @vscode/vsce@3 package --out ../../target/dist/
         working-directory: editors/vscode

@@ -118,6 +118,20 @@ jobs:
         env:
           BASE: ${{ inputs.base }}
 
+  # The VS Code extension's preview client and panel (editors/vscode/test),
+  # with Node's own test runner: no npm install. The test against a real
+  # `k preview` skips here, as no `k` is built in this job; it runs locally
+  # (docs/compiler/preview.md §6).
+  vscode:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test
+        working-directory: editors/vscode
+
   # The JetBrains plugin (editors/intellij): its tests in a headless IDE,
   # the plugin verifier against the IDE it targets, and the zip. Gradle,
   # the IntelliJ Platform Gradle Plugin and the IDE come from Gradle's and

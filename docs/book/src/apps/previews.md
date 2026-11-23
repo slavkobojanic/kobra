@@ -2,8 +2,8 @@
 
 A **`preview`** renders a view in a chosen state, written in the file of the view it shows. `k check`
 mounts every preview once, so a preview that stops rendering fails the check, and `k preview` shows them in
-your browser while you edit. The editor panels (VS Code, JetBrains) come in a later release. The design is in
-`docs/design/57-previews.md`.
+your browser while you edit, or in a panel beside the editor in VS Code ([below](#in-vs-code)). The
+JetBrains panel comes in a later release. The design is in `docs/design/57-previews.md`.
 
 > **Preview** (view-previews). Previews are a preview feature: they are built, but may still change in any
 > minor release. A project opts in with `preview = ["view-previews"]` in the `[package]` section of its
@@ -99,6 +99,28 @@ database and the `k test` defaults, exactly the hermetic setup `k check` mounts 
 rebuilds and remounts, keeping the control values by parameter name and type; while the project has an
 error, the last good build stays under a badge naming the error. A page whose guards refuse the setup's
 session shows the same message `k check` reports, rather than the sign-in page.
+
+## In VS Code
+
+The Kobra extension ([Editor setup](../getting-started/editor-setup.md#visual-studio-code)) shows the same
+page in a **Kobra Preview** panel beside the editor. It runs `k preview` itself, one per project that
+enables previews, with the `k` the language server uses, and sends it your unsaved buffers, so the preview
+rebuilds as you type rather than when you save.
+
+- **The panel follows the editor.** When a `.k` file with previews becomes the active editor, the panel
+  opens beside it, leaving the focus in the editor (set `kobra.preview.autoOpen` to `false` to open it
+  only by hand). Another `.k` file with previews switches it to that file; any other editor leaves it on
+  the last one. If you close the panel, it stays closed until you open it again.
+- **The cursor selects.** Moving the cursor into a `preview` declaration shows that preview.
+- **Opening it by hand:** the **▶ Preview** link above each `preview` opens the panel on that preview,
+  and so do the **Open Preview** button in the editor's title bar and **Kobra: Open Preview** in the
+  command palette, on the preview the cursor is in.
+- **Grid:** the layout button in the panel's title bar (**Kobra: Toggle Preview Grid**) switches between
+  one preview and every preview of the file.
+- The page's colours follow VS Code's theme, light or dark. The environment bar's **colours** setting is
+  separate: it changes what the preview renders, not the panel.
+- **Errors:** while the project has an error, the panel keeps the last good build under its badge, and the
+  status bar shows **Preview: error at line N**. Clicking it goes to the error.
 
 ## `k check` mounts every preview
 

@@ -8,6 +8,8 @@
 //!   `editors/nvim/syntax/k.vim`) are identical and list every keyword;
 //! * the VS Code manifest registers the `k` language, the grammar and the
 //!   language configuration, and starts `k lsp`;
+//! * the VS Code extension registers the command of the **▶ Preview**
+//!   CodeLens and runs `k preview --editor` for its preview panel;
 //! * the JetBrains plugin (`editors/intellij`) bundles that same grammar and
 //!   language configuration, copied from `editors/vscode` by its build with
 //!   no copy of its own, registers `.k` and starts `k lsp`.
@@ -219,6 +221,38 @@ fn the_vscode_extension_shows_the_servers_version() {
     for needle in ["createLanguageStatusItem", "initializeResult", "serverInfo"] {
         assert!(extension.contains(needle), "extension.js lacks `{needle}`");
     }
+}
+
+/// The **▶ Preview** CodeLens names a command the client must run
+/// (`kobra.preview.open`, docs/compiler/lsp.md): the VS Code extension
+/// contributes and registers it, and its panel runs `k preview --editor`
+/// (docs/design/57-previews.md, "The panel"). The panel's own tests are
+/// `node --test` in `editors/vscode` (docs/compiler/preview.md §6).
+#[test]
+fn the_vscode_extension_runs_the_preview_codelens_command() {
+    let dir = editors().join("vscode");
+    let manifest: Value =
+        serde_json::from_str(&fs::read_to_string(dir.join("package.json")).unwrap()).unwrap();
+    let commands: Vec<&str> = manifest["contributes"]["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["command"].as_str())
+        .collect();
+    let lens = k_lsp::server::handlers::PREVIEW_COMMAND;
+    assert!(commands.contains(&lens), "{commands:?} lacks {lens}");
+    let properties = &manifest["contributes"]["configuration"]["properties"];
+    assert_eq!(properties["kobra.preview.autoOpen"]["default"], true);
+    let panel = fs::read_to_string(dir.join("preview/index.js")).unwrap();
+    assert!(
+        panel.contains(&format!("registerCommand(\"{lens}\"")),
+        "preview/index.js doesn't register {lens}"
+    );
+    let client = fs::read_to_string(dir.join("preview/client.js")).unwrap();
+    assert!(client.contains(r#"["preview", "--editor", "--no-open""#));
+    // The tests aren't packaged.
+    let ignore = fs::read_to_string(dir.join(".vscodeignore")).unwrap();
+    assert!(ignore.lines().any(|l| l == "test/**"));
 }
 
 /// Every file below `dir`, skipping the Gradle build's output and caches.

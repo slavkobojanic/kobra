@@ -111,7 +111,8 @@ Decisions made with the server:
   comment like a use of `Name` in code, and hover renders it as a link.
 - **Editors** ship in the repository (`editors/`): VS Code, JetBrains IDEs, Neovim and Vim. npm is used
   only to package the VS Code extension and Gradle only to build the JetBrains plugin, never by the
-  toolchain.
+  toolchain. The extension's own tests (its preview panel's) run with `node --test`, Node's built-in
+  runner, without an npm install ([57-previews.md](57-previews.md#built-so-far)).
 - **The TextMate grammar follows the lexer on strings and comments.** A string ends at its closing quote or at
   the end of its line (strings cannot span lines), an interpolation `{...}` balances the braces inside it
   (a trailing lambda, a `style {}` block), and `test "name"` leaves the name to the ordinary string rule. A

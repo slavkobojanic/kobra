@@ -148,13 +148,26 @@ Editor to `k`:
 | `previews` | `uri`, `list: [{index, label, line, start, end, path}]` | after each good build, for every file with previews and every file the editor sent or selected in (an empty list for a file without). `start`/`end` are the keyword's UTF-16 offsets, `line` is 1-based, `path` the page's path (`/p/src/shop/Counter.k/0`; append `?embed=1`) |
 | `error` | `uri` (or `null`), `message`, `line`, `column` (1-based, or `null`) | when the sources have an error: the page keeps the last good build under a badge with the same message; also for a message `k` couldn't read |
 
+### The VS Code panel
+
+`editors/vscode/preview/` is this protocol's first client: `client.js` (the process, restarts with
+backoff, the buffers resent after each `ready`, each file's last `previews`, the error) and `index.js`
+(the webview on `<url>p/<file>/<index>?embed=1&theme=light|dark[&mode=grid]`, reached through
+`asExternalUri`, following the active editor and posting `{kpreview: "select"}` into the page). Decisions
+are in [57-previews.md](../design/57-previews.md#built-so-far) (round 3), the user's view in
+`editors/vscode/README.md`.
+
 ## 6. Tests
 
 `crates/k_cli/tests/preview.rs`: the editor protocol on the `previewing` fixture (index, page, values
 kept across a rename, a broken edit keeping the last build under the badge, `select`, `didClose`,
 `shutdown`), and in headless Chrome the panel's toggle changing what the frame renders. Unit tests in
 `preview::controls` (control JSON, defaults, checking values, retention), `preview::editor` (messages,
-UTF-16 offsets) and `preview::http`.
+UTF-16 offsets) and `preview::http`. The VS Code client's tests are `node --test` in `editors/vscode` (no npm
+install): the client against a fake `k preview` (`test/fake-k`) and, when a `k` is built (`KOBRA_K`, else
+`target/debug/k`), against the real `k preview --editor` on the `previewing` fixture; the panel on a stub
+of the `vscode` module. `crates/k_lsp/tests/editors.rs` checks that the extension registers the CodeLens's
+command.
 
 ## 7. Limits
 
