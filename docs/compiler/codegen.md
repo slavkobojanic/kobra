@@ -1672,8 +1672,12 @@ the test groups:
   `$k.$test.settlePreview` (settle; an error raised while rendering fails it). `$groups` has the usual
   shape, the group named by the preview's label and the test's range the `preview` keyword, so the kit's
   `run` reports a failure there.
-- **`$previews`**: per group, in order, `{label, file, start, end, params}`, the keyword's offsets and the
-  parameter names, for a client that drives `$mount` itself.
+- **`$previews`**: per group, in order, `{label, file, start, end, params, parse}`, the keyword's offsets,
+  the parameter names, and for each parameter whose type is a project type with `static func parse(_:)`
+  that function (`k preview`'s frame parses a control's text with it), for a client that drives `$mount`
+  itself.
+- `$mount` hands its parameters' signals to `$k.$test.previewParams({name: signal})` before the setup,
+  so `k preview`'s frame reports what a `bind` writes back ([preview.md](preview.md#the-frame)).
 
 The API a tool builds on: `k_sema::Analysis::previews(file) -> Vec<k_sema::preview::Preview>` (name,
 label, range, keyword, rendered declaration, and per parameter its name, type, `Control` and literal

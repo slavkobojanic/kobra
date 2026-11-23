@@ -31,9 +31,10 @@
  * runtime instance.
  */
 
-import { batch, flush, onCleanup, root, signal } from "../runtime/signals.js";
+import { batch, effect, flush, onCleanup, root, signal } from "../runtime/signals.js";
 import { KPanic, equals, isPanic, unitCase } from "../runtime/values.js";
-import { Instant, PushStream, Secret, httpCode, stringify } from "../runtime/std.js";
+import { Instant, PushStream, Secret, doubleParse, httpCode, intParse, parseEmail, parseInstant, parseTimeOfDay, parseTimeZone, parseUrl, parseUuid, stringify } from "../runtime/std.js";
+import { Currency, Money, money, parseDecimal } from "../runtime/money.js";
 import { HttpResponse$isSuccess, HttpResponse$json, HttpResponse$text } from "../runtime/http.js";
 import { received } from "../runtime/outbound.js";
 import { hasNative, native as browserNative } from "../runtime/services.js";
@@ -1304,9 +1305,11 @@ class Screen extends Queries {
  * @param {() => string} [href] a rendered page's URL
  */
 export function render(mount, href) {
-  // A rendered page puts the browser on its URL.
+  // A rendered page puts the browser on its URL (in a `k preview` frame,
+  // a real browser, without loading it).
   const page = typeof href === "function";
-  if (page && globalThis.location) globalThis.location.href = href();
+  if (page && previewFrame) globalThis.history.replaceState(null, "", href());
+  else if (page && globalThis.location) globalThis.location.href = href();
   const doc = globalThis.document;
   const host = doc.createElement("div");
   doc.body.appendChild(host);
@@ -1362,6 +1365,451 @@ export async function settlePreview(s) {
   if (s === null || s === undefined) return;
   await s.settle();
   if (current.errors.length > 0) throw current.errors[0];
+}
+
+// ------------------------------------------------------- `k preview`
+
+/**
+ * `true` in a `k preview` frame ({@link framePreview}): a real browser
+ * document, where a rendered page's URL is set without loading it.
+ */
+let previewFrame = false;
+
+/**
+ * Records the signals of a mounting preview's parameters (`$mount` calls
+ * it right after making them), so a frame can report what a `bind` wrote
+ * back to the panel's controls.
+ * @param {Record<string, {get: () => unknown}>} cells
+ */
+export function previewParams(cells) {
+  current.params = cells;
+}
+
+/**
+ * The runtime classes a value sent across the preview bridge may be an
+ * instance of, rebuilt by name on the other side; any other object goes by
+ * handle.
+ */
+const WIRE_CLASSES = { Instant, Secret, Money };
+
+/**
+ * Encodes `v` for the preview bridge (docs/compiler/preview.md, "The
+ * bridge"): JSON with one tag per value. `handle(v)` gives an object that
+ * can't be copied a handle id (or throws).
+ * @param {unknown} v
+ * @param {(v: object) => object} handle
+ * @returns {object}
+ */
+export function toWire(v, handle) {
+  if (v === undefined) return { u: 1 };
+  if (v === null || typeof v === "boolean" || typeof v === "string") return { v };
+  if (typeof v === "number") return Number.isFinite(v) ? { v } : { d: String(v) };
+  if (typeof v === "bigint") return { b: String(v) };
+  if (Array.isArray(v)) return { a: v.map((x) => toWire(x, handle)) };
+  if (v instanceof Uint8Array) return { y: [...v] };
+  if (v instanceof Map) return { m: [...v].map(([k, x]) => [toWire(k, handle), toWire(x, handle)]) };
+  if (v instanceof Set) return { s: [...v].map((x) => toWire(x, handle)) };
+  if (typeof v === "object") {
+    const proto = Object.getPrototypeOf(v);
+    const fields = () => Object.fromEntries(Object.entries(v).map(([k, x]) => [k, toWire(x, handle)]));
+    if (proto === Object.prototype || proto === null) {
+      const keys = Object.keys(v);
+      // A payload-free enum case is one value per tag on each side.
+      if (Object.isFrozen(v) && keys.length === 1 && keys[0] === "$" && typeof v.$ === "number") return { c: v.$ };
+      return { o: fields() };
+    }
+    for (const [name, C] of Object.entries(WIRE_CLASSES)) if (proto === C.prototype) return { k: name, o: fields() };
+  }
+  return handle(v);
+}
+
+/**
+ * Decodes what {@link toWire} encoded; `handle(w)` turns a handle back into
+ * its value.
+ * @param {object} w
+ * @param {(w: object) => unknown} handle
+ * @returns {unknown}
+ */
+export function fromWire(w, handle) {
+  if (w === null || typeof w !== "object") return w;
+  if ("u" in w) return undefined;
+  if ("v" in w) return w.v;
+  if ("d" in w) return Number(w.d);
+  if ("b" in w) return BigInt(w.b);
+  if ("a" in w) return w.a.map((x) => fromWire(x, handle));
+  if ("y" in w) return Uint8Array.from(w.y);
+  if ("m" in w) return new Map(w.m.map(([k, x]) => [fromWire(k, handle), fromWire(x, handle)]));
+  if ("s" in w) return new Set(w.s.map((x) => fromWire(x, handle)));
+  if ("c" in w) return unitCase(w.c);
+  if ("o" in w) {
+    const fields = Object.fromEntries(Object.entries(w.o).map(([k, x]) => [k, fromWire(x, handle)]));
+    const C = w.k === undefined ? null : WIRE_CLASSES[w.k];
+    return C ? Object.assign(Object.create(C.prototype), fields) : fields;
+  }
+  return handle(w);
+}
+
+/** A JSON response of the preview server. */
+function jsonResponse(status, value) {
+  return { status, headers: [["content-type", "application/json"], ["cache-control", "no-store"]], body: JSON.stringify(value) };
+}
+
+/**
+ * The server half of one `k preview` mount (docs/compiler/preview.md): runs
+ * in the isolate of a server of its own, with a fresh process and
+ * in-memory database, and serves until the preview server stops it.
+ *
+ * - A document request gets `frame`, the page that mounts the preview in
+ *   the browser ({@link framePreview}).
+ * - `POST /_preview/bridge` is the bridge to the preview's server
+ *   container: the browser's `$k.$test.server()` reads its members and calls
+ *   its methods through it, synchronously.
+ * - Every other request goes to the app's handler as the mount's one
+ *   session, like a test's in-process requests: the mount's cookies, its
+ *   virtual clock, its group's server container.
+ * @param {object|null} server the server entry's `$test`
+ * @param {number} gi the preview's group
+ * @param {string} frame the frame document
+ */
+export async function servePreview(server, gi, frame) {
+  const { serve } = await import("../runtime/server.js");
+  let T = null;
+  let direct = null;
+  if (server !== null) {
+    sessionMirror.set({ user: null });
+    T = new TestContext(server, server.groups[gi]);
+    const st = new RequestState(server.spec, T.request("GET", "/", [], EMPTY, undefined));
+    await st.load();
+    T.direct = st;
+    direct = T.container(st);
+  }
+  const handles = [direct];
+  const handle = (v) => {
+    handles.push(v);
+    return { h: handles.length - 1, f: typeof v === "function" };
+  };
+  const page = { status: 200, headers: [["content-type", "text/html; charset=utf-8"], ["cache-control", "no-store"]], body: frame };
+  const bridge = async (body) => {
+    let msg;
+    try {
+      msg = JSON.parse(new TextDecoder().decode(body));
+    } catch {
+      return jsonResponse(400, { panic: "the bridge got a request that isn't JSON" });
+    }
+    const out = {};
+    try {
+      const target = handles[msg.h];
+      if (target === null || target === undefined) throw new KPanic("this preview has no server code to inject from");
+      let value;
+      if (msg.op === "get") {
+        value = target[msg.key];
+        if (typeof value === "function") value = value.bind(target);
+      } else {
+        value = target(...(msg.args ?? []).map((a) => fromWire(a, (w) => handles[w.r])));
+        if (value && typeof value.then === "function") {
+          out.async = true;
+          value = await value;
+        }
+      }
+      out.value = toWire(value, handle);
+    } catch (e) {
+      if (e instanceof Error) out.panic = e.message;
+      else out.thrown = toWire(e, handle);
+    }
+    out.mirror = sessionMirror.peek() ?? { user: null };
+    return jsonResponse(200, out);
+  };
+  await serve(async (request) => {
+    const path = request.path.split("?")[0];
+    const header = (n) => request.headers.find(([k]) => k === n)?.[1] ?? null;
+    if (request.method === "GET" && (path === "/" || header("sec-fetch-dest") === "document")) return page;
+    if (request.method === "POST" && path === "/_preview/bridge") return bridge(request.body);
+    if (T === null) return { status: 404, headers: [["content-type", "text/plain; charset=utf-8"]], body: "this preview has no server" };
+    // The mount's one session: its own cookies, never the browser's.
+    const headers = request.headers.filter(([n]) => n !== "cookie");
+    const r = await T.app({ ...request, headers: [...headers, ...T.cookies()], remote: "127.0.0.1", test: T });
+    if (r && Array.isArray(r.headers)) return { ...r, headers: r.headers.filter(([n]) => n.toLowerCase() !== "set-cookie") };
+    return r;
+  });
+}
+
+/** The marker of a bridge handle's proxy: its handle id. */
+const REMOTE = Symbol("remote");
+
+/**
+ * One synchronous exchange over the bridge ({@link servePreview}). The
+ * session the server container left is mirrored, as an rpc's answer is.
+ * @param {object} msg
+ */
+function bridgeCall(msg) {
+  const x = new XMLHttpRequest();
+  x.open("POST", "/_preview/bridge", false);
+  x.setRequestHeader("content-type", "application/json");
+  x.send(JSON.stringify(msg));
+  if (x.status !== 200) throw new KPanic(`the preview's server container didn't answer (${x.status})`);
+  const r = JSON.parse(x.responseText);
+  if (r.mirror) sessionMirror.set(r.mirror);
+  if (r.panic !== undefined) throw new KPanic(r.panic);
+  if (r.thrown !== undefined) {
+    const e = fromWire(r.thrown, remoteHandle);
+    if (r.async) return Promise.reject(e);
+    throw e;
+  }
+  const v = fromWire(r.value, remoteHandle);
+  return r.async ? Promise.resolve(v) : v;
+}
+
+/**
+ * The browser's view of a server-side value: reading a member asks the
+ * server for it, calling it calls it there.
+ * @param {{h: number, f: boolean}} w
+ */
+function remoteHandle(w) {
+  const target = w.f ? function remote() {} : {};
+  return new Proxy(target, {
+    get(_, key) {
+      if (key === REMOTE) return w.h;
+      if (typeof key === "symbol" || key === "then" || key === "toJSON") return undefined;
+      return bridgeCall({ op: "get", h: w.h, key });
+    },
+    apply(_, _self, args) {
+      const arg = (a) =>
+        toWire(a, (v) => {
+          const h = v?.[REMOTE];
+          if (typeof h === "number") return { r: h };
+          throw new KPanic("a preview's setup can pass the server only values: this one is a browser object");
+        });
+      return bridgeCall({ op: "call", h: w.h, args: args.map(arg) });
+    },
+  });
+}
+
+/**
+ * The value of a parameter given as text, for a type with a literal syntax
+ * (57-previews.md, "The panel"): a `Money` (`24.00.usd`, `10.eur`) or
+ * `Duration` (`5.minutes`) literal, or the text through the type's
+ * `parse`. `undefined` when it doesn't parse.
+ * @param {string} type the qualified type name
+ * @param {string} text
+ * @param {((t: string) => unknown)|undefined} parse a user type's `parse`
+ */
+export function parsePreviewValue(type, text, parse) {
+  const t = String(text).trim();
+  const lit = /^(-?\d[\d_]*(?:\.\d[\d_]*)?)\.([a-z]+)$/.exec(t);
+  const STDLIB = {
+    "k.core.Int": intParse,
+    "k.core.Double": doubleParse,
+    "k.core.Decimal": parseDecimal,
+    "k.core.Date": parseInstant,
+    "k.time.TimeZone": parseTimeZone,
+    "k.time.TimeOfDay": parseTimeOfDay,
+    "k.core.Url": parseUrl,
+    "k.crypto.Uuid": parseUuid,
+    "k.text.EmailAddress": parseEmail,
+  };
+  try {
+    if (type === "k.core.Money") {
+      if (!lit || !Object.hasOwn(Currency, lit[2])) return undefined;
+      return money(lit[1].replaceAll("_", ""), Currency[lit[2]]);
+    }
+    if (type === "k.core.Duration") {
+      const UNITS = { millisecond: 1, second: 1000, minute: 60000, hour: 3600000, day: 86400000, week: 604800000 };
+      const unit = lit ? lit[2].replace(/s$/, "") : "";
+      if (!lit || !Object.hasOwn(UNITS, unit)) return undefined;
+      return Math.round(Number(lit[1].replaceAll("_", "")) * UNITS[unit]);
+    }
+    const f = parse ?? STDLIB[type];
+    if (typeof f !== "function") return undefined;
+    const v = f(t);
+    return v === null || v === undefined ? undefined : v;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Applies the panel's environment bar to the frame: colours and motion
+ * through `TestPreferences` and the stylesheets' media rules, the
+ * viewport through `TestViewport`, the locale as the document's `lang`.
+ * @param {object} container the preview's browser container
+ * @param {object} env `{scheme: "light"|"dark"|"forced"|null, reducedMotion, width, height, locale}`
+ */
+function applyEnvironment(container, env) {
+  const prefs = "TestPreferences" in container ? container.TestPreferences : null;
+  const scheme = env.scheme ?? null;
+  prefs?.set$prefersDark?.(scheme === "dark");
+  prefs?.set$forcedColors?.(scheme === "forced");
+  prefs?.set$prefersReducedMotion?.(env.reducedMotion === true);
+  const want = {
+    "prefers-color-scheme": scheme === null || scheme === "forced" ? null : scheme,
+    "forced-colors": scheme === "forced" ? "active" : null,
+    "prefers-reduced-motion": env.reducedMotion ? "reduce" : null,
+  };
+  forceMedia(want);
+  document.documentElement.style.colorScheme = scheme === "dark" ? "dark" : scheme === "light" ? "light" : "";
+  if (env.width && env.height && "TestViewport" in container) container.TestViewport.resize(`${env.width}px`, `${env.height}px`);
+  if (env.locale) document.documentElement.lang = env.locale;
+}
+
+/** The original condition of each media rule {@link forceMedia} changed. */
+const mediaTexts = new WeakMap();
+
+/**
+ * Makes the stylesheets' media rules on a user preference follow `want`
+ * (feature → value, or `null` for the browser's own): a rule on a feature
+ * forced to a value applies exactly when its condition names that value.
+ * @param {Record<string, string|null>} want
+ */
+function forceMedia(want) {
+  const visit = (rules) => {
+    for (const r of rules) {
+      if (r.media && r.cssRules) {
+        const text = mediaTexts.get(r) ?? r.media.mediaText;
+        if (!mediaTexts.has(r)) mediaTexts.set(r, text);
+        let next = text;
+        for (const [feature, value] of Object.entries(want)) {
+          const m = new RegExp(`\\(\\s*${feature}\\s*:\\s*([a-z-]+)\\s*\\)`).exec(text);
+          if (m && value !== null) next = m[1] === value ? "all" : "not all";
+        }
+        if (r.media.mediaText !== next) r.media.mediaText = next;
+      }
+      if (r.cssRules) {
+        try {
+          visit(r.cssRules);
+        } catch {
+          // A cross-origin sheet can't be read.
+        }
+      }
+    }
+  };
+  for (const sheet of document.styleSheets) {
+    try {
+      visit(sheet.cssRules);
+    } catch {
+      // A cross-origin sheet can't be read.
+    }
+  }
+}
+
+/**
+ * Mounts preview `gi` in this document, a `k preview` frame
+ * (docs/compiler/preview.md, "The frame"): a real browser with fresh
+ * browser containers, whose server container is the frame's own server
+ * ({@link servePreview}), reached through the bridge.
+ *
+ * The configuration is the JSON in the URL's fragment:
+ * `{values, params, env, hold}`, where `values` are the panel's control
+ * values by parameter name (an enum case by name, a parsed type as text),
+ * `params` the parameters' `{name, control, cases, type}`, `env` the
+ * environment bar ({@link applyEnvironment}, plus `offline`), and `hold`
+ * keeps every request pending, so `@Load` fields stay `loading`.
+ *
+ * The frame tells its parent (`postMessage`, `{kpreview: …}`): `mounted`,
+ * `failed` with the message, `invalid` with the names of parameters whose
+ * text doesn't parse, `values` when a `bind` wrote a parameter, and
+ * `title`. It applies `{kpreview: "env", env}` from its parent at once.
+ * @param {Array<object>} groups the preview bundle's `$groups`
+ * @param {Array<object>} previews its `$previews`
+ * @param {Array<object>} routes its `$pages`
+ * @param {number} gi
+ */
+export async function framePreview(groups, previews, routes, gi) {
+  previewFrame = true;
+  pages = routes;
+  const post = (msg) => globalThis.parent?.postMessage({ kpreview: msg.type, ...msg }, "*");
+  let config = {};
+  try {
+    config = JSON.parse(decodeURIComponent(globalThis.location.hash.slice(1) || "{}"));
+  } catch {
+    config = {};
+  }
+  const params = config.params ?? [];
+  const env = config.env ?? {};
+  // A navigation shows its page in the preview's layouts, as the router
+  // would (57-previews.md, "What renders").
+  const push = globalThis.history.pushState.bind(globalThis.history);
+  globalThis.history.pushState = (s, t, url) => {
+    push(s, t, url);
+    queueMicrotask(follow);
+  };
+  globalThis.addEventListener("popstate", () => follow());
+  // Hold loading and offline: requests never answer, or fail.
+  const realFetch = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = (url, init) => {
+    if (config.hold) return new Promise(() => {});
+    if (current.offline) return Promise.reject(new TypeError("Failed to fetch"));
+    return realFetch(url, init);
+  };
+  const fail = (e) => {
+    const d = describe(e, { start: -1, end: -1 });
+    const message = d.message.replace(/^the test /, "the preview ") + d.values.map(([what, value]) => `\n${what}: ${value}`).join("");
+    const box = document.createElement("pre");
+    box.className = "k-preview-failure";
+    box.textContent = message;
+    box.style.cssText = "color:#b00020;white-space:pre-wrap;font:13px ui-monospace,monospace;padding:12px;margin:0";
+    document.body.appendChild(box);
+    post({ type: "failed", message });
+  };
+  try {
+    const g = groups[gi];
+    const meta = previews[gi] ?? { params: [] };
+    sessionMirror.set({ user: null });
+    begin(null, testClock(), remoteHandle({ h: 0, f: false }));
+    const container = g.container();
+    current.container = container;
+    applyEnvironment(container, env);
+    if (env.offline && "TestConnectivity" in container) container.TestConnectivity.goOffline();
+    else if (env.offline) current.offline = true;
+    // The panel's values as the parameters' types hold them.
+    const values = {};
+    const invalid = [];
+    for (const p of params) {
+      if (!Object.hasOwn(config.values ?? {}, p.name)) continue;
+      const v = config.values[p.name];
+      if (v === null || v === undefined) continue;
+      if (p.control === "choice") {
+        const i = (p.cases ?? []).indexOf(v);
+        if (i >= 0) values[p.name] = unitCase(i);
+      } else if (p.control === "parsed") {
+        const parsed = parsePreviewValue(p.type, v, meta.parse?.[p.name]);
+        if (parsed === undefined) invalid.push(p.name);
+        else values[p.name] = parsed;
+      } else {
+        values[p.name] = v;
+      }
+    }
+    if (invalid.length > 0) post({ type: "invalid", names: invalid });
+    const instance = new g.group(container);
+    const s = await instance.$mount(null, values);
+    if (s?.pending) await s.pending;
+    flush();
+    if (current.errors.length > 0) throw current.errors[0];
+    // A `bind` that writes a parameter moves its control.
+    const cells = current.params ?? {};
+    let first = true;
+    root(() =>
+      effect(() => {
+        const out = {};
+        for (const p of params) {
+          const cell = cells[p.name];
+          if (!cell) continue;
+          const v = cell.get();
+          out[p.name] = p.control === "choice" ? (p.cases ?? [])[v?.$] ?? null : p.control === "parsed" ? undefined : v;
+        }
+        if (!first) post({ type: "values", values: out });
+        first = false;
+      }),
+    );
+    post({ type: "mounted", title: String(document.title ?? "") });
+  } catch (e) {
+    fail(e);
+  }
+  globalThis.addEventListener("message", (event) => {
+    const m = event.data;
+    if (m?.kpreview === "env" && current.container) applyEnvironment(current.container, m.env ?? {});
+  });
+  globalThis.addEventListener("error", (event) => fail(event.error ?? event.message));
+  globalThis.addEventListener("unhandledrejection", (event) => fail(event.reason));
 }
 
 /**

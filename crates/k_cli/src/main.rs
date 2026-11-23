@@ -33,6 +33,8 @@ mod github;
 mod index;
 mod migrate;
 mod new;
+#[cfg(feature = "server")]
+mod preview;
 mod project;
 mod routes;
 mod sources;
@@ -125,6 +127,20 @@ fn keys_new(kind: cli::KeyKind) -> ExitCode {
     }
 }
 
+/// `k preview`, which needs the server runtime.
+fn preview_command(args: &cli::PreviewArgs) -> ExitCode {
+    #[cfg(feature = "server")]
+    {
+        preview::run(args)
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = args;
+        eprintln!("error: this `k` was built without the server runtime (feature `server`)");
+        ExitCode::from(2)
+    }
+}
+
 fn main() -> ExitCode {
     // `dist/app` is this executable with an app appended: serve it.
     #[cfg(feature = "server")]
@@ -159,6 +175,7 @@ fn main() -> ExitCode {
             ExitCode::from(u8::try_from(k_mcp::run_stdio(root)).unwrap_or(1))
         }
         Command::Test(args) => test::run(&args),
+        Command::Preview(args) => preview_command(&args),
         Command::Routes(args) => routes::run(&args),
         Command::HashPassword => hash_password(),
         Command::Toolchain { command } => toolchains::run(&command),

@@ -1150,13 +1150,13 @@ fn check_mounts_every_preview_and_reports_each_failure() {
     );
     assert!(
         err.trim_end()
-            .ends_with("mounted 3 previews: 2 error(s), 0 warning(s)"),
+            .ends_with("mounted 4 previews: 2 error(s), 0 warning(s)"),
         "{err}"
     );
     // `--no-tests` skips the mounts too.
     let out = k(&["check", "--color", "never", "--no-tests"], &dir);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
-    assert_eq!(stderr(&out), "checked 5 files: no problems\n");
+    assert_eq!(stderr(&out), "checked 6 files: no problems\n");
 }
 
 /// Tests run only for a program without errors, as in `k test`.

@@ -640,7 +640,7 @@ fn watch(_project: &mut project::Project, _filters: &[String], _color: bool) -> 
 /// The project's files and their texts, keyed by project path.
 // Used only by commands that need the server runtime (`k dev`, `k test --watch`).
 #[cfg_attr(not(feature = "server"), allow(dead_code))]
-fn current_texts(root: &Path) -> BTreeMap<ProjectPath, String> {
+pub(crate) fn current_texts(root: &Path) -> BTreeMap<ProjectPath, String> {
     project::read(root)
         .map(|files| files.into_iter().collect())
         .unwrap_or_default()

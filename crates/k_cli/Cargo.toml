@@ -29,6 +29,8 @@ k_lsp.workspace = true
 # `k mcp`: the MCP server for AI assistants (docs, examples, snippet checks).
 k_mcp.workspace = true
 k_server = { workspace = true, optional = true }
+# `k preview` serves the runtime's modules to the preview frames.
+k_runtime = { workspace = true, optional = true }
 # `k dev` waits for a signal or a source change (server builds only).
 tokio = { workspace = true, optional = true }
 # The golden-file formats (`.diag` rendering for `k debug diag`). Only the
@@ -59,7 +61,7 @@ tungstenite.workspace = true
 # The server runtime (V8). On by default; `--no-default-features` builds a
 # compiler-only `k` without V8, for fast compiler development.
 default = ["server"]
-server = ["dep:k_server", "dep:tokio"]
+server = ["dep:k_server", "dep:tokio", "dep:k_runtime"]
 
 [[test]]
 name = "it"

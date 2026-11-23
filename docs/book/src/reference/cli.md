@@ -23,6 +23,9 @@ error.
 | `k test` | run every test: one browser and one server per test, a fresh database each; exit `0` when all passed, `1` on a failure or project errors |
 | `k test --filter <text>` | run only the tests whose full name (`Group › description`) contains the text; repeatable; matching nothing is an error |
 | `k test --watch` | run the tests, then re-run the affected ones on every save |
+| `k preview [path]` | serve the project's [previews](../apps/previews.md) (or those under `path`) at `http://127.0.0.1:<port>/` and open it: an index by file, and a panel per preview with its controls, an environment bar (colours, reduced motion, viewport, locale, offline, hold loading) and a grid; each preview mounts with fresh hermetic containers, and every save remounts it, keeping the control values (a build with errors keeps the last good one under a badge) |
+| `k preview --port <n>`, `--no-open` | listen on port `n` (a free one by default); don't open the browser |
+| `k preview --editor` | for editor plugins: unsaved buffers in and previews out as JSON lines on standard input and output |
 | `k test --color always\|never\|auto` | when to color the report |
 | `k check [paths…]` | parse and check the projects at the paths (the current directory by default): types and every static rule, doc links, lockfile breaking-change detection and, for a program without errors, every test; exit `1` on any problem; no watch mode |
 | `k check --no-tests` | the same without running the tests |

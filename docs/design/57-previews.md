@@ -69,7 +69,7 @@ preview "signed-in cart" (items: Int = 3) {
 `k preview [path]` is the preview server: one process that compiles a file's previews, runs each one's hermetic server container in the runtime `k dev` uses, and serves the preview client with the panel's chrome around it.
 
 - **Standalone,** it opens `http://localhost:<port>/` in the default browser, listing every preview in the project (or in `path`), with the same panel the editors embed.
-- **From an editor,** the plugin starts it and points a webview at it, and `k lsp` sends it the open buffers, so a preview updates as you type, debounced, whenever the file type-checks. While the file has errors, the last good render stays, under a badge naming the first error. Control values are kept across rebuilds by parameter name and type. A renamed or retyped parameter goes back to its default.
+- **From an editor,** the plugin starts it (`k preview --editor`), points a webview at it and sends it the open buffers itself ([docs/compiler/preview.md](../compiler/preview.md#5-the-editor-protocol)), so a preview updates as you type, debounced, whenever the file type-checks. While the file has errors, the last good render stays, under a badge naming the first error. Control values are kept across rebuilds by parameter name and type. A renamed or retyped parameter goes back to its default.
 - **A rebuild remounts the preview** with fresh containers and the kept control values, so setup runs again and `@State` starts over. Hot replacement that keeps `@State` waits for `k dev`'s hot module replacement ([13-tooling.md](13-tooling.md#commands)).
 
 ## The panel
@@ -121,6 +121,44 @@ decision above left a choice open:
   may also be written in a `.test.k` file or a `testing` module, which are test code already.
 - **`k check`'s summary counts the mounts** (`ran 89 tests, mounted 3 previews`), and like the tests they
   run only in a project with a `k.toml` and no errors.
+
+**Round 2 (2026-11-24): `k preview` and the language server's part.** `k preview [path]` serves the
+index, the panel (switcher, controls, environment bar, grid), live rebuilds and the editor protocol
+([docs/compiler/preview.md](../compiler/preview.md)); `k lsp` puts a **▶ Preview** CodeLens on each
+`preview` keyword (command `kobra.preview.open`, argument `{uri, index, label}`) and lists previews in the
+outline. The VS Code (round 3) and JetBrains (round 4) panels are next: a webview on
+`/p/<file>/<index>?embed=1`, `k preview --editor` as the process, and the CodeLens command. Decided while
+building it:
+
+- **The editor talks to `k preview` directly**, over JSON lines on its standard input and output, with
+  its own overlay of the unsaved buffers, rather than `k lsp` forwarding them. The plugin has the buffers
+  already, the language server stays free of a second server's lifetime and ports, and the protocol is
+  four messages each way. `k lsp`'s part is only the CodeLens.
+- **A mount is a server of its own** (`k_server::Server`, one worker, a fresh process and in-memory
+  database), and the browser loads the preview's frame from it: the frame's origin isolates its document,
+  styles and theme, its requests go over the real wire format, and "fresh containers per mount" holds for
+  the server side too. A grid of *n* previews runs *n* small servers.
+- **The setup runs in the browser and reaches its server-side `@Inject` fields through a synchronous
+  bridge** to the mount's isolate (`examples/notes`' `"signed in"` calls `SessionManager.signIn` through
+  it). Values cross as tagged JSON or as handles; a browser object that is neither can't be passed. The
+  alternatives (running the setup on the server and shipping the view, or the server in the browser) lose
+  the real browser or the real database.
+- **A page whose guards refuse the setup's session shows `k check`'s message** ("the page requires a
+  signed-in user … sign in with `SessionManager` in the setup") in the frame and under it, rather than the
+  sign-in page the router would show. The decision above says the panel shows the redirect; showing the
+  sign-in page would need the app's `@SignInPage` route in the preview bundle and makes the refusal look
+  like the preview's view, while `k check` keeps reporting K7520 for the same preview. Showing the redirect
+  target stays possible later.
+- **Control values live in the server**, per file and preview label, so a reloaded page or webview keeps
+  them; an enum's value is its case's name and a parsed type's its text, parsed in the frame by the type's
+  parser (a `Money` or `Duration` literal, or `parse`), and text that doesn't parse outlines the field and
+  mounts the default.
+- **The environment bar changes what a test can change** (`TestPreferences`, `TestViewport`,
+  `TestConnectivity`), plus what the real browser needs to show it: the stylesheets' preference media
+  rules are forced to match, the frame is sized to the viewport, the locale sets the document's `lang`, and
+  **Hold loading** keeps the frame's requests pending.
+- **The panel is plain HTML, CSS and JavaScript served from the `k` binary**, with no build step, as the
+  rest of the toolchain has no npm ([13-tooling.md](13-tooling.md)).
 
 ## Rejected
 

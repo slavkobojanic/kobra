@@ -1,8 +1,9 @@
 # Preview views
 
 A **`preview`** renders a view in a chosen state, written in the file of the view it shows. `k check`
-mounts every preview once, so a preview that stops rendering fails the check. The editor panel and the
-preview server that show previews beside your code come in a later release. The design is in `docs/design/57-previews.md`.
+mounts every preview once, so a preview that stops rendering fails the check, and `k preview` shows them in
+your browser while you edit. The editor panels (VS Code, JetBrains) come in a later release. The design is in
+`docs/design/57-previews.md`.
 
 > **Preview** (view-previews). Previews are a preview feature: they are built, but may still change in any
 > minor release. A project opts in with `preview = ["view-previews"]` in the `[package]` section of its
@@ -76,6 +77,28 @@ preview "signed in" {
     Notes()
 }
 ```
+
+## `k preview` shows them
+
+`k preview` in a project serves its previews at `http://127.0.0.1:<port>/` and opens the page (`--no-open`
+doesn't, `--port` picks the port; `k preview src/shop` lists only the previews below that directory). The
+index lists every preview by file; each preview's page has:
+
+- a **switcher** of the file's previews, in source order, and a **Grid** mode that shows all of them at
+  once, each with its controls in a popover;
+- **controls** for the parameters: a toggle for `Bool`, a dropdown of the cases for an enum, a number field
+  with steppers for `Int` and `Double`, a text field for `String`, and a text field for `Money`,
+  `Duration` and types with `parse` (`24.00.usd`, `5.minutes`, `2026-01-01`), outlined when the text
+  doesn't parse. **Reset** restores the defaults. A `bind` that writes a parameter, like the `Counter`'s
+  *Add* button, moves its control;
+- an **environment bar**: light, dark or forced colours, reduced motion, a phone, tablet, desktop or custom
+  viewport, the locale, offline, and **Hold loading**, which keeps every `@Load` in its `loading` state.
+
+Every preview runs in a real browser frame with fresh containers: its own server with an in-memory
+database and the `k test` defaults, exactly the hermetic setup `k check` mounts it with. Saving a file
+rebuilds and remounts, keeping the control values by parameter name and type; while the project has an
+error, the last good build stays under a badge naming the error. A page whose guards refuse the setup's
+session shows the same message `k check` reports, rather than the sign-in page.
 
 ## `k check` mounts every preview
 

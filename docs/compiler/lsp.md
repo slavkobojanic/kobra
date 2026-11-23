@@ -131,7 +131,8 @@ shop finds paybox's handler. Tested by
 | `textDocument/hover` | [§7](#7-hover) |
 | `textDocument/completion` | triggers `.`, `@`, `(` and `:`; `(` and `:` answer only in `.on(` and CSS values ([§8](#8-completion-and-signature-help)) |
 | `textDocument/signatureHelp` | triggers `(` and `,`, retrigger `:` |
-| `textDocument/documentSymbol` | hierarchical when the client supports it, flat otherwise |
+| `textDocument/documentSymbol` | hierarchical when the client supports it, flat otherwise; a `preview` is listed as `preview <label>` |
+| `textDocument/codeLens` | **▶ Preview** on each `preview` keyword, with the command `kobra.preview.open` and one argument `{uri, index, label}` (`index` counts the file's previews in source order); the server doesn't run the command: the VS Code and JetBrains plugins do, opening their preview panel on `k preview --editor` ([preview.md](preview.md#5-the-editor-protocol)). No `codeLens/resolve` |
 | `workspace/symbol` | fuzzy, every project, at most 256 per project |
 | `textDocument/inlayHint` | each page's derived URL after its name (`at "/sign-in"`) |
 | `textDocument/formatting`, `rangeFormatting` | `k_fmt::format` as line edits (`ide::format`): lines aligned by their text without whitespace, so a range takes only its own lines' edits, and none when the partial result wouldn't format to the same text (a half-moved `init()`); `null` for a file with syntax errors; the client's options are ignored |

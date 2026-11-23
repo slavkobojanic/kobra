@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preview</title>
+<link rel="stylesheet" href="/_panel/panel.css">
+</head>
+<body>
+<div id="panel" class="panel">
+  <header class="bar top">
+    <a class="home" href="/" title="Every preview">Previews</a>
+    <span class="file" id="file"></span>
+    <label class="switcher">Preview
+      <select id="switcher" aria-label="Preview"></select>
+    </label>
+    <div class="modes" role="group" aria-label="Mode">
+      <button type="button" id="single" aria-pressed="true">Single</button>
+      <button type="button" id="grid" aria-pressed="false">Grid</button>
+    </div>
+    <button type="button" id="reset" title="Restore the defaults and remount">Reset</button>
+    <p class="badge" id="badge" role="alert" hidden></p>
+  </header>
+  <div class="bar env" id="env" aria-label="Environment">
+    <label>Colours
+      <select id="scheme">
+        <option value="">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+        <option value="forced">Forced colours</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="motion"> Reduced motion</label>
+    <label>Viewport
+      <select id="viewport">
+        <option value="fit">Fit</option>
+        <option value="390x844">Phone 390×844</option>
+        <option value="820x1180">Tablet 820×1180</option>
+        <option value="1280x800">Desktop 1280×800</option>
+        <option value="custom">Custom</option>
+      </select>
+    </label>
+    <span id="custom" hidden>
+      <input type="number" id="width" min="120" max="4000" value="600" aria-label="Width"> ×
+      <input type="number" id="height" min="120" max="4000" value="800" aria-label="Height">
+    </span>
+    <label>Locale <input type="text" id="locale" size="6" placeholder="en"></label>
+    <label><input type="checkbox" id="offline"> Offline</label>
+    <label><input type="checkbox" id="hold"> Hold loading</label>
+  </div>
+  <main id="main" class="main"></main>
+</div>
+<script type="module" src="/_panel/panel.js"></script>
+</body>
+</html>

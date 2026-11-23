@@ -536,6 +536,12 @@ impl Server {
                     |p| (p.text_document.uri.clone(), Some(p.range)),
                     handlers::formatting,
                 ),
+            "textDocument/codeLens" => self.document_request::<lsp::CodeLensParams, _, _>(
+                id,
+                params,
+                |p| (p.text_document.uri.clone(), ()),
+                |snap, file, ()| handlers::code_lenses(snap, file),
+            ),
             "textDocument/inlayHint" => self.document_request::<lsp::InlayHintParams, _, _>(
                 id,
                 params,
@@ -1065,6 +1071,9 @@ fn capabilities() -> lsp::ServerCapabilities {
             work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
         })),
         inlay_hint_provider: Some(lsp::OneOf::Left(true)),
+        code_lens_provider: Some(lsp::CodeLensOptions {
+            resolve_provider: Some(false),
+        }),
         document_formatting_provider: Some(lsp::OneOf::Left(true)),
         document_range_formatting_provider: Some(lsp::OneOf::Left(true)),
         ..lsp::ServerCapabilities::default()

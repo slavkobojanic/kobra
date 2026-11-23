@@ -57,7 +57,7 @@ pub fn run(args: &DocsArgs) -> ExitCode {
 }
 
 /// Opens `page` with `$BROWSER` or the system's opener.
-fn open(page: &Path) -> Result<(), String> {
+pub(crate) fn open(page: &Path) -> Result<(), String> {
     let mut command = if let Some(browser) = std::env::var_os("BROWSER").filter(|b| !b.is_empty()) {
         std::process::Command::new(browser)
     } else if cfg!(target_os = "macos") {

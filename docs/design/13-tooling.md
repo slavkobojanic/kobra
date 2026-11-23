@@ -30,6 +30,7 @@
 | `k fix` | Applies the machine-applicable fixes of the current diagnostics and checks again until none is left, then reports what remains; `--code K1234` limits it to one code, `--dry-run` prints the diff ([48-releases-and-versioning.md](48-releases-and-versioning.md#upgrading-a-project)) |
 | `k fmt` | Canonical formatter, with no options: the project or workspace, the paths named, or standard input; `--check` prints a diff and fails ([56-formatter.md](56-formatter.md#the-command)) |
 | `k test`, `k test --watch` | Runs tests. `--watch` re-runs the affected tests on every save ([21-testing.md](21-testing.md)). |
+| `k preview [path]` | Serves the project's previews (or those under `path`) on a local port with the editors' panel: switcher, controls, environment bar and grid, each preview mounted with fresh hermetic containers, rebuilt as files change ([57-previews.md](57-previews.md#k-preview)). `--port`, `--no-open`; `--editor` speaks the editor protocol on stdin/stdout ([docs/compiler/preview.md](../compiler/preview.md)). |
 | `k migrate new "description"` | Writes the next migration from the difference between the entities and `schema.lock` ([19-persistence.md](19-persistence.md)); `--empty`, `--drop-retired` and `--rename <name>` write the other kinds |
 | `k migrate rename <old> <new>` | Records a renamed entity or field in `schema.lock`, keeping its table or column ([19-persistence.md](19-persistence.md#renames)) |
 | `k routes` | Prints the route table, endpoint pages included |

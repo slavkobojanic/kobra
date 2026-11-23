@@ -85,6 +85,7 @@ mod kubernetes;
 mod lsp;
 mod new;
 mod perf_budget;
+mod preview;
 mod push;
 mod toolchain;
 mod upgrade;

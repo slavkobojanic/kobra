@@ -617,7 +617,7 @@ pub(crate) fn entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)>) {
     }
     stmts.push(Stmt::ExportConst("$groups".into(), Expr::Array(entries)));
     if matches!(g.options.entry, crate::Entry::Previews(_)) {
-        stmts.push(crate::preview::exports(g, &groups));
+        stmts.push(crate::preview::exports(&mut b, &groups));
     }
     // The pages by URL, most specific first, for `Screen.currentPage` and
     // for the page a navigation shows in a rendered page's screen: the

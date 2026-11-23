@@ -735,6 +735,46 @@ pub fn code_actions(
     Ok(Some(out))
 }
 
+/// The command a preview's CodeLens runs (docs/compiler/lsp.md,
+/// "CodeLens"): the editor plugin opens its preview panel on the preview,
+/// with the arguments `[{uri, index, label}]` (`index` counts the file's
+/// previews in source order).
+pub const PREVIEW_COMMAND: &str = "kobra.preview.open";
+
+/// `textDocument/codeLens`: **▶ Preview** on each `preview` keyword
+/// (docs/design/57-previews.md, "The panel").
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
+pub fn code_lenses(snap: &Snap, file: FileId) -> Result<Option<Vec<lsp::CodeLens>>, Cancelled> {
+    let Some(uri) = snap.url(file) else {
+        return Ok(None);
+    };
+    let previews = snap.analysis.previews(file)?;
+    Ok(Some(
+        previews
+            .iter()
+            .enumerate()
+            .filter_map(|(index, p)| {
+                Some(lsp::CodeLens {
+                    range: snap.range(file, p.keyword)?,
+                    command: Some(lsp::Command {
+                        title: "\u{25b6} Preview".to_owned(),
+                        command: PREVIEW_COMMAND.to_owned(),
+                        arguments: Some(vec![serde_json::json!({
+                            "uri": uri,
+                            "index": index,
+                            "label": p.label,
+                        })]),
+                    }),
+                    data: None,
+                })
+            })
+            .collect(),
+    ))
+}
+
 /// `textDocument/inlayHint`.
 ///
 /// # Errors

@@ -1092,6 +1092,9 @@ empty comment.
 - **An uncaught error in a test body** is reported as "the test threw an error it didn't catch" with the
   error as a value: an `Error`-typed value (the box `{error, text}`, [codegen.md §7](codegen.md)) by its
   text, as the run corpus' `throws` line prints it, any other typed error as its JSON.
+- **`k preview`'s half of the kit** runs the same preview bundle outside `run`: `servePreview` in a
+  mount's server isolate, `framePreview` in a real browser document, the synchronous bridge between them,
+  and `parsePreviewValue` for the controls' text ([preview.md](preview.md)).
 - **The test kit** (`testing/kit.js`, `k:testing/kit`) is what `k test` runs on: the generated test
   bundle's runtime chunk re-exports the embedded `k:runtime` and the kit (as `$test`), and answers `native`
   from the kit, so generated code, kit and fake DOM share one runtime instance ([codegen.md

@@ -34,6 +34,8 @@ pub enum Command {
     Dev(RunArgs),
     /// Run the project's tests; `--watch` re-runs the affected ones on every save.
     Test(TestArgs),
+    /// Serve the project's previews in a browser: switcher, controls, environment bar and grid, live as you edit.
+    Preview(PreviewArgs),
     /// Print the route table: pages, endpoint pages and redirects.
     Routes(ProjectArgs),
     /// Run the language server on standard input and output (for editors).
@@ -235,6 +237,23 @@ pub struct TestArgs {
     /// When to use colors.
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
+}
+
+/// Arguments of `k preview`.
+#[derive(Debug, Args)]
+pub struct PreviewArgs {
+    /// The project directory, or a file or directory in it whose previews the index lists.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+    /// The port to listen on (on 127.0.0.1); a free one by default.
+    #[arg(long, default_value_t = 0)]
+    pub port: u16,
+    /// Don't open the index in the default browser.
+    #[arg(long)]
+    pub no_open: bool,
+    /// Speak the editor protocol on standard input and output (JSON lines): unsaved buffers in, previews and errors out.
+    #[arg(long)]
+    pub editor: bool,
 }
 
 /// How diagnostics are printed.

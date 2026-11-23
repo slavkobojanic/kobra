@@ -475,3 +475,72 @@ fn formatting_and_range_formatting_use_the_formatter() {
     assert_eq!(client.shutdown(), 0);
     let _ = fs::remove_dir_all(&root);
 }
+
+/// Each `preview` gets a **▶ Preview** CodeLens on its keyword, running
+/// `kobra.preview.open` with the file and the preview's index, which the
+/// editor plugins implement (docs/compiler/lsp.md, "CodeLens"); the outline
+/// lists the previews by label.
+#[test]
+fn previews_get_a_code_lens_and_an_outline_entry() {
+    let text = "public component Hello {\n    @Prop let name: String\n\n    view {\n        text { \"Hi {name}\" }\n    }\n}\n\npreview (name: String = \"Ada\") {\n    Hello(name: name)\n}\n\npreview \"long name\" {\n    Hello(name: \"Grace Brewster Murray Hopper\")\n}\n";
+    let root = temp_project(
+        "previews",
+        &[
+            (
+                "k.toml",
+                "[package]\nname = \"t\"\nk = \"0.1\"\npreview = [\"view-previews\"]\n",
+            ),
+            ("src/a/Hello.k", text),
+        ],
+    );
+    let uri = url(&root.join("src/a/Hello.k"));
+    let mut client = Client::spawn();
+    let init = client.request(
+        "initialize",
+        json!({ "processId": null, "rootUri": url(&root), "capabilities": {} }),
+    );
+    assert_eq!(
+        init["capabilities"]["codeLensProvider"]["resolveProvider"],
+        false
+    );
+    client.notify("initialized", json!({}));
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": uri, "languageId": "k", "version": 1, "text": text } }),
+    );
+    let lenses = client.request(
+        "textDocument/codeLens",
+        json!({ "textDocument": { "uri": uri } }),
+    );
+    let lenses = lenses.as_array().unwrap();
+    assert_eq!(lenses.len(), 2, "{lenses:?}");
+    assert_eq!(
+        lenses[0]["range"]["start"],
+        json!({ "line": 8, "character": 0 })
+    );
+    assert_eq!(
+        lenses[0]["range"]["end"],
+        json!({ "line": 8, "character": 7 })
+    );
+    assert_eq!(lenses[0]["command"]["title"], "\u{25b6} Preview");
+    assert_eq!(lenses[0]["command"]["command"], "kobra.preview.open");
+    assert_eq!(
+        lenses[1]["command"]["arguments"][0],
+        json!({ "uri": uri, "index": 1, "label": "long name" })
+    );
+    let symbols = client.request(
+        "textDocument/documentSymbol",
+        json!({ "textDocument": { "uri": uri } }),
+    );
+    let names: Vec<&str> = symbols
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"preview Hello") && names.contains(&"preview long name"),
+        "{names:?}"
+    );
+    assert_eq!(client.shutdown(), 0);
+}

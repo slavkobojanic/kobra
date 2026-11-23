@@ -190,6 +190,7 @@ fn command_project(command: &Command) -> Option<PathBuf> {
         Command::Build(args) => Some(args.project.clone()),
         Command::Run(args) | Command::Dev(args) => Some(args.project.clone()),
         Command::Test(args) => Some(args.project.clone()),
+        Command::Preview(args) => Some(args.path.clone()),
         Command::Routes(args) => Some(args.project.clone()),
         Command::Lsp { .. } => Some(PathBuf::from(".")),
         Command::Migrate { command } => Some(match command {

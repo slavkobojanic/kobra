@@ -131,6 +131,19 @@ pub(crate) fn methods(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Function> {
         b.cell_locals.insert(js.clone());
         cells.push(js);
     }
+    // `k preview`'s frame reads the signals back, so a `bind` that writes
+    // a parameter moves its control (docs/compiler/preview.md).
+    body.push(Stmt::Expr(crate::suite::kit_call(
+        "previewParams",
+        vec![Expr::Object(
+            cells
+                .iter()
+                .zip(sig.iter().flat_map(|s| s.params.iter()))
+                .map(|(c, sp)| Prop::KeyValue(sp.name.clone(), id(c.clone())))
+                .collect(),
+            false,
+        )],
+    )));
     // The setup, then the view.
     let stmts: Vec<ast::Stmt> = node
         .body()
@@ -194,12 +207,30 @@ pub(crate) fn methods(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Function> {
     vec![mount, test]
 }
 
-/// `export const $previews = [{label, file, start, end, params}]`, one per
-/// group of `groups` (the previews), in order.
-pub(crate) fn exports(g: &Gen<'_>, groups: &[DeclId]) -> Stmt {
+/// `export const $previews = [{label, file, start, end, params, parse}]`,
+/// one per group of `groups` (the previews), in order. `parse` maps each
+/// parameter whose type is a project type with `static func parse(_:)` to
+/// that function, which `k preview`'s frame parses the control's text with
+/// (the stdlib's parsers are the kit's, `parsePreviewValue`).
+pub(crate) fn exports(b: &mut Body<'_, '_>, groups: &[DeclId]) -> Stmt {
+    let g = b.g;
     let mut out = Vec::new();
     for &d in groups {
         let info = g.view.decl(d);
+        let mut parsers = Vec::new();
+        for p in info.signature.iter().flat_map(|s| s.params.iter()) {
+            let Some(t) = p.ty.decl() else { continue };
+            if g.view.decl(t).stdlib {
+                continue;
+            }
+            let parse = g.view.decl(t).members.iter().copied().find(|&m| {
+                let m = g.view.member(m);
+                m.kind == k_sema::view::MemberKind::Func && m.is_static && m.name == "parse"
+            });
+            if let Some(m) = parse {
+                parsers.push(Prop::KeyValue(p.name.clone(), b.fn_ref(m)));
+            }
+        }
         let params = info
             .signature
             .iter()
@@ -219,6 +250,7 @@ pub(crate) fn exports(g: &Gen<'_>, groups: &[DeclId]) -> Stmt {
                     Expr::Num(f64::from(u32::from(info.name_range.end()))),
                 ),
                 Prop::KeyValue("params".into(), Expr::Array(params)),
+                Prop::KeyValue("parse".into(), Expr::Object(parsers, false)),
             ],
             false,
         ));

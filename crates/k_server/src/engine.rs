@@ -50,6 +50,10 @@ pub enum Output {
     /// `shop   | warning: …`. `k dev` and `k run` at a workspace root use
     /// it, so the interleaved lines of several apps say whose they are.
     Prefixed(&'static str),
+    /// Written to stderr for a person, each line after a label, as
+    /// [`Output::Prefixed`] writes stdout. `k preview` uses it, since its
+    /// editor protocol owns stdout.
+    Stderr(&'static str),
 }
 
 impl Output {
@@ -68,6 +72,15 @@ impl Output {
                         println!("{label} | {level}: {text}");
                     } else {
                         println!("{label} |   {text}");
+                    }
+                }
+            }
+            Output::Stderr(label) => {
+                for (i, text) in message.lines().enumerate() {
+                    if i == 0 {
+                        eprintln!("{label} | {level}: {text}");
+                    } else {
+                        eprintln!("{label} |   {text}");
                     }
                 }
             }
