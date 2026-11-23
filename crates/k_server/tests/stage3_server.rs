@@ -2094,17 +2094,15 @@ fn configs_are_required_only_where_the_graph_reaches_them() {
 // ---------------------------------------------------------------------------
 
 /// The `k` binary in this test binary's profile directory
-/// (`target/<profile>/k`): the nearest ancestor with a `deps` directory,
-/// which holds whether Cargo puts test binaries in `deps/` or in
-/// `build/<package>/<hash>/`.
+/// (`target/<profile>/k`): the nearest ancestor holding one, whether Cargo
+/// puts test binaries in `deps/` or in `build/<package>/<hash>/out/`.
 fn k_binary() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let name = if cfg!(windows) { "k.exe" } else { "k" };
     exe.ancestors()
         .skip(1)
-        .find(|d| d.join("deps").is_dir())
         .map(|d| d.join(name))
-        .filter(|k| k.is_file())
+        .find(|k| k.is_file())
         .ok_or_else(|| {
             format!(
                 "no `{name}` in the profile directory above {}; build it with `cargo build -p k_cli`",

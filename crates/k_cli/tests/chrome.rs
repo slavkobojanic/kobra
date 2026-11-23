@@ -1876,6 +1876,26 @@ fn huddle_post(tab: &mut Tab, text: &str) {
 /// posts it, and the count goes once he has read it. Then Bob posts, Ana
 /// deletes his message as its room's moderator, and it vanishes from
 /// Bob's screen too (docs/design/44-channels.md, "Example app").
+
+/// Clicks the link named `name` until the page leaves its current path: a
+/// click that lands while the page is still hydrating (slow CI machines) is
+/// the browser's own and may not navigate.
+fn huddle_follow(tab: &mut Tab, name: &str) {
+    let from = tab.path();
+    for _ in 0..10 {
+        let link = tab.role("link", name);
+        tab.click(&link);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while std::time::Instant::now() < deadline {
+            if tab.path() != from {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+    panic!("following {name:?} never left {from}");
+}
+
 #[test]
 fn huddle_counts_unread_live_and_a_moderator_deletes_for_everyone_in_chrome() {
     let dir = Scratch::new("huddle-two");
@@ -1900,35 +1920,30 @@ fn huddle_counts_unread_live_and_a_moderator_deletes_for_everyone_in_chrome() {
     assert_eq!(ana.path(), "/room/team");
 
     huddle_sign_in(&mut bob, &origin, "bob");
-    let team = bob.role("link", "#team");
-    bob.click(&team);
+    huddle_follow(&mut bob, "#team");
     bob.role("textbox", "Message");
     // Bob's arrival reaches Ana live: presence events decode in the
     // browser (`PresenceChange`'s codec used to be missing from the
     // client, so every one was skipped with a warning).
     ana.role("button", "Remove bob");
-    let lobby = bob.role("link", "All rooms");
-    bob.click(&lobby);
+    huddle_follow(&mut bob, "All rooms");
     bob.role("link", "#team");
     assert!(!bob.visible_text().contains("unread"), "nothing unread yet");
 
     huddle_post(&mut ana, "hello bob");
     bob.wait_text("1 unread");
 
-    let team = bob.role("link", "#team");
-    bob.click(&team);
+    huddle_follow(&mut bob, "#team");
     bob.wait_text("hello bob");
     huddle_post(&mut bob, "oops");
-    let lobby = bob.role("link", "All rooms");
-    bob.click(&lobby);
+    huddle_follow(&mut bob, "All rooms");
     bob.role("link", "#team");
     assert!(
         !bob.visible_text().contains("unread"),
         "read, and his own message doesn't count: {}",
         bob.visible_text()
     );
-    let team = bob.role("link", "#team");
-    bob.click(&team);
+    huddle_follow(&mut bob, "#team");
     bob.wait_text("oops");
 
     ana.wait_text("oops");
