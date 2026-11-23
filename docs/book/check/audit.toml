@@ -748,6 +748,16 @@ unpinned = [
     "notes on engine behaviour the real-browser tests don't assert, such as Firefox keeping a camera grant for one visit",
 ]
 
+[pages."apps/previews.md"]
+commit = "f658ffa8"
+date = "2026-11-24"
+note = "new with view previews rounds 1-2 (docs/design/57-previews.md); claims checked against the k_sema previews::, k_server previews::, k_cli preview:: and check-mounts tests; fixed: the environment bar's locale only sets the document language"
+unpinned = [
+    "reduced motion and forced colours in the environment bar change the frame's media rules",
+    "Hold loading keeps every `@Load` in its `loading` state",
+    "the grid shows each preview's controls in a popover",
+]
+
 [pages."reference/design-status.md"]
 commit = "0dd7625"
 date = "2026-11-09"

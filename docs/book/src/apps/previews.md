@@ -92,7 +92,7 @@ index lists every preview by file; each preview's page has:
   doesn't parse. **Reset** restores the defaults. A `bind` that writes a parameter, like the `Counter`'s
   *Add* button, moves its control;
 - an **environment bar**: light, dark or forced colours, reduced motion, a phone, tablet, desktop or custom
-  viewport, the locale, offline, and **Hold loading**, which keeps every `@Load` in its `loading` state.
+  viewport, the document language (formatting keeps the app's locale), offline, and **Hold loading**, which keeps every `@Load` in its `loading` state.
 
 Every preview runs in a real browser frame with fresh containers: its own server with an in-memory
 database and the `k test` defaults, exactly the hermetic setup `k check` mounts it with. Saving a file
