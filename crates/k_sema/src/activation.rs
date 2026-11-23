@@ -677,7 +677,7 @@ fn collect(cx: &Cx<'_, '_>, t: &Tables<'_>) -> (Vec<Context>, Vec<Use>) {
         for &d in &file.decls {
             let decl = p.decl(d);
             match decl.named_kind() {
-                Some(K::TestSuite) => continue,
+                Some(K::TestSuite | K::Preview) => continue,
                 Some(K::Function) => {
                     if let Some(body) = decl.node.children().find(|c| c.kind() == SyntaxKind::Block)
                     {

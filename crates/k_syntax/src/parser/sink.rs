@@ -123,6 +123,7 @@ fn takes_doc_comments(kind: SyntaxKind) -> bool {
             | K::ThemeDecl
             | K::TestSuiteDecl
             | K::TestCaseDecl
+            | K::PreviewDecl
             | K::AppDecl
             | K::ConfigDecl
             | K::MigrationDecl

@@ -146,6 +146,10 @@ pub(crate) struct Body<'g, 'a> {
     /// binding of the row tracks the item and an item that changes under
     /// the same key re-renders in place (runtime.md §5.3).
     pub(crate) signal_locals: HashSet<String>,
+    /// Locals that hold a signal: read with `x.get()` and written with
+    /// `x.set(v)`, so a binding of one re-renders what reads it (a
+    /// preview's parameters, `crate::preview`).
+    pub(crate) cell_locals: HashSet<String>,
     /// Expressions already evaluated into a temporary, by range: the
     /// operands of a test's `expect` (`test_expect`).
     overrides: HashMap<TextRange, Expr>,
@@ -208,6 +212,7 @@ impl<'g, 'a> Body<'g, 'a> {
             own_args: false,
             bind_args: false,
             signal_locals: HashSet::new(),
+            cell_locals: HashSet::new(),
             overrides: HashMap::new(),
             opt_guards: Vec::new(),
             opt_undefined: HashSet::new(),
@@ -624,12 +629,12 @@ impl<'g, 'a> Body<'g, 'a> {
             ast::Stmt::While(w) => self.while_stmt(w.syntax()),
             ast::Stmt::For(f) => self.for_stmt(f.syntax()),
             ast::Stmt::Do(d) => self.do_stmt(d.syntax()),
-            ast::Stmt::Expect(e) if self.g.options.entry == crate::Entry::Tests => {
+            ast::Stmt::Expect(e) if self.g.options.entry.is_tests() => {
                 if let Some(v) = e.syntax().children().find_map(ast::Expr::cast) {
                     self.test_expect(&v);
                 }
             }
-            ast::Stmt::ExpectThrows(e) if self.g.options.entry == crate::Entry::Tests => {
+            ast::Stmt::ExpectThrows(e) if self.g.options.entry.is_tests() => {
                 self.test_expect_throws(e.syntax());
             }
             ast::Stmt::Expect(e) => {
@@ -2454,7 +2459,11 @@ impl<'g, 'a> Body<'g, 'a> {
                         | Resolution::Parameter { name, definition },
                     ) => {
                         let js = self.local_name(&name, definition.range);
-                        self.emit(Stmt::Expr(js::assign(id(js), value)));
+                        if self.cell_locals.contains(&js) {
+                            self.emit(Stmt::Expr(call(member(id(js), "set"), vec![value])));
+                        } else {
+                            self.emit(Stmt::Expr(js::assign(id(js), value)));
+                        }
                     }
                     Some(r) => {
                         if let Some(Resolved::Member(m)) = self.g.view.resolve(&r) {
@@ -3629,6 +3638,8 @@ impl<'g, 'a> Body<'g, 'a> {
                 let js = self.local_name(&name, definition.range);
                 if self.signal_locals.contains(&js) {
                     call(id(format!("{js}$")), vec![])
+                } else if self.cell_locals.contains(&js) {
+                    call(member(id(js), "get"), vec![])
                 } else {
                     id(js)
                 }

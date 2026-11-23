@@ -943,7 +943,7 @@ fn test_default(g: &Gen<'_>, iface: DeclId) -> Option<DeclId> {
 /// `[field, json, kind]` (52-indexed-collections.md, "In the browser"). A test build's collections include those only test code
 /// declares.
 fn collections_schema(g: &Gen<'_>) -> Expr {
-    let tests = g.options.entry == crate::Entry::Tests;
+    let tests = g.options.entry.is_tests();
     let kind = |k: k_sema::collections::KeyKind| {
         js::str(match k {
             k_sema::collections::KeyKind::Text => "t",

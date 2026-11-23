@@ -234,6 +234,14 @@ fn code_space(prev: &SyntaxToken, next: &SyntaxToken, had: bool) -> bool {
     if n == K::Question || p == K::At {
         return false;
     }
+    // `preview (value: Int = 1)` and `preview "name" (…)`: the parameters
+    // are a clause of the header, not a call.
+    if n == K::LParen
+        && np == Some(K::ParamList)
+        && next.parent().and_then(|l| l.parent()).map(|d| d.kind()) == Some(K::PreviewDecl)
+    {
+        return true;
+    }
     if n == K::LParen
         && matches!(
             np,

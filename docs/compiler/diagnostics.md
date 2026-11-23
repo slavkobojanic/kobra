@@ -499,7 +499,14 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K7501 | `expect-not-bool` | error | The condition. | — |
 | K7502 | `expect-throws-cannot-throw` | error | The `expect` keyword. | — |
 | K7503 | `unbound-test-config` | error | The test group's name token; a note names the config and the injection path. | — |
+| K7504 | `preview-param-without-default` | error | The parameter's name. | — |
+| K7505 | `preview-param-type` | error | The parameter's type; a help line names the supported types. | — |
+| K7506 | `second-unnamed-preview` | error | The second unnamed preview's `preview` keyword; a label marks the first. | — |
+| K7507 | `duplicate-preview-name` | error | The repeated name string; a label marks the first. | — |
+| K7508 | `preview-not-a-view` | error | The body's last expression. | — |
+| K7509 | `preview-without-view` | error | The `preview` keyword. | — |
 | K7510 | `test-failed` | error | Reported by `k test`, and by `k check`, which runs the tests of a program without errors (`--no-tests` skips them): the condition of the failed `expect`, the pattern of the failed `expect throws`, or the test's name when it panicked, threw, never finished or a query action failed; notes give each operand's value and the test's full name. | — |
+| K7520 | `preview-failed` | error | Reported by `k check`, which mounts every preview of a program without errors once with its default parameters (`--no-tests` skips it; the language server never does): the `preview` keyword, when its setup threw, its view failed to mount or settle, or its page's guards refuse the session the setup left; a note names the preview. | — |
 
 ### Lockfiles, manifest and packages (K8000–K8999)
 

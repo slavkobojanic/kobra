@@ -1327,6 +1327,102 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         self.pop_fn();
     }
 
+    /// Checks a `preview` declaration's body (docs/design/57-previews.md):
+    /// test code, with `sig`'s parameters as bindable locals (a preview's
+    /// parameters are its state, so `bind value` writes back), the setup
+    /// statements, then the view. Returns the type and range of the last
+    /// statement when it is an expression, `None` when the body is empty or
+    /// ends in another statement.
+    pub(crate) fn check_preview(
+        &mut self,
+        node: &SyntaxNode,
+        sig: &Sig,
+        body: &ast::Block,
+    ) -> Option<(Ty, TextRange)> {
+        self.push_fn(FnCx {
+            is_async: true,
+            throws: Some(Ty::Error),
+            lambda_throws: None,
+            ret: Some(builtin(self.cx.b.void)),
+            is_lambda: false,
+            loops: 0,
+            dos: Vec::new(),
+            tries: Vec::new(),
+            awaits: 0,
+            init_of: None,
+            decl_node: Some(node.clone()),
+        });
+        if let Some(list) = node.children().find_map(ast::ParamList::cast) {
+            for (param, sp) in list.params().zip(sig.params.iter()) {
+                if let Some(default) = param.default_value() {
+                    self.check(&default, &sp.ty);
+                }
+                let before = self.locals.len();
+                self.bind_param(sp);
+                if self.locals.len() > before {
+                    self.bindable_locals.insert(before);
+                }
+            }
+        }
+        self.push_scope();
+        let stmts: Vec<ast::Stmt> = body.statements().collect();
+        let mut out = None;
+        for (i, stmt) in stmts.iter().enumerate() {
+            match stmt {
+                ast::Stmt::Expr(e) if i + 1 == stmts.len() => {
+                    // A component, layout or page is checked as view
+                    // content; anything else as an expression, whose type
+                    // the caller reports.
+                    let range = e.syntax().text_range();
+                    if let Some(d) = self.constructed_view(e) {
+                        self.check_preview_view(stmt);
+                        out = Some((Ty::named(d), range));
+                    } else {
+                        let t = self.infer(e, None);
+                        out = Some((self.resolve(&t), range));
+                    }
+                }
+                _ => self.stmt(stmt),
+            }
+        }
+        self.pop_scope();
+        self.pop_fn();
+        out
+    }
+
+    /// The component, layout or page that view expression `e` constructs:
+    /// the declaration its innermost callee names (`Stepper` in
+    /// `Stepper(value: bind v).max(9)`), unless a local shadows it.
+    fn constructed_view(&self, e: &ast::Expr) -> Option<DeclId> {
+        let mut cur = e.clone();
+        let name = loop {
+            match cur {
+                ast::Expr::CallExpr(c) => cur = c.callee()?,
+                ast::Expr::MemberExpr(m) => cur = m.receiver()?,
+                ast::Expr::NameExpr(n) => break n.name()?,
+                _ => return None,
+            }
+        };
+        if self.find_local(name.text()).is_some() {
+            return None;
+        }
+        match self.cx.lookup(self.file(), name.text()) {
+            Found::Decl(d)
+                if matches!(
+                    self.cx.p.decl(d).named_kind(),
+                    Some(
+                        DeclarationKind::Component
+                            | DeclarationKind::Page
+                            | DeclarationKind::Layout
+                    )
+                ) =>
+            {
+                Some(d)
+            }
+            _ => None,
+        }
+    }
+
     /// Checks a block whose last expression is a value of `expected`
     /// (computed properties).
     pub(crate) fn check_value_block(&mut self, block: &ast::Block, expected: &Ty) {

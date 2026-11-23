@@ -1,0 +1,6 @@
+# `k check` mounts every preview once (docs/design/57-previews.md,
+# "`k check`"): `commands.rs`' preview tests check what it reports.
+[package]
+name = "previewing"
+k = "0.1"
+preview = ["view-previews"]

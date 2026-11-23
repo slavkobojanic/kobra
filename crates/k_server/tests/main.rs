@@ -45,6 +45,7 @@ mod literals;
 mod memory;
 mod outbound;
 mod perf_budget;
+mod previews;
 #[path = "regressions/main.rs"]
 mod regressions;
 mod replicas;

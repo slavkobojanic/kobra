@@ -403,6 +403,7 @@ The parser treats an `Ident` as a contextual keyword, and remaps its kind, only 
 |---|---|---|
 | `component` `page` `layout` `service` `protocol` `entity` `repository` `theme` `app` `config` `migration` | start of an item or member, after annotations and modifiers | `IDENT` |
 | `test` | start of an item or member | `IDENT` or a string |
+| `preview` | start of an item | a string, `(` or `{` |
 | `view` `loading` `metadata` | start of a member | `{` |
 | `failed` | start of a member | `(` or `{` |
 | `variant` | start of a member | `IDENT` |
@@ -437,8 +438,8 @@ path_word  ::= IDENT | keyword | contextual_keyword
 ```ebnf
 item ::= ComponentDecl | PageDecl | LayoutDecl | ServiceDecl | ProtocolDecl | EntityDecl
        | RepositoryDecl | StructDecl | EnumDecl | ClassDecl | InterfaceDecl | ThemeDecl
-       | AppDecl | ConfigDecl | MigrationDecl | ExtendDecl | TestSuiteDecl | TestCaseDecl | FuncDecl
-       | FieldDecl
+       | AppDecl | ConfigDecl | MigrationDecl | ExtendDecl | TestSuiteDecl | TestCaseDecl | PreviewDecl
+       | FuncDecl | FieldDecl
 ```
 
 A top-level `FieldDecl` must use `let` (K0131 for `var`).
@@ -912,6 +913,30 @@ test CartService {
             try await cart.add(product: .soldOut)
         }
     }
+}
+```
+
+### Previews
+
+```ebnf
+PreviewDecl  ::= 'preview' StringLit? ParamList? PreviewBlock
+PreviewBlock ::= '{' lines( UseDecl | prefix FieldDecl | Stmt ) '}'      (a Block node)
+```
+
+A `preview` ([57-previews.md](../design/57-previews.md)) is a top-level item in any source file. Its body
+is a `Block` whose lines may also be `use … for …` rules (`UseDecl`) and annotated members
+(`@Inject let x: T`, a `FieldDecl`), as in a test group, mixed with statements; the last statement is the
+view it renders. `use` directly followed by `(` is still a call ([RA-33](#ra-33-use-as-a-function-name)).
+`preview` elsewhere is an identifier (`func preview(preview: Int)`). A missing body is K0100 at the token
+after the header.
+
+```k
+preview "at max" (value: Int = 99) {
+    use FakeLimits for Limits
+    @Inject let limits: FakeLimits
+
+    limits.set(max: 99)
+    Stepper(value: bind value).max(99)
 }
 ```
 

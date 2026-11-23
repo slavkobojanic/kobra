@@ -62,13 +62,18 @@ pub(crate) fn at_item_start(p: &Parser<'_>) -> bool {
     }
 }
 
-/// `component Name`, `test Name`, `test "case"` and friends.
+/// `component Name`, `test Name`, `test "case"`, `preview "name"` and
+/// friends.
 fn at_contextual_item(p: &Parser<'_>) -> bool {
     let text = p.nth_text(0);
     if is_decl_word(text) {
         return p.nth(1) == K::Ident;
     }
-    text == "test" && matches!(p.nth(1), K::Ident | K::StringStart)
+    match text {
+        "test" => matches!(p.nth(1), K::Ident | K::StringStart),
+        "preview" => matches!(p.nth(1), K::StringStart | K::LParen | K::LBrace),
+        _ => false,
+    }
 }
 
 /// Returns `true` if the current token starts a member of a `MemberList`.
@@ -556,11 +561,43 @@ fn contextual_decl(p: &mut Parser<'_>, m: Marker, level: Level) {
             required_block(p);
             m.complete(p, K::TestCaseDecl);
         }
+        "preview" if level == Level::Top => preview_decl(p, m),
         _ if level == Level::Member => member_block_or_token(p, m, text, next),
         _ => {
             p.expected_token("a declaration");
             m.abandon(p);
         }
+    }
+}
+
+/// `PreviewDecl ::= 'preview' StringLit? ParamList? PreviewBlock`
+/// (docs/design/57-previews.md): the body is a [`K::Block`] whose lines may
+/// also be `use … for …` rules ([`K::UseDecl`]) and annotated fields
+/// (`@Inject let x: T`, [`K::FieldDecl`]), as in a test group.
+fn preview_decl(p: &mut Parser<'_>, m: Marker) {
+    p.bump_remap(K::PreviewKw);
+    if p.at(K::StringStart) {
+        expressions::string_lit(p);
+    }
+    if p.at(K::LParen) {
+        param_list(p);
+    }
+    if p.at(K::LBrace) {
+        statements::preview_block(p);
+    } else {
+        p.expected_token("`{`");
+    }
+    m.complete(p, K::PreviewDecl);
+}
+
+/// A `use` rule or an annotated member (`@Inject let x: T`) among a
+/// preview's statements, at `use` or `@`.
+pub(crate) fn preview_member(p: &mut Parser<'_>) {
+    if p.at(K::UseKw) {
+        let m = p.start();
+        use_decl(p, m);
+    } else {
+        decl(p, Level::Member);
     }
 }
 

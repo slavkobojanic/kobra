@@ -218,7 +218,7 @@ pub struct DeclInfo {
     pub implements: Vec<Type>,
     /// The extended type of an extension.
     pub extends: Option<Type>,
-    /// The signature of a top-level function.
+    /// The signature of a top-level function, or a preview's parameters.
     pub signature: Option<Signature>,
     /// The type of a top-level constant.
     pub constant_type: Option<Type>,
@@ -626,7 +626,7 @@ pub(crate) fn build(cx: &Cx<'_, '_>, sides: &HashMap<(FileId, TextRange), Side>)
             RawDeclKind::Extension => DeclKind::Extension,
         };
         let (signature, constant_type) = match d.named_kind() {
-            Some(DeclarationKind::Function) if !skip => {
+            Some(DeclarationKind::Function | DeclarationKind::Preview) if !skip => {
                 (Some(sig(&cx.sig(SigKey::Decl(id)))), None)
             }
             Some(DeclarationKind::Constant) if !skip => {

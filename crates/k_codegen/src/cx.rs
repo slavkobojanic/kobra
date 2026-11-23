@@ -323,7 +323,8 @@ impl<'a> Gen<'a> {
         let mut ids: Vec<DeclId> = Vec::new();
         for (i, d) in self.view.decls.iter().enumerate() {
             let id = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
-            if d.kind == DeclKind::Extension || d.name.is_empty() {
+            let preview = d.named_kind() == Some(DeclarationKind::Preview);
+            if d.kind == DeclKind::Extension || (d.name.is_empty() && !preview) {
                 continue;
             }
             ids.push(id);
@@ -370,7 +371,11 @@ impl<'a> Gen<'a> {
             // A test group is usually named after what it tests
             // (`test Panel { }` beside `component Panel`): its class and
             // templates get a name of their own (`crate::suite`).
-            let name = if d.named_kind() == Some(DeclarationKind::TestSuite) {
+            // A preview is a group of its preview bundle (`crate::preview`).
+            let name = if matches!(
+                d.named_kind(),
+                Some(DeclarationKind::TestSuite | DeclarationKind::Preview)
+            ) {
                 format!("$group{}", id.0)
             } else {
                 name

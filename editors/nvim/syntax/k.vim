@@ -24,7 +24,7 @@ syn keyword kConstant nil
 syn keyword kSelf self
 
 " Contextual keywords: keywords where a declaration or block starts.
-syn keyword kDeclaration app component config entity layout migration page protocol repository service test theme
+syn keyword kDeclaration app component config entity layout migration page preview protocol repository service test theme
 syn keyword kBlock view metadata loading failed variant proto
 syn keyword kContextual at key matches
 

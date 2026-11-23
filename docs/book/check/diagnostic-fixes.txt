@@ -263,7 +263,14 @@ K7006: Correct the regular expression.
 K7501: Pass a `Bool` expression to `expect`.
 K7502: Put a call that can throw that error inside the block, or expect another error.
 K7503: Bind the config in the test group: `use SomeConfig.sample for SomeConfig`.
+K7504: Give the parameter a default value: `preview (count: Int = 3) { … }`.
+K7505: Make the parameter a `Bool`, `Int`, `Double`, `String`, payload-free enum or literal type, and build the richer value in the setup from it.
+K7506: Name one of the two previews: `preview "empty" { … }`.
+K7507: Rename one of the previews; the switcher lists them by name.
+K7508: End the body with the view to render, a component, layout or page: `Stepper(value: bind value)`.
+K7509: End the body with the view to render, after its setup.
 K7510: Fix the code or the expectation; the notes show the value of each part of the failed expression.
+K7520: Fix the setup or the view; sign in with `SessionManager` in the setup when the page requires a signed-in user.
 K8001: Undo the breaking change, or mark it deliberate with `@Breaking("reason")` once no deployed caller relies on the old shape.
 K8002: Restore the lockfile from version control, or fix its syntax.
 K8003: Keep the payload compatible (add optional fields only), or give the job a new `@JobName` and drain the old queue.

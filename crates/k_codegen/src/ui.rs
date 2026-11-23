@@ -1138,7 +1138,7 @@ pub(crate) fn config(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     // Tests bind configs to values they build (`use AdminConfig.sample for
     // AdminConfig`, 25-config-and-secrets.md), with the memberwise
     // constructor.
-    if g.options.entry == crate::Entry::Tests {
+    if g.options.entry.is_tests() {
         b.owner = Some(d);
         out.push(crate::decl::memberwise_constructor(b, d));
     }

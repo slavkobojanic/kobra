@@ -102,7 +102,7 @@ pub(crate) fn lower(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             true,
         )];
     }
-    let tests = g.options.entry == crate::Entry::Tests;
+    let tests = g.options.entry.is_tests();
     let mut out = Vec::new();
     let open = if tests {
         // The service and its table, under their own names inside a

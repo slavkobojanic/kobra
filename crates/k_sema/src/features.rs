@@ -103,6 +103,12 @@ pub const FEATURES: &[Feature] = &[
         "`@Worker` services: page code that runs in a Web Worker",
         "55-workers.md",
     ),
+    preview(
+        "view-previews",
+        "0.1",
+        "`preview` declarations: a view rendered in a chosen state, checked by `k check`",
+        "57-previews.md",
+    ),
     planned(
         "k-new-library",
         "`k new --library`, the library package skeleton",

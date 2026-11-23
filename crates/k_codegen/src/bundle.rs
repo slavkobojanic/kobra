@@ -1336,7 +1336,7 @@ pub(crate) fn allowed(g: &Gen<'_>, d: DeclId, target: Target) -> bool {
     let info = g.view.decl(d);
     // Test code, and test-only modules outside a test build (fakes such as
     // a `testing/FakeHttpClient` never ship).
-    let tests = g.options.entry == crate::Entry::Tests;
+    let tests = g.options.entry.is_tests();
     if (info.is_test && !tests)
         || (info.in_test_module && g.options.environment != crate::Environment::Test)
     {

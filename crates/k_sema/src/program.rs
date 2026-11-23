@@ -83,6 +83,19 @@ pub(crate) struct FileInfo<'a> {
     pub(crate) imports: Vec<ImportInfo>,
     /// The declarations of the file, in source order.
     pub(crate) decls: Vec<DeclId>,
+    /// For a production file with `preview` declarations, its *preview
+    /// scope*: the file that holds them (docs/design/57-previews.md, "What
+    /// a preview can reach").
+    pub(crate) previews: Option<FileIx>,
+    /// For a preview scope, the production file it belongs to.
+    ///
+    /// A preview scope is a second [`FileInfo`] over the same file (same
+    /// id, text, tree and imports) that is a test file: its declarations
+    /// are the file's previews, so their bodies resolve as test code of the
+    /// module (test-file declarations, `k.test`, test-only imports and
+    /// extensions), while the production file's declarations never see
+    /// them. It isn't in [`Program::file_by_id`] or its module's files.
+    pub(crate) scope_of: Option<FileIx>,
 }
 
 /// A module: one directory of `src/` or of the stdlib.
@@ -161,6 +174,7 @@ impl Decl {
                 DeclarationKind::Function
                     | DeclarationKind::Constant
                     | DeclarationKind::TestSuite
+                    | DeclarationKind::Preview
                     | DeclarationKind::Migration
                     | DeclarationKind::App
             )
@@ -410,6 +424,8 @@ impl<'a> Program<'a> {
             path,
             imports,
             decls: Vec::new(),
+            previews: None,
+            scope_of: None,
         });
         self.file_by_id.insert(id, ix);
         if let Some(module) = module {
@@ -419,14 +435,28 @@ impl<'a> Program<'a> {
             return;
         };
         for item in source.items() {
-            let decl = self.add_item(ix, &item);
-            self.files[ix.0 as usize].decls.push(decl);
+            // A production file's previews go to its preview scope.
+            let file = if matches!(item, ast::Item::PreviewDecl(_)) && !is_test && !stdlib {
+                self.preview_scope(ix)
+            } else {
+                ix
+            };
+            let decl = self.add_item(file, &item);
+            self.files[file.0 as usize].decls.push(decl);
+            if file != ix {
+                continue;
+            }
             let info = &self.decls[decl.0 as usize];
             if matches!(info.kind, DeclKind::Extension) {
                 self.extensions.push(decl);
                 continue;
             }
-            if info.name.is_empty() || info.named_kind() == Some(DeclarationKind::TestSuite) {
+            if info.name.is_empty()
+                || matches!(
+                    info.named_kind(),
+                    Some(DeclarationKind::TestSuite | DeclarationKind::Preview)
+                )
+            {
                 continue;
             }
             if let Some(module) = module {
@@ -444,6 +474,32 @@ impl<'a> Program<'a> {
                 }
             }
         }
+    }
+
+    /// Returns the preview scope of production file `ix`, creating it on
+    /// first use (see [`FileInfo::scope_of`]).
+    fn preview_scope(&mut self, ix: FileIx) -> FileIx {
+        if let Some(scope) = self.files[ix.0 as usize].previews {
+            return scope;
+        }
+        let scope = FileIx(u32::try_from(self.files.len()).unwrap_or(u32::MAX));
+        let info = &self.files[ix.0 as usize];
+        let twin = FileInfo {
+            id: info.id,
+            text: info.text,
+            root: info.root.clone(),
+            module: info.module,
+            is_test: true,
+            stdlib: false,
+            path: info.path,
+            imports: info.imports.clone(),
+            decls: Vec::new(),
+            previews: None,
+            scope_of: Some(ix),
+        };
+        self.files.push(twin);
+        self.files[ix.0 as usize].previews = Some(scope);
+        scope
     }
 
     /// Adds one top-level item of `file` as a declaration, with its
@@ -464,15 +520,31 @@ impl<'a> Program<'a> {
                 None,
             ),
         };
-        let name = name_token
+        let mut name = name_token
             .as_ref()
             .map(|t| t.text().to_owned())
             .unwrap_or_default();
+        // A preview has no name of its own (its string is a label), but its
+        // `@Inject` fields are members that resolutions name by their
+        // owner's name: an internal one no source can spell, unique in the
+        // module (one file per stem, one declaration per offset).
+        if matches!(item, ast::Item::PreviewDecl(_)) {
+            let stem = self.files[file.0 as usize]
+                .path
+                .map(|p| p.file_name().trim_end_matches(".k").to_owned())
+                .unwrap_or_default();
+            name = format!("preview#{stem}#{}", u32::from(node.text_range().start()));
+        }
         let name_range = name_token.map_or_else(
             || {
                 node.children_with_tokens()
                     .filter_map(rowan::NodeOrToken::into_token)
-                    .find(|t| matches!(t.kind(), SyntaxKind::ExtendKw | SyntaxKind::TestKw))
+                    .find(|t| {
+                        matches!(
+                            t.kind(),
+                            SyntaxKind::ExtendKw | SyntaxKind::TestKw | SyntaxKind::PreviewKw
+                        )
+                    })
                     .map_or_else(|| first_token_range(&node), |t| t.text_range())
             },
             |t| t.text_range(),
@@ -502,6 +574,12 @@ impl<'a> Program<'a> {
         if let Some(list) = member_list(item) {
             for member in list.members() {
                 self.add_member(id, &member);
+            }
+        }
+        // A preview's `@Inject` fields are its members, as a test group's.
+        if let ast::Item::PreviewDecl(preview) = item {
+            for field in preview.fields() {
+                self.add_member(id, &ast::Member::FieldDecl(field));
             }
         }
         id
@@ -707,6 +785,12 @@ impl<'a> Program<'a> {
         &self.files[ix.0 as usize]
     }
 
+    /// Returns `true` if `a` and `b` are the same file, a preview scope
+    /// counting as its production file.
+    pub(crate) fn same_file(&self, a: FileIx, b: FileIx) -> bool {
+        a == b || self.file(a).id == self.file(b).id
+    }
+
     /// Returns the span of `range` in the file of `ix`.
     pub(crate) fn span(&self, ix: FileIx, range: TextRange) -> Span {
         Span::new(self.files[ix.0 as usize].id, range)
@@ -831,7 +915,10 @@ fn member_list(item: &ast::Item) -> Option<ast::MemberList> {
         ast::Item::ConfigDecl(d) => d.member_list(),
         ast::Item::MigrationDecl(d) => d.member_list(),
         ast::Item::ExtendDecl(d) => d.member_list(),
-        ast::Item::FuncDecl(_) | ast::Item::FieldDecl(_) | ast::Item::TestCaseDecl(_) => None,
+        ast::Item::FuncDecl(_)
+        | ast::Item::FieldDecl(_)
+        | ast::Item::TestCaseDecl(_)
+        | ast::Item::PreviewDecl(_) => None,
     }
 }
 
@@ -856,7 +943,7 @@ pub(crate) fn item_name(item: &ast::Item) -> Option<SyntaxToken> {
         ast::Item::FuncDecl(d) => d.name(),
         ast::Item::FieldDecl(d) => d.name(),
         ast::Item::TestSuiteDecl(d) => d.name(),
-        ast::Item::ExtendDecl(_) | ast::Item::TestCaseDecl(_) => None,
+        ast::Item::ExtendDecl(_) | ast::Item::TestCaseDecl(_) | ast::Item::PreviewDecl(_) => None,
     }
 }
 

@@ -1,0 +1,4 @@
+error[K7506] 12:1-12:8: a file has at most one unnamed preview: name this one, as in `preview "empty" { … }`
+  label 8:1-8:8: the file's unnamed preview
+error[K7507] 20:9-20:16: this file already has a preview named "empty"
+  label 16:9-16:16: first named here

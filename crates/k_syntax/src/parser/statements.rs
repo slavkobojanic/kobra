@@ -68,16 +68,69 @@ pub(crate) fn block(p: &mut Parser<'_>) {
     m.complete(p, K::Block);
 }
 
+/// A preview's body (docs/design/57-previews.md): a [`K::Block`] whose
+/// lines are statements, `use … for …` rules and annotated fields, at a `{`.
+pub(crate) fn preview_block(p: &mut Parser<'_>) {
+    let m = p.start();
+    let open = p.current_range();
+    p.bump();
+    if p.enter() {
+        let saved = (p.newlines, p.no_trailing_lambda);
+        p.newlines = true;
+        p.no_trailing_lambda = false;
+        loop {
+            if at_preview_member(p) {
+                items::preview_member(p);
+                separator(p, K::RBrace, can_start_preview_line);
+                continue;
+            }
+            // The statements up to the next `use` or annotation (or `}`).
+            if statement_list_until(p, open, false, true) {
+                break;
+            }
+        }
+        (p.newlines, p.no_trailing_lambda) = saved;
+        p.leave();
+    }
+    m.complete(p, K::Block);
+}
+
+/// Returns `true` at a preview's `use` rule or annotated member: `use`
+/// (unless a call, `use(x)`, RA-33) or `@`.
+fn at_preview_member(p: &Parser<'_>) -> bool {
+    (p.at(K::UseKw) && p.nth(1) != K::LParen) || p.at(K::At)
+}
+
+/// Returns `true` if the current token can start a line of a preview body.
+fn can_start_preview_line(p: &Parser<'_>) -> bool {
+    can_start_stmt(p) || at_preview_member(p)
+}
+
 /// The statements of a block or lambda body after its `{`, up to and
 /// including the closing `}`.
 pub(crate) fn statement_list(p: &mut Parser<'_>, open: TextRange, in_match: bool) {
+    statement_list_until(p, open, in_match, false);
+}
+
+/// [`statement_list`]; with `preview`, it also stops before `use` and `@`
+/// (a preview's members) and returns `false` there, else `true` once the
+/// block has ended.
+fn statement_list_until(
+    p: &mut Parser<'_>,
+    open: TextRange,
+    in_match: bool,
+    preview: bool,
+) -> bool {
     loop {
+        if preview && at_preview_member(p) {
+            return false;
+        }
         if p.eat(K::RBrace) {
-            return;
+            return true;
         }
         if p.at_eof() || at_block_terminator(p, in_match) {
             p.unclosed(open);
-            return;
+            return true;
         }
         if p.at(K::Semicolon) {
             items::semicolon(p);
@@ -89,7 +142,11 @@ pub(crate) fn statement_list(p: &mut Parser<'_>, open: TextRange, in_match: bool
             if p.position() == before {
                 p.skip_until(|_| true);
             }
-            separator(p, K::RBrace, can_start_stmt);
+            if preview {
+                separator(p, K::RBrace, can_start_preview_line);
+            } else {
+                separator(p, K::RBrace, can_start_stmt);
+            }
         } else {
             let span = p.span(p.current_range());
             let message = format!(
@@ -98,7 +155,10 @@ pub(crate) fn statement_list(p: &mut Parser<'_>, open: TextRange, in_match: bool
             );
             p.report_junk(Diagnostic::new(codes::EXPECTED_EXPRESSION, span, message));
             p.skip_until(|p| {
-                can_start_stmt(p) || p.at(K::RBrace) || at_block_terminator(p, in_match)
+                can_start_stmt(p)
+                    || p.at(K::RBrace)
+                    || at_block_terminator(p, in_match)
+                    || (preview && at_preview_member(p))
             });
         }
     }

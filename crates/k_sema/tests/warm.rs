@@ -547,3 +547,29 @@ fn body_edits_match_fresh_checks(example: &Path) {
     let edits: Vec<(&str, String)> = edits.iter().map(|(p, t)| (p.as_str(), t.clone())).collect();
     run(files, &edits);
 }
+
+#[test]
+fn a_preview_edit_rechecks_its_file_and_replays_the_others() {
+    // A preview is checked with its file, in the file's preview scope
+    // (docs/design/57-previews.md): editing it, breaking it and fixing it
+    // again must match a fresh check, as must an edit of another file.
+    let manifest = "[package]\nname = \"corpus\"\nk = \"0.1\"\npreview = [\"view-previews\"]\n";
+    let badge = "public component Badge {\n    @Prop let count: Int = 0\n\n    view {\n        \"{count}\"\n    }\n}\n\npreview (count: Int = 3) {\n    Badge(count: count)\n}\n";
+    let helper = "func twice(n: Int) -> Int {\n    return n * 2\n}\n";
+    let files = vec![
+        file("k.toml", manifest),
+        file("src/m/Badge.k", badge),
+        file("src/m/helpers.k", helper),
+    ];
+    let broken = badge.replace("Badge(count: count)", "Badge(count: missing)");
+    let renamed = badge.replace("preview (count", "preview \"three\" (count");
+    run(
+        files,
+        &[
+            ("src/m/Badge.k", broken),
+            ("src/m/helpers.k", helper.replace("n * 2", "n + n")),
+            ("src/m/Badge.k", renamed),
+            ("src/m/Badge.k", badge.to_owned()),
+        ],
+    );
+}

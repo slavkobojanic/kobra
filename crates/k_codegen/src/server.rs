@@ -1110,7 +1110,7 @@ pub(crate) fn getter(name: String, body: Expr) -> Function {
 
 /// `true` when generating the test bundle (`k test`).
 fn tests(g: &Gen<'_>) -> bool {
-    g.options.entry == crate::Entry::Tests
+    g.options.entry.is_tests()
 }
 
 /// `$s.perTest(this, "Name", () => value)`: one instance per test of

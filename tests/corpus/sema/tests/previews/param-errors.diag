@@ -1,0 +1,9 @@
+error[K7504] 17:10-17:15: `count` needs a default value: a preview renders before anyone touches its controls
+error[K7505] 17:30-17:39: the preview panel has no control for `List<Int>`
+  help: a preview parameter is a `Bool`, an `Int`, a `Double`, a `String`, an enum whose cases have no payload, or a type with a literal syntax (`Money`, `Duration`, `Date`, `Url`, …)
+error[K7505] 17:50-17:55: the preview panel has no control for `corpus.Point`
+  help: a preview parameter is a `Bool`, an `Int`, a `Double`, a `String`, an enum whose cases have no payload, or a type with a literal syntax (`Money`, `Duration`, `Date`, `Url`, …)
+error[K7505] 17:78-17:83: the preview panel has no control for `corpus.Shape`
+  help: a preview parameter is a `Bool`, an `Int`, a `Double`, a `String`, an enum whose cases have no payload, or a type with a literal syntax (`Money`, `Duration`, `Date`, `Url`, …)
+error[K7505] 17:102-17:106: the preview panel has no control for `Int?`
+  help: a preview parameter is a `Bool`, an `Int`, a `Double`, a `String`, an enum whose cases have no payload, or a type with a literal syntax (`Money`, `Duration`, `Date`, `Url`, …)

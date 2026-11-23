@@ -98,9 +98,17 @@ pub(crate) fn lower(g: &Gen<'_>, d: DeclId, target: Target) -> Option<Item> {
                 {
                     crate::suite::group(&mut b, d)
                 }
-                DeclarationKind::App | DeclarationKind::Migration | DeclarationKind::TestSuite => {
-                    Vec::new()
+                DeclarationKind::Preview
+                    if target == Target::Client && crate::preview::selected(g, d) =>
+                {
+                    crate::suite::group(&mut b, d)
                 }
+                // Previews are generated only by a preview entry
+                // (`crate::preview`), never into a build's output.
+                DeclarationKind::App
+                | DeclarationKind::Migration
+                | DeclarationKind::TestSuite
+                | DeclarationKind::Preview => Vec::new(),
             },
         }
     };

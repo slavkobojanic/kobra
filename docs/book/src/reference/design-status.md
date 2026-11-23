@@ -15,6 +15,7 @@ using one without the opt-in is a compile error (`K8108`) with a quick fix that 
 | Feature | Id | Since | Where it's described |
 |---|---|---|---|
 | `@Worker` services: page code that runs in a Web Worker | `workers` | 0.1 | [Work off the main thread](../apps/workers.md), [k.concurrency](../reference/stdlib/k-concurrency.md#worker) |
+| `preview` declarations: a view rendered in a chosen state, checked by `k check` | `view-previews` | 0.1 | [Preview views](../apps/previews.md) |
 <!-- /gen -->
 
 ## Planned for later compiler releases

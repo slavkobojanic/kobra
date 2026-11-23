@@ -1,4 +1,6 @@
+import accounts.AccountId
 import k.auth.Authenticated
+import k.auth.SessionManager
 import k.crypto.Uuid
 
 /// The signed-in account's notes, filtered as you type and kept live across
@@ -174,4 +176,14 @@ struct Ranking {
 
     /// The matching notes' ids, best first.
     let ids: List<Uuid>
+}
+
+// The page as Ada sees it, inside `AppLayout`: the page requires a
+// signed-in user, so the preview signs in first.
+preview "signed in" {
+    @Inject let sessions: SessionManager
+
+    await sessions.signIn(userId: AccountId.ada)
+
+    Notes()
 }

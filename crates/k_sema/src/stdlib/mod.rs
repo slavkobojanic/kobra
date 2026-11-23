@@ -112,6 +112,10 @@ pub enum DeclarationKind {
     Constant,
     /// `test Name { … }`
     TestSuite,
+    /// `preview "name" { … }`: a view in a chosen state
+    /// (docs/design/57-previews.md). Its declaration has no name: the
+    /// optional string is a label.
+    Preview,
 }
 
 impl DeclarationKind {
@@ -138,6 +142,7 @@ impl DeclarationKind {
             ast::Item::FuncDecl(_) => DeclarationKind::Function,
             ast::Item::FieldDecl(_) => DeclarationKind::Constant,
             ast::Item::TestSuiteDecl(_) => DeclarationKind::TestSuite,
+            ast::Item::PreviewDecl(_) => DeclarationKind::Preview,
             ast::Item::ExtendDecl(_) | ast::Item::TestCaseDecl(_) => return None,
         })
     }
@@ -366,7 +371,7 @@ fn item_name(item: &ast::Item) -> Option<k_syntax::SyntaxToken> {
         ast::Item::FuncDecl(d) => d.name(),
         ast::Item::FieldDecl(d) => d.name(),
         ast::Item::TestSuiteDecl(d) => d.name(),
-        ast::Item::ExtendDecl(_) | ast::Item::TestCaseDecl(_) => None,
+        ast::Item::ExtendDecl(_) | ast::Item::TestCaseDecl(_) | ast::Item::PreviewDecl(_) => None,
     }
 }
 
@@ -400,7 +405,9 @@ fn item_is_public(item: &ast::Item) -> bool {
                 Visibility::Module
             }
         }
-        ast::Item::TestSuiteDecl(_) | ast::Item::TestCaseDecl(_) => Visibility::Module,
+        ast::Item::TestSuiteDecl(_) | ast::Item::TestCaseDecl(_) | ast::Item::PreviewDecl(_) => {
+            Visibility::Module
+        }
     };
     visibility == Visibility::Public
 }

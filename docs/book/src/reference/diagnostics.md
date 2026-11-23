@@ -9572,11 +9572,293 @@ error[K7503]: tests never read the environment: bind `MailConfig` with `use … 
 
 **Fix:** Bind the config in the test group: `use SomeConfig.sample for SomeConfig`.
 
+### K7504 `preview-param-without-default`
+
+**Error.** A `preview` parameter has no default value; the preview renders before anyone touches its control.
+
+Example (`tests/corpus/sema/tests/previews/param-errors.k`):
+
+```k,ignore
+// A parameter needs a default and a type the panel has a control for.
+struct Point {
+    let x: Int
+}
+
+enum Shape {
+    case circle(radius: Int)
+    case square
+}
+
+component Dot {
+    view {
+        "dot"
+    }
+}
+
+preview (count: Int, points: List<Int> = [], at: Point = Point(x: 1), shape: Shape = .square, maybe: Int? = nil) {
+    Dot()
+}
+```
+
+```text
+error[K7504]: `count` needs a default value: a preview renders before anyone touches its controls
+  --> src/corpus/param-errors.k:17:10
+   |
+17 | preview (count: Int, points: List<Int> = [], at: Point = Point(x: 1), shape: Shape = .square, maybe: Int? = nil) {
+   |          ^^^^^
+```
+
+**Fix:** Give the parameter a default value: `preview (count: Int = 3) { … }`.
+
+### K7505 `preview-param-type`
+
+**Error.** A `preview` parameter's type has no control: it isn't `Bool`, `Int`, `Double`, `String`, an enum without payloads or a type with a literal syntax.
+
+Example (`tests/corpus/sema/tests/previews/param-errors.k`):
+
+```k,ignore
+// A parameter needs a default and a type the panel has a control for.
+struct Point {
+    let x: Int
+}
+
+enum Shape {
+    case circle(radius: Int)
+    case square
+}
+
+component Dot {
+    view {
+        "dot"
+    }
+}
+
+preview (count: Int, points: List<Int> = [], at: Point = Point(x: 1), shape: Shape = .square, maybe: Int? = nil) {
+    Dot()
+}
+```
+
+```text
+error[K7505]: the preview panel has no control for `List<Int>`
+  --> src/corpus/param-errors.k:17:30
+   |
+17 | preview (count: Int, points: List<Int> = [], at: Point = Point(x: 1), shape: Shape = .square, maybe: Int? = nil) {
+   |                              ^^^^^^^^^
+   |
+   = help: a preview parameter is a `Bool`, an `Int`, a `Double`, a `String`, an enum whose cases have no payload, or a type with a literal syntax (`Money`, `Duration`, `Date`, `Url`, …)
+
+error[K7505]: the preview panel has no control for `corpus.Point`
+  --> src/corpus/param-errors.k:17:50
+   |
+17 | preview (count: Int, points: List<Int> = [], at: Point = Point(x: 1), shape: Shape = .square, maybe: Int? = nil) {
+   |                                                  ^^^^^
+   |
+   = help: a preview parameter is a `Bool`, an `Int`, a `Double`, a `String`, an enum whose cases have no payload, or a type with a literal syntax (`Money`, `Duration`, `Date`, `Url`, …)
+
+error[K7505]: the preview panel has no control for `corpus.Shape`
+  --> src/corpus/param-errors.k:17:78
+   |
+17 | preview (count: Int, points: List<Int> = [], at: Point = Point(x: 1), shape: Shape = .square, maybe: Int? = nil) {
+   |                                                                              ^^^^^
+   |
+   = help: a preview parameter is a `Bool`, an `Int`, a `Double`, a `String`, an enum whose cases have no payload, or a type with a literal syntax (`Money`, `Duration`, `Date`, `Url`, …)
+
+error[K7505]: the preview panel has no control for `Int?`
+  --> src/corpus/param-errors.k:17:102
+   |
+17 | preview (count: Int, points: List<Int> = [], at: Point = Point(x: 1), shape: Shape = .square, maybe: Int? = nil) {
+   |                                                                                                      ^^^^
+   |
+   = help: a preview parameter is a `Bool`, an `Int`, a `Double`, a `String`, an enum whose cases have no payload, or a type with a literal syntax (`Money`, `Duration`, `Date`, `Url`, …)
+```
+
+**Fix:** Make the parameter a `Bool`, `Int`, `Double`, `String`, payload-free enum or literal type, and build the richer value in the setup from it.
+
+### K7506 `second-unnamed-preview`
+
+**Error.** A file has a second unnamed `preview`; at most one preview of a file is unnamed.
+
+Example (`tests/corpus/sema/tests/previews/names.k`):
+
+```k,ignore
+// At most one unnamed preview, and no two of the same name.
+component Badge {
+    view {
+        "badge"
+    }
+}
+
+preview {
+    Badge()
+}
+
+preview {
+    Badge()
+}
+
+preview "empty" {
+    Badge()
+}
+
+preview "empty" {
+    Badge()
+}
+```
+
+```text
+error[K7506]: a file has at most one unnamed preview: name this one, as in `preview "empty" { … }`
+  --> src/corpus/names.k:12:1
+   |
+ 8 | preview {
+   | ------- the file's unnamed preview
+12 | preview {
+   | ^^^^^^^
+```
+
+**Fix:** Name one of the two previews: `preview "empty" { … }`.
+
+### K7507 `duplicate-preview-name`
+
+**Error.** Two `preview` declarations of a file share a name.
+
+Example (`tests/corpus/sema/tests/previews/names.k`):
+
+```k,ignore
+// At most one unnamed preview, and no two of the same name.
+component Badge {
+    view {
+        "badge"
+    }
+}
+
+preview {
+    Badge()
+}
+
+preview {
+    Badge()
+}
+
+preview "empty" {
+    Badge()
+}
+
+preview "empty" {
+    Badge()
+}
+```
+
+```text
+error[K7507]: this file already has a preview named "empty"
+  --> src/corpus/names.k:20:9
+   |
+16 | preview "empty" {
+   |         ------- first named here
+20 | preview "empty" {
+   |         ^^^^^^^
+```
+
+**Fix:** Rename one of the previews; the switcher lists them by name.
+
+### K7508 `preview-not-a-view`
+
+**Error.** A `preview` body's last expression isn't a view.
+
+Example (`tests/corpus/sema/tests/previews/body-errors.k`):
+
+```k,ignore
+// The body ends with the view it renders.
+component Card {
+    view {
+        "card"
+    }
+}
+
+preview "a number" {
+    1 + 2
+}
+
+preview "a statement" {
+    let card = 1
+}
+
+preview "nothing" {
+}
+
+preview "setup then the view" {
+    let title = "Hello"
+    Card()
+}
+```
+
+```text
+error[K7508]: a preview ends with the view it renders, not a value of type `Int`
+ --> src/corpus/body-errors.k:9:5
+  |
+9 |     1 + 2
+  |     ^^^^^
+```
+
+**Fix:** End the body with the view to render, a component, layout or page: `Stepper(value: bind value)`.
+
+### K7509 `preview-without-view`
+
+**Error.** A `preview` body is empty or ends with a statement instead of the view it renders.
+
+Example (`tests/corpus/sema/tests/previews/body-errors.k`):
+
+```k,ignore
+// The body ends with the view it renders.
+component Card {
+    view {
+        "card"
+    }
+}
+
+preview "a number" {
+    1 + 2
+}
+
+preview "a statement" {
+    let card = 1
+}
+
+preview "nothing" {
+}
+
+preview "setup then the view" {
+    let title = "Hello"
+    Card()
+}
+```
+
+```text
+error[K7509]: this preview renders nothing: its body ends with the view it shows
+  --> src/corpus/body-errors.k:12:1
+   |
+12 | preview "a statement" {
+   | ^^^^^^^
+
+error[K7509]: this preview renders nothing: its body ends with the view it shows
+  --> src/corpus/body-errors.k:16:1
+   |
+16 | preview "nothing" {
+   | ^^^^^^^
+```
+
+**Fix:** End the body with the view to render, after its setup.
+
 ### K7510 `test-failed`
 
 **Error.** A test failed when `k test` or `k check` ran it.
 
 **Fix:** Fix the code or the expectation; the notes show the value of each part of the failed expression.
+
+### K7520 `preview-failed`
+
+**Error.** A preview failed when `k check` mounted it with its default parameters.
+
+**Fix:** Fix the setup or the view; sign in with `SessionManager` in the setup when the page requires a signed-in user.
 
 ## K8000–K8999: Lockfiles, manifest and packages
 
@@ -10123,7 +10405,7 @@ error[K8101]: `no-such-thing` is not a preview feature
 4 | preview = ["workers", "no-such-thing", "k-doc"]
   |                       ^^^^^^^^^^^^^^^
   |
-  = note: the features in preview: `workers`
+  = note: the features in preview: `workers`, `view-previews`
 
 error[K8101]: `k-doc` is planned, not built: there is nothing to opt in to yet
  --> k.toml:4:40
@@ -10131,7 +10413,7 @@ error[K8101]: `k-doc` is planned, not built: there is nothing to opt in to yet
 4 | preview = ["workers", "no-such-thing", "k-doc"]
   |                                        ^^^^^^^
   |
-  = note: the features in preview: `workers`
+  = note: the features in preview: `workers`, `view-previews`
 ```
 
 **Fix:** Fix the syntax of `k.toml`, and give `[package]` its `name` and `k` keys. In `preview`, list only features that are in preview.
@@ -10176,41 +10458,33 @@ error[K8101]: `k-doc` is planned, not built: there is nothing to opt in to yet
 
 **Error.** A preview feature is used, but the project doesn't list it in `[package] preview`; a preview may change in any minor, and listing it is the consent.
 
-Example (`tests/corpus/sema/stability/preview-without-opt-in/`):
+Example (`tests/corpus/sema/tests/previews/not-enabled/`):
 
 ```k,ignore
-// `@Worker` is part of the preview feature `workers`: without
-// `preview = ["workers"]` in k.toml each use of the feature is K8108, with
-// a fix that adds the opt-in.
-import k.concurrency.Worker
-import k.concurrency.WorkerOnlyError
-
-@Worker
-public service Sieve {
-    func echo(bytes: Bytes) async throws WorkerOnlyError -> Bytes {
-        return bytes
+// Previews are a preview feature (`view-previews`): without
+// `preview = ["view-previews"]` in k.toml each `preview` declaration is
+// K8108 at its keyword, with the fix that adds the opt-in. The body is
+// still checked, so the preview is ready once the project opts in.
+public component Badge {
+    view {
+        "badge"
     }
+}
+
+preview {
+    Badge()
 }
 ```
 
 ```text
-error[K8108]: `Worker` is part of the preview feature `workers`, which `primes` doesn't list in `[package] preview`
- --> src/primes/Sieve.k:7:1
-  |
-7 | @Worker
-  | ^^^^^^^
-  |
-  = note: a preview may change or go away in any minor release; listing it in k.toml is the consent
-  = fix: Add `"workers"` to `[package] preview`
-
-error[K8108]: `WorkerOnlyError` is part of the preview feature `workers`, which `primes` doesn't list in `[package] preview`
- --> src/primes/Sieve.k:9:42
-  |
-9 |     func echo(bytes: Bytes) async throws WorkerOnlyError -> Bytes {
-  |                                          ^^^^^^^^^^^^^^^
-  |
-  = note: a preview may change or go away in any minor release; listing it in k.toml is the consent
-  = fix: Add `"workers"` to `[package] preview`
+error[K8108]: `preview` is part of the preview feature `view-previews`, which `corpus` doesn't list in `[package] preview`
+  --> src/ui/Badge.k:11:1
+   |
+11 | preview {
+   | ^^^^^^^
+   |
+   = note: a preview may change or go away in any minor release; listing it in k.toml is the consent
+   = fix: Add `"view-previews"` to `[package] preview`
 ```
 
 **Fix:** Add the feature to `preview` in the `[package]` section of `k.toml` (machine-applicable fix), or stop using it.

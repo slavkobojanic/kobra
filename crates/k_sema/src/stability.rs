@@ -92,6 +92,7 @@ pub(crate) fn check(cx: &Cx<'_, '_>, resolutions: &Chunked<Resolution>) {
         own_list_problems(cx, own, features::FEATURES);
     }
     dependency_previews(cx, &manifests);
+    language_uses(cx, &manifests);
     // Every marked declaration and member.
     let mut marks: FxHashMap<Resolution, Mark> = FxHashMap::default();
     for (i, d) in p.decls.iter().enumerate() {
@@ -457,6 +458,29 @@ fn preview_use(
     }
     Some(d)
 }
+
+/// The language features in preview: K8108 at each use of their syntax,
+/// unless the file's package lists them. A `preview` declaration is the
+/// feature `view-previews` (docs/design/57-previews.md), reported at its
+/// keyword.
+fn language_uses(cx: &Cx<'_, '_>, manifests: &FxHashMap<String, PreviewList>) {
+    let p = cx.p;
+    let mut found = Vec::new();
+    for d in &p.decls {
+        if d.named_kind() != Some(crate::stdlib::DeclarationKind::Preview) || p.file(d.file).stdlib
+        {
+            continue;
+        }
+        let span = p.span(d.file, d.name_range);
+        if let Some(diag) = preview_use(cx, manifests, VIEW_PREVIEWS, d.file, span, "preview") {
+            found.push(diag);
+        }
+    }
+    cx.diags.borrow_mut().extend(found);
+}
+
+/// The feature id of `preview` declarations.
+pub(crate) const VIEW_PREVIEWS: &str = "view-previews";
 
 /// The annotation uses of marked annotation declarations (`@Worker`),
 /// which aren't resolutions.

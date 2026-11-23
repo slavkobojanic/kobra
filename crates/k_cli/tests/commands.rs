@@ -1124,6 +1124,41 @@ fn check_json_reports_failed_tests_as_diagnostics() {
     assert_eq!(failures, 3, "{text}");
 }
 
+/// `k check` mounts every preview once with its default parameters
+/// (57-previews.md, "`k check`"): a setup that throws and a page whose
+/// guards refuse the preview's session are each a `K7520` at the `preview`
+/// keyword, and the summary counts the previews.
+#[test]
+fn check_mounts_every_preview_and_reports_each_failure() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/previewing");
+    let out = k(&["check", "--color", "never"], &dir);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert_eq!(err.matches("error[K7520]").count(), 2, "{err}");
+    assert!(
+        err.contains("error[K7520]: the preview threw an error it didn't catch\n  --> src/shop/Counter.k:27:1"),
+        "{err}"
+    );
+    assert!(
+        err.contains("in preview `setup throws`, mounted with its default parameters"),
+        "{err}"
+    );
+    assert!(
+        err.contains("the page requires a signed-in user")
+            && err.contains("--> src/shop/Account.k:11:1"),
+        "{err}"
+    );
+    assert!(
+        err.trim_end()
+            .ends_with("mounted 3 previews: 2 error(s), 0 warning(s)"),
+        "{err}"
+    );
+    // `--no-tests` skips the mounts too.
+    let out = k(&["check", "--color", "never", "--no-tests"], &dir);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "checked 5 files: no problems\n");
+}
+
 /// Tests run only for a program without errors, as in `k test`.
 #[test]
 fn check_runs_no_tests_for_a_project_with_errors() {

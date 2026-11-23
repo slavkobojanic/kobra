@@ -160,7 +160,7 @@ fn run_once(
         eprintln!("error: the project has {errors} error(s), so its tests can't run");
         return ExitCode::from(1);
     }
-    let run = match execute(&analysis, filters, files) {
+    let run = match execute(&analysis, Entry::Tests, filters, files) {
         Ok(r) => r,
         Err(message) => {
             eprintln!("error: {message}");
@@ -279,7 +279,7 @@ pub(crate) fn check_tests(analysis: &Analysis) -> Option<Checked> {
     if !has_tests || !cfg!(feature = "server") {
         return None;
     }
-    match execute(analysis, &[], None) {
+    match execute(analysis, Entry::Tests, &[], None) {
         Ok(run) => Some(Checked {
             ran: run.outcomes.len(),
             diagnostics: failure_diagnostics(analysis, &run),
@@ -302,7 +302,75 @@ pub(crate) fn check_tests(analysis: &Analysis) -> Option<Checked> {
     }
 }
 
-/// Builds the test bundle of `analysis` and runs the selected tests.
+/// Mounts every `preview` of `analysis`, a program without errors, once
+/// with its default parameters, for `k check` (docs/design/57-previews.md,
+/// "`k check`"): the preview bundle ([`Entry::Previews`]) runs in the test
+/// kit as the tests do, each preview in a fresh simulated tab, and one that
+/// throws, fails to mount or ends on a page its guards refuse is a `K7520`
+/// at its `preview` keyword. `None` when the project has no previews, or
+/// this `k` has no server runtime.
+pub(crate) fn check_previews(analysis: &Analysis) -> Option<Checked> {
+    let has_previews = analysis.program().is_ok_and(|view| {
+        view.decls
+            .iter()
+            .any(|d| !d.stdlib && d.named_kind() == Some(k_sema::stdlib::DeclarationKind::Preview))
+    });
+    if !has_previews || !cfg!(feature = "server") {
+        return None;
+    }
+    let run = match execute(analysis, Entry::Previews(None), &[], None) {
+        Ok(run) => run,
+        Err(message) => {
+            let file = analysis
+                .files()
+                .into_iter()
+                .find(|(_, p)| p.as_str() == "k.toml")
+                .map_or_else(|| FileId::new(0), |(id, _)| id);
+            return Some(Checked {
+                ran: 0,
+                diagnostics: vec![Diagnostic::new(
+                    codes::TESTS_NOT_RUN,
+                    Span::empty(file, TextSize::from(0)),
+                    format!("the previews couldn't be mounted: {message}"),
+                )],
+            });
+        }
+    };
+    let mut diagnostics = Vec::new();
+    for o in &run.outcomes {
+        let Some(f) = &o.failure else { continue };
+        let file = ProjectPath::new(&o.file)
+            .ok()
+            .and_then(|p| analysis.file_id(&p))
+            .unwrap_or_else(|| FileId::new(0));
+        let range = TextRange::new(TextSize::from(f.start), TextSize::from(f.end.max(f.start)));
+        let label = o
+            .full
+            .rsplit_once(" › ")
+            .map_or(o.full.as_str(), |(l, _)| l);
+        // The kit words failures for tests: "the test threw …".
+        let message = match f.message.strip_prefix("the test ") {
+            Some(rest) => format!("the preview {rest}"),
+            None => f.message.clone(),
+        };
+        let mut d = Diagnostic::new(codes::PREVIEW_FAILED, Span::new(file, range), message);
+        for (text, value) in &f.values {
+            d = d.with_note(format!("`{text}` was {value}"));
+        }
+        d = d.with_note(format!(
+            "in preview `{label}`, mounted with its default parameters"
+        ));
+        diagnostics.push(d);
+    }
+    Some(Checked {
+        ran: run.outcomes.len(),
+        diagnostics,
+    })
+}
+
+/// Builds the test bundle of `analysis` (`entry`: [`Entry::Tests`], or
+/// [`Entry::Previews`], whose groups are previews with one test each) and
+/// runs the selected tests.
 ///
 /// # Errors
 ///
@@ -311,6 +379,7 @@ pub(crate) fn check_tests(analysis: &Analysis) -> Option<Checked> {
 #[cfg(feature = "server")]
 fn execute(
     analysis: &Analysis,
+    entry: Entry,
     filters: &[String],
     files: Option<&BTreeSet<String>>,
 ) -> Result<Run, String> {
@@ -318,7 +387,7 @@ fn execute(
     let options = Options {
         profile: Profile::Development,
         environment: Environment::Test,
-        entry: Entry::Tests,
+        entry,
     };
     let output = match generate(analysis, &options) {
         Ok(o) => o,
@@ -465,6 +534,7 @@ fn write_bundle(dir: &Path, modules: &[k_server::JsModule]) {
 #[cfg(not(feature = "server"))]
 fn execute(
     _analysis: &Analysis,
+    _entry: Entry,
     _filters: &[String],
     _files: Option<&BTreeSet<String>>,
 ) -> Result<Run, String> {

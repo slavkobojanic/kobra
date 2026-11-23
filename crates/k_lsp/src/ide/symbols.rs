@@ -81,7 +81,9 @@ fn decl_kind(kind: DeclKind) -> SymbolKind {
             DeclarationKind::Interface | DeclarationKind::Protocol => SymbolKind::Interface,
             DeclarationKind::Function => SymbolKind::Function,
             DeclarationKind::Constant => SymbolKind::Constant,
-            DeclarationKind::TestSuite | DeclarationKind::Migration => SymbolKind::Module,
+            DeclarationKind::TestSuite | DeclarationKind::Migration | DeclarationKind::Preview => {
+                SymbolKind::Module
+            }
             DeclarationKind::Component
             | DeclarationKind::Page
             | DeclarationKind::Layout
@@ -116,12 +118,19 @@ pub fn document_symbols(
     file: FileId,
 ) -> Result<Vec<DocumentSymbol>, Cancelled> {
     let view = analysis.program()?;
+    let previews = analysis.previews(file)?;
     let mut out = Vec::new();
     for decl in &view.decls {
         if decl.file != file {
             continue;
         }
+        // A preview's declaration name is internal: the outline shows its
+        // label.
+        let preview = previews.iter().find(|p| p.range == decl.range);
         let name = match decl.kind {
+            DeclKind::Named(_) if preview.is_some() => {
+                format!("preview {}", preview.map_or("", |p| p.label.as_str()))
+            }
             DeclKind::Extension => format!(
                 "extend {}",
                 decl.extends
@@ -205,7 +214,10 @@ pub fn workspace_symbols(
             continue;
         }
         let id = k_sema::view::DeclId(u32::try_from(i).unwrap_or(u32::MAX));
+        // A preview's name is internal, and its fields are its own.
+        let preview = decl.named_kind() == Some(DeclarationKind::Preview);
         if !decl.name.is_empty()
+            && !preview
             && let Some(score) = fuzzy(query, &decl.name)
         {
             scored.push((
@@ -219,7 +231,7 @@ pub fn workspace_symbols(
                 },
             ));
         }
-        if query.is_empty() {
+        if query.is_empty() || preview {
             continue;
         }
         for &m in &decl.members {

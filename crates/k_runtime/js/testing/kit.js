@@ -1317,6 +1317,53 @@ export function render(mount, href) {
   return s;
 }
 
+// ------------------------------------------------------------ previews
+
+/**
+ * A previewed page's renderer inside its layouts, outermost first, as the
+ * router renders it after navigating to it (57-previews.md, "What
+ * renders"): `layouts[i]` gets the next one as its `content`.
+ * @param {Array<Function>} layouts
+ * @param {(ctx: object) => object} mount
+ * @returns {(ctx: object) => object}
+ */
+export function layered(layouts, mount) {
+  return (ctx) => {
+    const go = (i) => (i === layouts.length ? mount({ ...ctx, key: "0" }) : layouts[i]({ content: () => go(i + 1) }, { ...ctx, key: `L${i}` }));
+    return go(0);
+  };
+}
+
+/**
+ * A previewed page's guards (`[["auth"], ["role", name]]`) against the
+ * session the preview's setup left: a page the router would redirect away
+ * from fails the preview, naming the guard, instead of showing the
+ * redirect (57-previews.md, "`k check`").
+ * @param {Array<Array<string>>} guards
+ */
+export function previewGuards(guards) {
+  const user = sessionMirror.peek()?.user ?? null;
+  for (const g of guards) {
+    if (user === null) {
+      throw failure("the page requires a signed-in user and the preview's setup signs nobody in, so the router would redirect (sign in with `SessionManager` in the setup)", -1, -1, []);
+    }
+    if (g[0] === "role" && user.roles?.includes?.(g[1]) === false) {
+      throw failure(`the page requires the role \`${g[1]}\` and the preview's signed-in user doesn't have it, so the router would redirect`, -1, -1, []);
+    }
+  }
+}
+
+/**
+ * `k check`'s mount of a preview: waits until its screen is quiet; a view
+ * that failed to render while settling fails the preview.
+ * @param {Screen} s
+ */
+export async function settlePreview(s) {
+  if (s === null || s === undefined) return;
+  await s.settle();
+  if (current.errors.length > 0) throw current.errors[0];
+}
+
 /**
  * Mounts `mount(ctx)` in screen `s`'s container, in a root of its own
  * that `s.dispose` disposes, and flushes.

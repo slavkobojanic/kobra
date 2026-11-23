@@ -1,0 +1,4 @@
+error[K8108] src/ui/Badge.k:11:1-11:8: `preview` is part of the preview feature `view-previews`, which `corpus` doesn't list in `[package] preview`
+  note: a preview may change or go away in any minor release; listing it in k.toml is the consent
+  fix "Add `\"view-previews\"` to `[package] preview`"
+    edit k.toml:3:10-3:10 "\npreview = [\"view-previews\"]"

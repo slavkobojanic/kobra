@@ -1643,3 +1643,41 @@ Fixed while making the examples' server-side tests pass, each pinned first:
 - **Unit tests** in `k_codegen` for hashing, the printer's escaping and precedence, and CSS constant
   folding. An `arbitrary`-driven property test that lowering never panics on generated programs is
   *planned*.
+
+### 21.3 The preview bundle (`Entry::Previews`)
+
+Design [57-previews.md](../design/57-previews.md). `preview` declarations never reach a build: their
+declarations are test code (they live in their file's *preview scope*, a test file over the same tree,
+sema.md §12.14), so `Entry::App`, `Entry::Main` and `Entry::Tests` leave them out with the rest of the
+test code (`decl::lower` lowers a preview to nothing outside a preview bundle), and the `testing` imports
+they use are never emitted. `Entry::Previews(file)` (with `Environment::Test`; `preview.rs`) builds the
+previews of `file`, or of every file with `None`, as a test bundle (`Entry::is_tests` is `true` for both,
+so every rule of §21.1 holds: the hermetic `k.test` defaults, `App.k`'s `.test` rules, the in-process
+server with a fresh in-memory database per mount, one session) whose groups are the previews instead of
+the test groups:
+
+- **One group per preview** (`suite::groups`), in file path order, then source order: the order of
+  `k_sema::Analysis::previews`. The group's class `$group<N>` lowers the preview's `@Inject` fields as a
+  test group's, and its `use` rules (written in the body) are the group's rules, on whichever side their
+  target is used.
+- **`$mount($c, values = {})`** binds each parameter to a signal (`$k.signal(...)`, read as `x.get()` and
+  written as `x.set(v)` through `Body::cell_locals`) holding `values[name]` when the key is present, else
+  the default, runs the setup statements, and returns the kit's `render` of the last line: a component or
+  layout built as a view builds it (`suite::render_view`), or a page with its parameters as props, inside
+  its layouts (`$k.$test.layered`, outermost first, as the router and §21.1's navigation do), after
+  `$k.$test.previewGuards` has checked its client guards against the session the setup left (a refused
+  guard is the failure "the router would redirect"). A `bind` of a parameter writes the signal, so the
+  view re-renders and the panel can read the value back.
+- **`$t0($c)`**, the group's one test (`mounts`): `$mount` with the defaults, then
+  `$k.$test.settlePreview` (settle; an error raised while rendering fails it). `$groups` has the usual
+  shape, the group named by the preview's label and the test's range the `preview` keyword, so the kit's
+  `run` reports a failure there.
+- **`$previews`**: per group, in order, `{label, file, start, end, params}`, the keyword's offsets and the
+  parameter names, for a client that drives `$mount` itself.
+
+The API a tool builds on: `k_sema::Analysis::previews(file) -> Vec<k_sema::preview::Preview>` (name,
+label, range, keyword, rendered declaration, and per parameter its name, type, `Control` and literal
+default), and `k_codegen::generate(analysis, &Options { entry: Entry::Previews(Some(file)),
+environment: Environment::Test, .. })`, whose output runs as `k test` runs a test bundle
+(`k_cli::test::execute`). `k check` runs `Entry::Previews(None)` through the kit's `run` and reports each
+failed mount as K7520 (`k_cli::test::check_previews`).

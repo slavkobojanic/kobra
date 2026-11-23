@@ -141,7 +141,7 @@ pub(crate) fn analyze(
     for ix in 0..program.files.len() {
         let file = FileIx(u32::try_from(ix).unwrap_or(u32::MAX));
         let info = program.file(file);
-        if info.stdlib {
+        if info.stdlib || info.scope_of.is_some() {
             continue;
         }
         let id = info.id;
@@ -208,6 +208,7 @@ pub(crate) fn analyze(
     crate::di::server_references(&cx, &names);
     let sides = crate::di::sides(&cx);
     unused_imports(&cx);
+    preview_imports(&cx);
     cx.fw.styles_checked.set(true);
     crate::framework::report_unused(&cx);
     let mut types = Chunked::default();
@@ -301,6 +302,11 @@ fn resolve_signatures(cx: &Cx<'_, '_>) {
                 let _ = cx.constant_ty(id);
                 continue;
             }
+            // A preview's parameters are its signature, read by the view
+            // (`crate::preview`); its fields follow below.
+            Some(DeclarationKind::Preview) => {
+                let _ = cx.sig(SigKey::Decl(id));
+            }
             _ => {}
         }
         if d.kind == DeclKind::Extension {
@@ -355,10 +361,15 @@ fn check_file_facts(
     let saved_keyframes = std::mem::take(&mut *cx.fw.used_keyframes.borrow_mut());
     let saved_stylables = std::mem::take(&mut *cx.fw.applied_stylables.borrow_mut());
     let saved_loads = std::mem::take(&mut *cx.fw.loads.borrow_mut());
-    let decls = cx.p.file(file).decls.clone();
-    for decl in decls {
+    let mut decls = cx.p.file(file).decls.clone();
+    // A file's previews are checked with it, in its preview scope.
+    if let Some(scope) = cx.p.file(file).previews {
+        decls.extend(cx.p.file(scope).decls.iter().copied());
+    }
+    for &decl in &decls {
         check_decl(cx, decl);
     }
+    crate::preview::check_names(cx, &decls);
     crate::doclinks::check_file(cx, file);
     let diags: Vec<Diagnostic> = cx.diags.borrow()[diag_start..].to_vec();
     let types = std::mem::replace(&mut *cx.types.borrow_mut(), saved_types);
@@ -493,7 +504,8 @@ fn owner_of(cx: &Cx<'_, '_>, decl: DeclId) -> BodyOwner {
     let d = cx.p.decl(decl);
     let typed = d.is_type()
         || d.kind == DeclKind::Extension
-        || (d.named_kind() == Some(DeclarationKind::TestSuite) && !d.name.is_empty());
+        || (d.named_kind() == Some(DeclarationKind::TestSuite) && !d.name.is_empty())
+        || d.named_kind() == Some(DeclarationKind::Preview);
     BodyOwner {
         file: d.file,
         decl: typed.then_some(if d.kind == DeclKind::Extension {
@@ -565,7 +577,8 @@ fn project_checks(cx: &Cx<'_, '_>) {
     let p = cx.p;
     for (ix, file) in p.files.iter().enumerate() {
         let fix = FileIx(u32::try_from(ix).unwrap_or(u32::MAX));
-        if file.stdlib {
+        // A preview scope's file rules are its production file's.
+        if file.stdlib || file.scope_of.is_some() {
             continue;
         }
         if let Some(path) = file.path
@@ -924,6 +937,11 @@ fn import_cycles(cx: &Cx<'_, '_>) {
             if to == from || p.modules[to.0 as usize].stdlib {
                 continue;
             }
+            // A file's import of a test-only module for its previews is
+            // test code's, like a test file's (`preview_imports`).
+            if file.previews.is_some() && p.modules[to.0 as usize].test_only {
+                continue;
+            }
             edges[from.0 as usize].push(to.0 as usize);
             import_edges.push((
                 FileIx(u32::try_from(ix).unwrap_or(u32::MAX)),
@@ -1131,7 +1149,8 @@ fn unused_imports(cx: &Cx<'_, '_>) {
     let p = cx.p;
     let used = cx.used_imports.borrow();
     for (ix, file) in p.files.iter().enumerate() {
-        if file.stdlib || file.imports.is_empty() {
+        // A preview scope's imports are its production file's.
+        if file.stdlib || file.imports.is_empty() || file.scope_of.is_some() {
             continue;
         }
         // Collected only when some import isn't used by a checked body:
@@ -1139,7 +1158,8 @@ fn unused_imports(cx: &Cx<'_, '_>) {
         let mut idents: Option<HashSet<String>> = None;
         let fix = FileIx(u32::try_from(ix).unwrap_or(u32::MAX));
         for (i, res) in cx.imports[ix].iter().enumerate() {
-            if !matches!(res, ImportRes::Bound(..)) || used.contains(&(fix, i)) {
+            let in_previews = file.previews.is_some_and(|s| used.contains(&(s, i)));
+            if !matches!(res, ImportRes::Bound(..)) || used.contains(&(fix, i)) || in_previews {
                 continue;
             }
             let import = &file.imports[i];
@@ -1164,6 +1184,56 @@ fn unused_imports(cx: &Cx<'_, '_>) {
                     "",
                 )),
             );
+        }
+    }
+}
+
+/// K1104 for a production file with previews: it may import a test-only
+/// module for them (docs/design/57-previews.md, "What a preview can
+/// reach"), so the import itself isn't reported (`Cx::resolve_imports`);
+/// each use of the imported name outside the file's previews is, at the
+/// use.
+fn preview_imports(cx: &Cx<'_, '_>) {
+    let p = cx.p;
+    for (ix, file) in p.files.iter().enumerate() {
+        if file.previews.is_none() || file.stdlib || file.is_test {
+            continue;
+        }
+        let own_test_only = file
+            .module
+            .is_some_and(|m| p.modules[m.0 as usize].test_only);
+        if own_test_only {
+            continue;
+        }
+        let fix = FileIx(u32::try_from(ix).unwrap_or(u32::MAX));
+        for (i, res) in cx.imports[ix].iter().enumerate() {
+            let ImportRes::Bound(name, d) = res else {
+                continue;
+            };
+            let test_only = p.decl_module(*d).is_some_and(|m| {
+                p.modules[m.0 as usize].test_only && !p.modules[m.0 as usize].stdlib
+            });
+            if !test_only {
+                continue;
+            }
+            let path = &file.imports[i].path;
+            let uses = file
+                .root
+                .children()
+                .filter(|c| !matches!(c.kind(), SyntaxKind::Import | SyntaxKind::PreviewDecl))
+                .flat_map(|c| c.descendants_with_tokens())
+                .filter_map(rowan::NodeOrToken::into_token)
+                .filter(|t| t.kind() == SyntaxKind::Ident && t.text() == name);
+            for token in uses {
+                cx.error(
+                    fix,
+                    codes::TEST_ONLY_IMPORT,
+                    token.text_range(),
+                    format!(
+                        "`{path}` is test-only: this file imports it for its previews, and only they can use it"
+                    ),
+                );
+            }
         }
     }
 }
@@ -1243,6 +1313,16 @@ fn check_decl(cx: &Cx<'_, '_>, decl: DeclId) {
         }
         Some(DeclarationKind::App | DeclarationKind::Migration) => {
             crate::framework::check_declaration(cx, decl, &owner_of(cx, decl));
+            return;
+        }
+        // A preview: its `@Inject` fields as a test group's, then its
+        // parameters and body (`crate::preview`).
+        Some(DeclarationKind::Preview) => {
+            crate::framework::check_declaration(cx, decl, &owner_of(cx, decl));
+            for m in d.members.clone() {
+                check_member(cx, decl, m);
+            }
+            crate::preview::check(cx, decl, owner_of(cx, decl));
             return;
         }
         _ => {}

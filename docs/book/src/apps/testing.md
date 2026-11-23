@@ -531,4 +531,5 @@ test StripeWebhook {
 ## No snapshot tests
 
 Kobra has no snapshot tests. They encourage accepting changes without reviewing them. Write an `expect` for
-the thing you actually care about.
+the thing you actually care about. To look at a view in a chosen state, write a
+[preview](previews.md) beside it instead: `k check` mounts it, but nothing compares its pixels.

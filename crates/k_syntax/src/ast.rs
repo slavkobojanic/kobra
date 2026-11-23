@@ -194,6 +194,7 @@ ast_nodes! {
     SourceFile, Import, ImportPath,
     ComponentDecl, PageDecl, LayoutDecl, ServiceDecl, ProtocolDecl, EntityDecl, RepositoryDecl,
     StructDecl, EnumDecl, ClassDecl, InterfaceDecl, ThemeDecl, TestSuiteDecl, TestCaseDecl,
+    PreviewDecl,
     AppDecl, ConfigDecl, MigrationDecl, ExtendDecl, FuncDecl, FieldDecl, InitDecl, RpcDecl,
     EnumCase, CaseField, UseDecl, ThemeToken, ThemeVariant, ThemeOverride, ViewBlock, StyleBlock, LoadingBlock, FailedBlock,
     MetadataBlock,
@@ -256,8 +257,8 @@ ast_enum! {
     Item {
         ComponentDecl, PageDecl, LayoutDecl, ServiceDecl, ProtocolDecl, EntityDecl,
         RepositoryDecl, StructDecl, EnumDecl, ClassDecl, InterfaceDecl, ThemeDecl,
-        TestSuiteDecl, TestCaseDecl, AppDecl, ConfigDecl, MigrationDecl, ExtendDecl, FuncDecl,
-        FieldDecl,
+        TestSuiteDecl, TestCaseDecl, PreviewDecl, AppDecl, ConfigDecl, MigrationDecl, ExtendDecl,
+        FuncDecl, FieldDecl,
     }
 }
 
@@ -1105,6 +1106,47 @@ impl StyleRule {
     #[must_use]
     pub fn items(&self) -> AstChildren<CssItem> {
         support::children(&self.syntax)
+    }
+}
+
+impl PreviewDecl {
+    /// Returns the `preview` keyword.
+    #[must_use]
+    pub fn preview_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::PreviewKw)
+    }
+
+    /// Returns the name string (`preview "sold out" { }`), if any.
+    #[must_use]
+    pub fn name(&self) -> Option<StringLit> {
+        support::child(&self.syntax)
+    }
+
+    /// Returns the parameter list (`(value: Int = 1)`), if any.
+    #[must_use]
+    pub fn param_list(&self) -> Option<ParamList> {
+        support::child(&self.syntax)
+    }
+
+    /// Returns the body: setup lines, then the view.
+    #[must_use]
+    pub fn body(&self) -> Option<Block> {
+        support::child(&self.syntax)
+    }
+
+    /// Returns the body's `use … for …` rules, in source order.
+    pub fn use_decls(&self) -> impl Iterator<Item = UseDecl> + use<> {
+        self.body()
+            .into_iter()
+            .flat_map(|b| b.syntax().children().filter_map(UseDecl::cast))
+    }
+
+    /// Returns the body's annotated fields (`@Inject let x: T`), in source
+    /// order.
+    pub fn fields(&self) -> impl Iterator<Item = FieldDecl> + use<> {
+        self.body()
+            .into_iter()
+            .flat_map(|b| b.syntax().children().filter_map(FieldDecl::cast))
     }
 }
 

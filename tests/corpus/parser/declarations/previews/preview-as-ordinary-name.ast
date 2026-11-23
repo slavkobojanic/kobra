@@ -1,0 +1,5 @@
+(SourceFile
+  (FuncDecl func preview
+    (ParamList (Param x (PathType Int)))
+    (ReturnType (PathType Int))
+    (Block (LetStmt let preview = (NameExpr x)) (ReturnStmt return (NameExpr preview)))))

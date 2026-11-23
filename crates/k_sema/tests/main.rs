@@ -27,6 +27,7 @@ mod book;
 mod book_links;
 mod examples;
 mod perf_budget;
+mod previews;
 mod project_workload;
 mod properties;
 mod robustness;

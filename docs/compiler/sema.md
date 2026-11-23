@@ -1025,6 +1025,40 @@ nested (`WeatherError.upstream(.serviceUnavailable)`). Test bodies may `use` fak
 (§12.6); test files see `k.test` and test-only modules (§6). `TestClock` starts at
 2026-01-01T12:00:00Z (a runtime fact the checker doesn't need).
 
+#### Previews
+
+Design [57-previews.md](../design/57-previews.md); `preview.rs`. A production file's `preview`
+declarations go to its **preview scope** (`FileInfo::scope_of`): a second `FileInfo` over the same file id,
+text, tree and imports that is a test file of the file's module. Its declarations are the previews, so
+their bodies resolve as a `.test.k` file's (test-file declarations, `k.test`, test-only modules and
+their public extensions) and nothing else in the file sees them; a private declaration of the file is
+visible to them (`Program::same_file`). The scope isn't in `file_by_id` or its module's files: the
+file-level rules, the import checks and the unused-import pass are its file's, and its previews are
+checked, recorded and replayed with its file's body facts (`check_file_facts`). A preview's declaration
+has an internal name no source can spell (`preview#Stem#offset`), so the resolutions of its `@Inject`
+fields name an owner, and it is in no name table.
+
+- Its `@Inject` fields are members, checked and injected as a test group's (`K::Preview` sits beside
+  `K::TestSuite` in the layering, annotation-target and `use`-rule checks, K7503 included); its `use`
+  rules are lines of its body.
+- **Parameters** are the preview's signature (resolved before the bodies, like a function's): each needs a
+  default (**K7504**) and a type the panel has a control for (**K7505**): `Bool`, `Int`, `Double`,
+  `String`, an enum whose cases have no payload, `Money`, `Duration`, or a type with
+  `static func parse(_ text: String) -> T?` (`Date`, `Url`, `Uuid`, …). In the body they are bindable
+  locals, so `bind value` passes a `@Binding`.
+- **The body** is checked as a test's (async, may throw, `try` without a `throws`), its last line as view
+  content when it constructs a component, layout or page (`Checker::check_preview`: props, bindings,
+  slots and modifiers are checked as in a `view` block), else as an expression: one that isn't a `View` is
+  **K7508**, an empty body or one ending in another statement **K7509**.
+- **Per file**: at most one unnamed preview (**K7506**), no two with the same name (**K7507**).
+- **`testing` imports**: a production file with previews may import a test-only module; the import isn't
+  K1104 and isn't an import-cycle edge, but each use of the name outside the file's previews is K1104 at
+  the use (`check::preview_imports`). Names a preview uses don't count as the file's client references
+  (K4007).
+- **Feature gate**: each preview is K8108 at its keyword without `[package] preview = ["view-previews"]`
+  (`stability::language_uses`); loose files may use it.
+- `Analysis::previews(file)` lists the previews for the tools ([codegen.md §21.3](codegen.md#213-the-preview-bundle-entrypreviews)).
+
 ### 12.15 Time
 
 `Date.now`, `.ago`, `.fromNow` and `Timer` don't exist (K1203 / K1201 like any unknown name). `Clock`

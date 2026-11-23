@@ -404,6 +404,9 @@ syntax_kinds! {
         MigrationKw = "migration",
         /// `page` at the start of a declaration.
         PageKw = "page",
+        /// `preview` at the start of a top-level declaration followed by a
+        /// name string, `(` or `{`.
+        PreviewKw = "preview",
         /// `proto` after `import`, followed by a string.
         ProtoKw = "proto",
         /// `protocol` at the start of a declaration.
@@ -459,6 +462,9 @@ syntax_kinds! {
         TestSuiteDecl,
         /// `test "description" { ... }`: a single test.
         TestCaseDecl,
+        /// `preview "name" (param: Type = default) { setup; View() }`: a view
+        /// rendered in a chosen state (docs/design/57-previews.md).
+        PreviewDecl,
         /// `app Name { ... }` in `App.k`.
         AppDecl,
         /// `config Name { ... }`: typed settings read from the environment.

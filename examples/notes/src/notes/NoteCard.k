@@ -73,3 +73,18 @@ public component NoteCard {
         .edited { color: .muted; fontSize: 0.875rem; }
     }
 }
+
+// The card in the editor's preview panel (`k check` mounts each preview
+// once). A preview's body is test code: `summary(…)` is a helper of this
+// module's tests, and `TestClock` is the `k test` default.
+preview (title: String = "Groceries", pinned: Bool = false) {
+    @Inject let clock: TestClock
+
+    NoteCard(note: summary(title: title, body: "Milk and eggs", tags: ["home", "weekly"], isPinned: pinned, updatedAt: clock.now))
+}
+
+preview "without tags" {
+    @Inject let clock: TestClock
+
+    NoteCard(note: summary(title: "Ideas", updatedAt: clock.now))
+}

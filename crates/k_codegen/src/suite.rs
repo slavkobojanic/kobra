@@ -62,8 +62,12 @@ fn group_name(d: DeclId) -> String {
 }
 
 /// The test groups of the project: named `test` declarations of test
-/// files, in file path order, then source order.
+/// files, in file path order, then source order; in a preview bundle, the
+/// selected previews in the same order ([`crate::preview`]).
 pub(crate) fn groups(g: &Gen<'_>) -> Vec<DeclId> {
+    if matches!(g.options.entry, crate::Entry::Previews(_)) {
+        return crate::preview::previews(g);
+    }
     let mut out: Vec<DeclId> = g
         .own
         .iter()
@@ -93,6 +97,10 @@ fn cases(g: &Gen<'_>, d: DeclId) -> Vec<(String, k_syntax::SyntaxNode)> {
     let Some(node) = g.decl_node(d) else {
         return Vec::new();
     };
+    // A preview's one test mounts it (`crate::preview::methods`).
+    if node.kind() == SyntaxKind::PreviewDecl {
+        return vec![(crate::preview::TEST_NAME.to_owned(), node)];
+    }
     node.children()
         .filter(|c| c.kind() == SyntaxKind::MemberList)
         .flat_map(|l| {
@@ -116,7 +124,14 @@ pub(crate) fn group(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let mut stmts = crate::ui::service(b, d);
     let name = group_name(d);
     let mut methods = Vec::new();
+    let preview = b.g.view.decl(d).named_kind() == Some(DeclarationKind::Preview);
+    if preview {
+        methods.extend(crate::preview::methods(b, d));
+    }
     for (i, (_, node)) in cases(b.g, d).into_iter().enumerate() {
+        if preview {
+            break;
+        }
         b.owner = Some(d);
         b.self_mode = crate::lower::SelfMode::This;
         b.push_fn_scope();
@@ -196,13 +211,19 @@ fn rules(g: &Gen<'_>, d: DeclId) -> Vec<Rule> {
             _ => None,
         }
     };
-    node.children()
-        .filter(|c| c.kind() == SyntaxKind::MemberList)
-        .flat_map(|l| {
-            l.children()
-                .filter_map(ast::UseDecl::cast)
-                .collect::<Vec<_>>()
-        })
+    let uses: Vec<ast::UseDecl> = match ast::PreviewDecl::cast(node.clone()) {
+        Some(preview) => preview.use_decls().collect(),
+        None => node
+            .children()
+            .filter(|c| c.kind() == SyntaxKind::MemberList)
+            .flat_map(|l| {
+                l.children()
+                    .filter_map(ast::UseDecl::cast)
+                    .collect::<Vec<_>>()
+            })
+            .collect(),
+    };
+    uses.into_iter()
         .filter_map(|u| {
             let target = u.target().and_then(|t| resolve(&t))?;
             if let Some(imp) = u.implementation().and_then(|t| resolve(&t)) {
@@ -548,10 +569,14 @@ pub(crate) fn entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)>) {
             .into_iter()
             .enumerate()
             .map(|(i, (name, node))| {
-                let range = node
-                    .children()
-                    .find_map(ast::StringLit::cast)
-                    .map_or(node.text_range(), |s| s.syntax().text_range());
+                // A preview's failure is reported at its keyword.
+                let range = if node.kind() == SyntaxKind::PreviewDecl {
+                    info.name_range
+                } else {
+                    node.children()
+                        .find_map(ast::StringLit::cast)
+                        .map_or(node.text_range(), |s| s.syntax().text_range())
+                };
                 Expr::Object(
                     vec![
                         Prop::KeyValue("name".into(), js::str(name)),
@@ -574,9 +599,14 @@ pub(crate) fn entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)>) {
             .map(|(_, p)| p.as_str().to_owned())
             .unwrap_or_default();
         let class = b.use_decl(grp, group_name(grp));
+        let name = if info.named_kind() == Some(DeclarationKind::Preview) {
+            crate::preview::label(g, grp)
+        } else {
+            info.name.clone()
+        };
         entries.push(Expr::Object(
             vec![
-                Prop::KeyValue("name".into(), js::str(info.name.clone())),
+                Prop::KeyValue("name".into(), js::str(name)),
                 Prop::KeyValue("file".into(), js::str(path)),
                 Prop::KeyValue("container".into(), make),
                 Prop::KeyValue("group".into(), class),
@@ -586,6 +616,9 @@ pub(crate) fn entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)>) {
         ));
     }
     stmts.push(Stmt::ExportConst("$groups".into(), Expr::Array(entries)));
+    if matches!(g.options.entry, crate::Entry::Previews(_)) {
+        stmts.push(crate::preview::exports(g, &groups));
+    }
     // The pages by URL, most specific first, for `Screen.currentPage` and
     // for the page a navigation shows in a rendered page's screen: the
     // same typed matchers as the router's (`routes` names the table,
@@ -643,6 +676,14 @@ pub(crate) fn entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)>) {
 /// test asked for, not one that follows the expressions that built it.
 pub(crate) fn render_call(b: &mut Body<'_, '_>, c: &ast::CallExpr) -> Option<Expr> {
     let arg = c.arg_list()?.args().next()?.value()?;
+    render_view(b, &arg, false)
+}
+
+/// The kit's `render` of view expression `arg` ([`render_call`]); with
+/// `layouts`, a page renders inside its layouts, as the router shows it
+/// after navigating to it (a preview, docs/design/57-previews.md).
+pub(crate) fn render_view(b: &mut Body<'_, '_>, arg: &ast::Expr, layouts: bool) -> Option<Expr> {
+    let arg = arg.clone();
     let owner = b.owner?;
     let saved = std::mem::take(&mut b.stmts);
     let v = {
@@ -651,7 +692,7 @@ pub(crate) fn render_call(b: &mut Body<'_, '_>, c: &ast::CallExpr) -> Option<Exp
     };
     let early = std::mem::replace(&mut b.stmts, saved);
     let Some(v) = v else {
-        return page_render(b, &arg);
+        return page_render(b, &arg, layouts);
     };
     if let crate::view::VNode::Component(comp) = &v {
         snapshot(b, comp.decl, &comp.args);
@@ -691,7 +732,7 @@ fn snapshot(b: &mut Body<'_, '_>, decl: DeclId, args: &[(String, ast::Expr)]) {
 /// `render(SomePage(param: value))`: the page's renderer with its
 /// parameters as props, without its layout (21-testing.md, "Rendering and
 /// querying").
-fn page_render(b: &mut Body<'_, '_>, arg: &ast::Expr) -> Option<Expr> {
+fn page_render(b: &mut Body<'_, '_>, arg: &ast::Expr, layouts: bool) -> Option<Expr> {
     // `Page(id: 1).tab(.reviews)`: query parameters chained on the value.
     let mut chained: Vec<(String, ast::Expr)> = Vec::new();
     let mut cur = arg.clone();
@@ -758,10 +799,30 @@ fn page_render(b: &mut Body<'_, '_>, arg: &ast::Expr) -> Option<Expr> {
     let props = crate::view::props_object_inner(b, &comp, Target::Client);
     b.clear_overrides();
     let f = b.decl_ref(d);
-    let mount = js::arrow(
+    let mut mount = js::arrow(
         vec![Param::new("ctx")],
         call(f, vec![props.clone(), id("ctx")]),
     );
+    if layouts {
+        // The page's guards against the session the setup left, then the
+        // page inside its layouts, outermost first.
+        if let Some(node) = b.g.decl_node(d) {
+            let guards = crate::server::client_guards(&node);
+            if !guards.is_empty() {
+                b.stmts.push(Stmt::Expr(kit_call(
+                    "previewGuards",
+                    vec![Expr::Array(guards)],
+                )));
+            }
+        }
+        let outer: Vec<Expr> = crate::server::layouts_of(b, d)
+            .iter()
+            .map(|l| b.decl_ref(*l))
+            .collect();
+        if !outer.is_empty() {
+            mount = kit_call("layered", vec![Expr::Array(outer), mount]);
+        }
+    }
     // The browser is on the rendered page's URL, as after navigating to
     // it, so `screen.currentPage` starts as that page.
     let value = call(

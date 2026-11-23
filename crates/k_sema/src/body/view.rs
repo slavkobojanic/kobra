@@ -194,6 +194,19 @@ impl Checker<'_, '_, '_> {
         self.pop_fn();
     }
 
+    /// Checks the view a preview renders, its last line, as view content
+    /// (its props, bindings, slots and modifiers), in the preview's
+    /// function context (`Checker::check_preview`).
+    pub(crate) fn check_preview_view(&mut self, stmt: &ast::Stmt) {
+        let saved = std::mem::replace(&mut self.view_on, true);
+        let saved_cx = std::mem::take(&mut self.view_ctx);
+        let saved_ssr = std::mem::replace(&mut self.ssr, true);
+        self.view_stmts(std::slice::from_ref(stmt));
+        self.ssr = saved_ssr;
+        self.view_ctx = saved_cx;
+        self.view_on = saved;
+    }
+
     /// Checks a page-level `metadata { … }` block: its statements call the
     /// entries of `k.ui.MetadataEntries`; `status(_:)` belongs inside
     /// `failed` only (K3025).

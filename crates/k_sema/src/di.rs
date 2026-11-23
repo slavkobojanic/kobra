@@ -820,7 +820,7 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
                 continue;
             }
             if let Injectable::Interface(iface) = &what
-                && kind != Some(K::TestSuite)
+                && !matches!(kind, Some(K::TestSuite | K::Preview))
                 && choices(cx, *iface).is_empty()
             {
                 missing_or_ambiguous(cx, decl.file, range, *iface);
@@ -828,7 +828,7 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
             if let Injectable::Protocol(proto) = &what {
                 missing_remote_rule(cx, kind, decl.file, range, *proto);
             }
-            if kind != Some(K::TestSuite)
+            if !matches!(kind, Some(K::TestSuite | K::Preview))
                 && ty
                     .decl()
                     .is_some_and(|t| is_named(cx, t, "k.device.AppUpdates"))
@@ -928,7 +928,7 @@ fn layering(
     }
     let endpoint = is_endpoint_page(cx, owner);
     let ok = match kind {
-        Some(K::TestSuite) => !matches!(what, I::Not),
+        Some(K::TestSuite | K::Preview) => !matches!(what, I::Not),
         Some(K::Component | K::Layout) => matches!(what, I::Service(_) | I::Interface(..)),
         Some(K::Page) if endpoint => !matches!(what, I::Protocol(_) | I::Repository(_) | I::Not),
         Some(K::Page) => matches!(what, I::Service(_) | I::Interface(..)),
@@ -974,7 +974,7 @@ fn missing_remote_rule(
     proto: DeclId,
 ) {
     if app_decl(cx).is_none()
-        || kind == Some(K::TestSuite)
+        || matches!(kind, Some(K::TestSuite | K::Preview))
         || cx.p.file(file).is_test
         || !from_dependency(cx, proto)
         || has_remote_rule(cx, proto)
@@ -1687,6 +1687,19 @@ pub(crate) fn client_references(cx: &Cx<'_, '_>, names: &crate::ty::NameTable) {
             .flat_map(|d| inject_fields(cx, *d).into_iter().map(|(_, r)| r))
             .collect();
         let mut refs: Vec<(TextRange, DeclId)> = refs_by_file.remove(&file.id).unwrap_or_default();
+        // A preview is test code: what it names never reaches the browser
+        // with the file (docs/design/57-previews.md).
+        let previews: Vec<TextRange> = file
+            .previews
+            .map(|s| {
+                p.file(s)
+                    .decls
+                    .iter()
+                    .map(|d| p.decl(*d).node.text_range())
+                    .collect()
+            })
+            .unwrap_or_default();
+        refs.retain(|(r, _)| !previews.iter().any(|x| x.contains_range(*r)));
         refs.sort_by_key(|(r, _)| (r.start(), r.end()));
         let imports: Vec<TextRange> = file.imports.iter().map(|i| i.range).collect();
         // A declaration named only by `@Inject` types is a layering matter

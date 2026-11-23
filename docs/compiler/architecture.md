@@ -736,7 +736,7 @@ my-app/
 
 | Command | v0 behavior |
 |---|---|
-| `k check [paths]` | parse, check, lockfile comparison, tests in CI mode; `--format human\|json` |
+| `k check [paths]` | parse, check, lockfile comparison, tests in CI mode, then every `preview` mounted once with its defaults (K7520, [codegen.md §21.3](codegen.md#213-the-preview-bundle-entrypreviews)); `--no-tests` skips both; `--format human\|json` |
 | `k build [project] [--out dir]` | check, then emit `dist/` ([codegen.md §19](codegen.md#19-output-layout-of-dist)) and update `rpc.lock`, `routes.lock`, `schema.lock` and `k.lock`'s `toolchain`; hashed assets of earlier builds are removed from `public/assets/` |
 | `k run [project] [--port n]` | build for development and serve in-process |
 | `k dev` | build and serve with rebuild on change (HMR deferred) |

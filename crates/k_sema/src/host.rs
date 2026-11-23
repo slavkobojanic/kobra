@@ -565,6 +565,27 @@ impl Analysis {
         Ok(self.sema()?.view.get())
     }
 
+    /// Returns the `preview` declarations of `file`, in source order, with
+    /// their labels, ranges and parameters' controls
+    /// (docs/design/57-previews.md; [`crate::preview`]). Empty for a file
+    /// without previews or that isn't K source. `k_codegen`'s
+    /// `Entry::Previews` generates the runnable entry of the same previews,
+    /// in the same order.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
+    pub fn previews(&self, file: FileId) -> Result<Vec<crate::preview::Preview>, Cancelled> {
+        let Some(parse) = self.parse(file)? else {
+            return Ok(Vec::new());
+        };
+        let root = parse.syntax();
+        let view = self.program()?;
+        let sema = self.sema()?;
+        let resolve = |range: TextRange| sema.resolutions.get(&(file, range)).cloned();
+        Ok(crate::preview::previews(view, file, &root, &resolve))
+    }
+
     /// Returns the type of the node whose range is exactly `range` in
     /// `file`, like [`type_at`](Analysis::type_at) but in the structured
     /// form whose ids index [`program`](Analysis::program).

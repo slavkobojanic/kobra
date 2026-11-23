@@ -11,8 +11,10 @@
 //! `routes.lock`), then has its tests run (`docs/design/13-tooling.md`,
 //! "Commands"): a program with no errors, lockfiles included, runs every
 //! test of its `*.test.k` files as `k test` does ([`crate::test::check_tests`]),
-//! and each failed test is a `K7510` diagnostic among the others.
-//! `--no-tests` skips them. Only `k check` runs tests: the language server
+//! and each failed test is a `K7510` diagnostic among the others; then
+//! every `preview` is mounted once with its default parameters in the same
+//! simulated tab ([`crate::test::check_previews`]), and each that fails is
+//! a `K7520` diagnostic at its keyword. `--no-tests` skips both. Only `k check` runs tests: the language server
 //! and the warm re-check never do, so their latency doesn't depend on a
 //! test suite. The formatting check joins it when the formatter lands
 //! (`docs/compiler/architecture.md`).
@@ -34,6 +36,8 @@ pub struct Report {
     pub diagnostics: Vec<Diagnostic>,
     /// How many tests ran.
     pub ran: usize,
+    /// How many previews were mounted.
+    pub mounted: usize,
 }
 
 /// Runs `k check`.
@@ -56,6 +60,7 @@ pub fn run(args: &CheckArgs) -> ExitCode {
             map,
             diagnostics,
             ran: 0,
+            mounted: 0,
         });
     }
     for group in sources.groups {
@@ -89,6 +94,7 @@ pub fn run(args: &CheckArgs) -> ExitCode {
         .count();
     let warnings = total - errors;
     let ran: usize = reports.iter().map(|r| r.ran).sum();
+    let mounted: usize = reports.iter().map(|r| r.mounted).sum();
 
     match args.format {
         Format::Json => {
@@ -107,11 +113,16 @@ pub fn run(args: &CheckArgs) -> ExitCode {
                 }
             }
             let noun = if files == 1 { "file" } else { "files" };
-            let tests = match ran {
+            let mut tests = match ran {
                 0 => String::new(),
                 1 => ", ran 1 test".to_owned(),
                 n => format!(", ran {n} tests"),
             };
+            match mounted {
+                0 => {}
+                1 => tests.push_str(", mounted 1 preview"),
+                n => tests.push_str(&format!(", mounted {n} previews")),
+            }
             if total == 0 {
                 let _ = writeln!(err, "checked {files} {noun}{tests}: no problems");
             } else {
@@ -135,13 +146,14 @@ pub fn run(args: &CheckArgs) -> ExitCode {
 /// on, and merges their diagnostics with the manifests' problems
 /// (`k_sema::Workspace::report`). The members are analysed in parallel;
 /// with `tests`, each member without errors then runs its tests, one after
-/// another. Returns the merged map, the diagnostics and how many tests ran.
+/// another. Returns the merged map, the diagnostics and how many tests ran
+/// and previews were mounted.
 fn check_workspace(
     files: Vec<(k_sema::ProjectPath, String)>,
     members: Option<&std::collections::BTreeSet<String>>,
     tests: bool,
     name: impl Fn(&str) -> String,
-) -> (SourceMap, Vec<Diagnostic>, usize) {
+) -> (SourceMap, Vec<Diagnostic>, Ran) {
     let ws = Workspace::from_files(files.into_iter().map(|(p, t)| (p.as_str().to_owned(), t)));
     let wanted: Vec<usize> = (0..ws.members.len())
         .filter(|&i| members.is_none_or(|m| m.contains(&ws.members[i].dir)))
@@ -164,16 +176,29 @@ fn check_workspace(
             .collect();
         handles.into_iter().filter_map(|h| h.join().ok()).collect()
     });
-    let ran = std::cell::Cell::new(0);
+    let ran = std::cell::Cell::new(Ran::default());
     let extra = |analysis: &k_sema::Analysis| {
         let (diagnostics, n) = lockfiles_and_tests(analysis, tests);
-        ran.set(ran.get() + n);
+        let sum = ran.get();
+        ran.set(Ran {
+            tests: sum.tests + n.tests,
+            previews: sum.previews + n.previews,
+        });
         diagnostics
     };
     let (map, diagnostics) = ws
         .report_with(&analyses, extra, name)
         .unwrap_or_else(|_| (SourceMap::new(), Vec::new()));
     (map, diagnostics, ran.get())
+}
+
+/// How many tests ran and previews were mounted.
+#[derive(Clone, Copy, Default)]
+struct Ran {
+    /// Tests that ran.
+    tests: usize,
+    /// Previews that were mounted.
+    previews: usize,
 }
 
 /// The problems of a single project's own `k.toml` (`K8101`), which a
@@ -205,25 +230,30 @@ fn manifest_problems(analysis: &k_sema::Analysis) -> Vec<Diagnostic> {
 /// What a project adds to its semantic diagnostics: the lockfile checks
 /// that need code generation's models ([`k_codegen::project_diagnostics`]:
 /// `schema.lock`, `routes.lock`), then, with `tests` and no error so far,
-/// the failures of its tests. Returns them and how many tests ran.
-fn lockfiles_and_tests(analysis: &k_sema::Analysis, tests: bool) -> (Vec<Diagnostic>, usize) {
+/// the failures of its tests and of its previews' mounts (K7520,
+/// [`crate::test::check_previews`]). Returns them and how many tests ran
+/// and previews were mounted.
+fn lockfiles_and_tests(analysis: &k_sema::Analysis, tests: bool) -> (Vec<Diagnostic>, Ran) {
     let mut diagnostics = k_codegen::project_diagnostics(analysis);
     if !tests || diagnostics.iter().any(Diagnostic::is_error) {
-        return (diagnostics, 0);
+        return (diagnostics, Ran::default());
     }
     let clean = analysis
         .diagnostics()
         .is_ok_and(|d| !d.iter().any(Diagnostic::is_error));
     if !clean || !analysis.files().iter().any(|(_, p)| p.as_str() == "k.toml") {
-        return (diagnostics, 0);
+        return (diagnostics, Ran::default());
     }
-    match crate::test::check_tests(analysis) {
-        Some(checked) => {
-            diagnostics.extend(checked.diagnostics);
-            (diagnostics, checked.ran)
-        }
-        None => (diagnostics, 0),
+    let mut ran = Ran::default();
+    if let Some(checked) = crate::test::check_tests(analysis) {
+        diagnostics.extend(checked.diagnostics);
+        ran.tests = checked.ran;
     }
+    if let Some(checked) = crate::test::check_previews(analysis) {
+        diagnostics.extend(checked.diagnostics);
+        ran.previews = checked.ran;
+    }
+    (diagnostics, ran)
 }
 
 /// Analyses one group, runs its tests with `tests`, and adds the driver's
@@ -288,6 +318,7 @@ pub fn check_group(group: Group, tests: bool, name: impl Fn(&str) -> String) -> 
     Report {
         map,
         diagnostics,
-        ran,
+        ran: ran.tests,
+        mounted: ran.previews,
     }
 }

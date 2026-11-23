@@ -35,6 +35,7 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
         match decl.named_kind() {
             Some(K::Config) => config(cx, d, &mut envs),
             Some(K::TestSuite) if !decl.name.is_empty() => test_group(cx, d),
+            Some(K::Preview) => test_group(cx, d),
             _ => {}
         }
         if decl.named_kind() == Some(K::Service) {
@@ -216,6 +217,9 @@ fn is_config_value(cx: &Cx<'_, '_>, ty: &Ty, config_value: Option<DeclId>) -> bo
 
 /// The `use` rules directly in a test group.
 fn use_decls(node: &SyntaxNode) -> Vec<ast::UseDecl> {
+    if let Some(preview) = ast::PreviewDecl::cast(node.clone()) {
+        return preview.use_decls().collect();
+    }
     node.children()
         .find(|c| c.kind() == SyntaxKind::MemberList)
         .map(|l| l.children().filter_map(ast::UseDecl::cast).collect())
@@ -336,7 +340,12 @@ fn test_group(cx: &Cx<'_, '_>, d: DeclId) {
                     names.push(p.decl(*name).name.as_str());
                     at = *up;
                 }
-                names.push(decl.name.as_str());
+                let preview = decl.named_kind() == Some(K::Preview);
+                names.push(if preview {
+                    "preview"
+                } else {
+                    decl.name.as_str()
+                });
                 names.reverse();
                 cx.report(
                     file,
@@ -344,7 +353,8 @@ fn test_group(cx: &Cx<'_, '_>, d: DeclId) {
                         codes::UNBOUND_TEST_CONFIG,
                         p.span(file, decl.name_range),
                         format!(
-                            "tests never read the environment: bind `{}` with `use … for {}`",
+                            "{} never read the environment: bind `{}` with `use … for {}`",
+                            if preview { "previews" } else { "tests" },
                             p.decl(t).name,
                             p.decl(t).name
                         ),

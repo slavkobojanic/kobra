@@ -1,0 +1,31 @@
+(SourceFile
+  (ComponentDecl public component Stepper
+    (MemberList
+      (FieldDecl (Annotation Binding) var value (PathType Int))
+      (ViewBlock view (Block (CallExpr (NameExpr Text) (ArgList (Arg (StringLit "value"))))))))
+  (PreviewDecl preview
+    (ParamList
+      (Param value (PathType Int) = (Literal 1))
+      (Param disabled (PathType Bool) = (Literal false)))
+    (Block
+      (CallExpr
+        (MemberExpr
+          (CallExpr (NameExpr Stepper) (ArgList (Arg value (BindExpr bind (NameExpr value)))))
+          disabled)
+        (ArgList (Arg (NameExpr disabled))))))
+  (PreviewDecl preview
+    (StringLit "signed-in cart")
+    (ParamList (Param items (PathType Int) = (Literal 3)))
+    (Block
+      (UseDecl use (PathType FakeCartService) for (PathType CartService))
+      (FieldDecl (Annotation Inject) let cart (PathType FakeCartService))
+      (FieldDecl (Annotation Inject) let sessions (PathType SessionManager))
+      (AwaitExpr await
+        (CallExpr
+          (MemberExpr (NameExpr sessions) signIn)
+          (ArgList (Arg userId (ImplicitMemberExpr sample)))))
+      (CallExpr (MemberExpr (NameExpr cart) seed) (ArgList (Arg count (NameExpr items))))
+      (CallExpr (NameExpr CartPage) (ArgList))))
+  (PreviewDecl preview
+    (StringLit "bare")
+    (Block (CallExpr (NameExpr Stepper) (ArgList (Arg value (BindExpr bind (NameExpr value))))))))

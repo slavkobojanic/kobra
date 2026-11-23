@@ -83,6 +83,7 @@
 - [Other tabs and the screen](apps/tabs-and-screen.md)
 - [Camera, microphone, recording and calls](apps/media.md)
 - [Testing](apps/testing.md)
+- [Preview views](apps/previews.md)
 - [Packages](apps/packages.md)
 - [Workspaces and services](apps/workspaces.md)
 - [Document metadata](apps/metadata.md)

@@ -692,7 +692,7 @@ mod tests {
         assert_eq!(plain.files[0].1, implicit_manifest());
         assert_eq!(
             implicit_manifest(),
-            format!("{IMPLICIT_MANIFEST}preview = [\"workers\"]\n")
+            format!("{IMPLICIT_MANIFEST}preview = [\"workers\", \"view-previews\"]\n")
         );
         assert_eq!(plain.home.unwrap().as_str(), "src/corpus/plain.k");
         let app = load(&dir.file_case("app.k")).unwrap();

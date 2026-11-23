@@ -935,9 +935,30 @@ codes! {
     /// A test group's dependency graph reaches an app config that no `use` rule binds.
     UNBOUND_TEST_CONFIG = 7503, "unbound-test-config", Error,
         "A test group's dependency graph reaches an app config that no `use` rule binds.";
+    /// A `preview` parameter has no default value.
+    PREVIEW_PARAM_WITHOUT_DEFAULT = 7504, "preview-param-without-default", Error,
+        "A `preview` parameter has no default value; the preview renders before anyone touches its control.";
+    /// A `preview` parameter's type has no control in the preview panel.
+    PREVIEW_PARAM_TYPE = 7505, "preview-param-type", Error,
+        "A `preview` parameter's type has no control: it isn't `Bool`, `Int`, `Double`, `String`, an enum without payloads or a type with a literal syntax.";
+    /// A second unnamed `preview` in a file.
+    SECOND_UNNAMED_PREVIEW = 7506, "second-unnamed-preview", Error,
+        "A file has a second unnamed `preview`; at most one preview of a file is unnamed.";
+    /// Two `preview` declarations of a file share a name.
+    DUPLICATE_PREVIEW_NAME = 7507, "duplicate-preview-name", Error,
+        "Two `preview` declarations of a file share a name.";
+    /// A `preview` body's last expression isn't a view.
+    PREVIEW_NOT_A_VIEW = 7508, "preview-not-a-view", Error,
+        "A `preview` body's last expression isn't a view.";
+    /// A `preview` body doesn't end with a view.
+    PREVIEW_WITHOUT_VIEW = 7509, "preview-without-view", Error,
+        "A `preview` body is empty or ends with a statement instead of the view it renders.";
     /// A test failed when `k test` or `k check` ran it: an `expect` was false, an `expect throws` block didn't throw a matching error, or the test panicked, threw or never finished.
     TEST_FAILED = 7510, "test-failed", Error,
         "A test failed when `k test` or `k check` ran it.";
+    /// A preview failed when `k check` mounted it with its default parameters: its setup threw, its view failed to mount, or its page's guards refused the preview's session.
+    PREVIEW_FAILED = 7520, "preview-failed", Error,
+        "A preview failed when `k check` mounted it with its default parameters.";
 
     // ---------------------------------------------------------------- lockfiles, manifest and packages
     /// A change breaks a lockfile's recorded contract without `@Breaking`.

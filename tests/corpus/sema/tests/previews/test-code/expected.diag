@@ -1,0 +1,1 @@
+error[K1104] src/shop/Summary.k:7:11-7:19: `testing.FakeCart` is test-only: this file imports it for its previews, and only they can use it

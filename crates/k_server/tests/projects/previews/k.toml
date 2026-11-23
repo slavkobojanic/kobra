@@ -1,0 +1,7 @@
+# The preview bundle (`k_codegen::Entry::Previews`), driven by
+# `tests/previews.rs`: parameters given to `$mount`, a binding writing
+# back, and a page inside its layout.
+[package]
+name = "previews"
+k = "0.1"
+preview = ["view-previews"]

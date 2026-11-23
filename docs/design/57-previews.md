@@ -90,6 +90,38 @@ The panel shows only the preview. It doesn't map elements back to source or step
 - **`k check` mounts every preview once** with its default parameters, in the simulated tab `k test` uses, and waits for it to settle. A preview whose setup throws, whose view fails to mount, or whose page ends in a guard redirect it didn't sign in for is reported as **K7520 `preview-failed`**, at the `preview` keyword, with the error. Like tests, this runs only in `k check`, never in the language server, and `--no-tests` skips it.
 - **There are no image snapshots**, as there are no snapshot tests ([21-testing.md](21-testing.md#rules)). Tests can't render a preview. A test that wants the same state writes its own setup, so assertions don't depend on code edited casually for looks.
 
+## Built so far
+
+**Round 1 (2026-11-24): the compiler and `k check`.** The syntax (parser, formatter, TextMate grammar), the
+`view-previews` row of `k_sema::features`, the checks, the preview bundle and `k check`'s mounts are built
+([sema.md §12.14](../compiler/sema.md#1214-tests), [codegen.md §21.3](../compiler/codegen.md#213-the-preview-bundle-entrypreviews));
+`k preview` and the editor panel are next, on `k_sema::Analysis::previews` and `k_codegen::Entry::Previews`.
+`examples/notes` has three previews (`NoteCard.k`, `Notes.k`). Decided while building it, where the
+decision above left a choice open:
+
+- **Codes.** K7504 `preview-param-without-default`, K7505 `preview-param-type`, K7506
+  `second-unnamed-preview`, K7507 `duplicate-preview-name`, K7508 `preview-not-a-view` (the last line is
+  an expression of another type) and K7509 `preview-without-view` (an empty body, or one ending in another
+  statement); K7520 `preview-failed`. Two codes for the two naming errors, so each message says which.
+- **Which types have a control:** `Bool`, `Int`, `Double`, `String`, an enum whose cases all have no
+  payload, and, as "a type with a literal syntax", `Money`, `Duration` and any type with
+  `static func parse(_ text: String) -> T?` (`Date`, `Url`, `Uuid`, `EmailAddress`, `TimeOfDay`, `Decimal`,
+  …). An optional (`Int?`) has none yet: its control would need a "none" state, which is a later item.
+- **`use` rules and `@Inject` lines may be written anywhere in the body**, as test-group members are;
+  they apply to the whole preview, before its setup runs. The examples put them first.
+- **A layout's content is written by the preview** (`Frame { "Content" }`): a layout's `content` slot is
+  required, so a bare `Frame()` doesn't type-check, and an automatic placeholder for it isn't built.
+- **"A page that ends in a guard redirect"** is checked before the page renders: the page's guards
+  (`Authenticated`, `Role`) against the session the setup left, as the router checks them before
+  navigating. A refused guard fails the preview (K7520, naming the guard) rather than rendering the
+  sign-in page.
+- **A preview is test code by being in its file's preview scope**, a test file of the module over the
+  same text: lookups, fixtures, fakes and `k.test` work unchanged, and the declaration gets an internal
+  name (`preview#NoteCard#2310`) so the resolutions of its `@Inject` fields name their owner. A preview
+  may also be written in a `.test.k` file or a `testing` module, which are test code already.
+- **`k check`'s summary counts the mounts** (`ran 89 tests, mounted 3 previews`), and like the tests they
+  run only in a project with a `k.toml` and no errors.
+
 ## Rejected
 
 - **Previews in sibling `Name.preview.k` files** (as `.test.k` is). This keeps production files free of test-only code, but Swift's inline placement keeps the preview where the view is edited, which is the point. Scoping preview bodies as test-only code gets the fixtures without a second file.

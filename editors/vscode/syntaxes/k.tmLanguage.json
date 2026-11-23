@@ -98,6 +98,13 @@
           "match": "\\btest\\b"
         },
         {
+          "comment": "A preview: the keyword at the start of a line, then a space before its name string, its parameters or its body (the formatter writes that space). The string is left to the string rule.",
+          "match": "^\\s*(preview)\\s+",
+          "captures": {
+            "1": { "name": "storage.type.preview.k" }
+          }
+        },
+        {
           "comment": "A theme token: its category word and its name.",
           "match": "^\\s*(color|space|spacing|radius|font|fontSize|size|shadow|duration)\\s+([a-z][A-Za-z0-9_]*)\\s*:",
           "captures": {

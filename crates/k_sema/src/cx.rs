@@ -330,13 +330,24 @@ impl<'p, 'a> Cx<'p, 'a> {
             di: crate::di::DiState::default(),
             aliases: RefCell::default(),
         };
-        cx.imports = (0..p.files.len())
-            .map(|i| cx.resolve_imports(FileIx(u32::try_from(i).unwrap_or(u32::MAX))))
-            .collect();
+        // A preview scope shares its production file's imports (created
+        // after it, so resolved before it).
+        let mut imports: Vec<Vec<ImportRes>> = Vec::with_capacity(p.files.len());
+        for (i, info) in p.files.iter().enumerate() {
+            let res = match info.scope_of {
+                Some(of) => imports[of.0 as usize].clone(),
+                None => cx.resolve_imports(FileIx(u32::try_from(i).unwrap_or(u32::MAX))),
+            };
+            imports.push(res);
+        }
+        cx.imports = imports;
         // The last segment of a bound import refers to its declaration, for
         // the reverse index and rename (sema.md §17).
         for (i, imports) in cx.imports.iter().enumerate() {
             let file = FileIx(u32::try_from(i).unwrap_or(u32::MAX));
+            if p.file(file).scope_of.is_some() {
+                continue;
+            }
             for (import, res) in p.file(file).imports.iter().zip(imports) {
                 if let ImportRes::Bound(_, decl) = res {
                     cx.record_resolution(file, import.last_range, cx.decl_resolution(*decl));
@@ -558,10 +569,13 @@ impl<'p, 'a> Cx<'p, 'a> {
             let importer_test_only = info
                 .module
                 .is_some_and(|m| self.p.modules[m.0 as usize].test_only);
+            // In a file with previews, the uses outside them are reported
+            // instead (`check::preview_imports`).
             if target_module.is_some_and(|m| m.test_only)
                 && !info.is_test
                 && !importer_test_only
                 && !info.stdlib
+                && info.previews.is_none()
             {
                 self.error(
                     file,
@@ -705,7 +719,10 @@ impl<'p, 'a> Cx<'p, 'a> {
                 candidates.extend(list);
             }
         } else {
-            for &d in &info.decls {
+            // A preview scope of a file without a module sees its file's
+            // declarations.
+            let own = info.scope_of.map(|of| &self.p.file(of).decls);
+            for &d in info.decls.iter().chain(own.into_iter().flatten()) {
                 let decl = self.p.decl(d);
                 if decl.name == name && decl.kind != DeclKind::Extension {
                     candidates.push(d);
@@ -717,7 +734,7 @@ impl<'p, 'a> Cx<'p, 'a> {
             if decl.named_kind() == Some(DeclarationKind::TestSuite) {
                 continue;
             }
-            if decl.visibility == Visibility::Private && decl.file != file {
+            if decl.visibility == Visibility::Private && !self.p.same_file(decl.file, file) {
                 hidden.get_or_insert(d);
                 continue;
             }
@@ -772,7 +789,7 @@ impl<'p, 'a> Cx<'p, 'a> {
             let decl = self.p.decl(d);
             decl.kind != DeclKind::Extension
                 && decl.named_kind() != Some(DeclarationKind::TestSuite)
-                && (decl.visibility != Visibility::Private || decl.file == file)
+                && (decl.visibility != Visibility::Private || self.p.same_file(decl.file, file))
                 && (!types_only || decl.is_type())
         };
         let mut names: Vec<&str> = extra.to_vec();
@@ -1252,7 +1269,7 @@ impl<'p, 'a> Cx<'p, 'a> {
                 let a = self.p.file(decl.file).module;
                 let b = self.p.file(file).module;
                 if a.is_none() || b.is_none() {
-                    decl.file == file
+                    self.p.same_file(decl.file, file)
                 } else {
                     a == b
                 }

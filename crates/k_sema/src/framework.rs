@@ -671,7 +671,7 @@ fn member_targets(cx: &Cx<'_, '_>, decl: DeclId, field: bool) -> Vec<Target> {
         }
         (Some(K::Layout), true) => vec![Target::ViewField, Target::LayoutField],
         (Some(K::Service), true) => vec![Target::ServiceField],
-        (Some(K::TestSuite), true) => vec![Target::TestField],
+        (Some(K::TestSuite | K::Preview), true) => vec![Target::TestField],
         (Some(K::Repository), true) => vec![Target::RepositoryField],
         (Some(K::Config), true) => vec![Target::ConfigField],
         (Some(K::Entity), true) => vec![Target::EntityField],

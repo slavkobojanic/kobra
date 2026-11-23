@@ -57,6 +57,7 @@ mod lower;
 mod migration;
 mod minify;
 mod native;
+mod preview;
 mod routelock;
 mod routes;
 mod server;
@@ -122,6 +123,25 @@ pub enum Entry {
     /// `$test` (the app's request handler, each group's server container
     /// and a per-test reset) instead of serving (`suite`, codegen.md §21).
     Tests,
+    /// The previews of one file, or of every file with `None`
+    /// (docs/design/57-previews.md; codegen.md §21.3): a test bundle in
+    /// every respect but its groups, which are the previews. Each preview
+    /// is a group with one test, `$t0`, that mounts it with its default
+    /// parameters and waits for it to settle (`k check`), and a `$mount`
+    /// method that mounts it with given parameter values (`k preview`).
+    /// The client entry exports `$groups`, `$pages` and `$previews`
+    /// ([`crate::preview`]).
+    Previews(Option<k_diagnostics::FileId>),
+}
+
+impl Entry {
+    /// `true` for the bundles that run in the test kit: [`Entry::Tests`]
+    /// and [`Entry::Previews`], which share the hermetic `.test` wiring,
+    /// test code and the in-process server.
+    #[must_use]
+    pub fn is_tests(&self) -> bool {
+        matches!(self, Entry::Tests | Entry::Previews(_))
+    }
 }
 
 /// How to generate.
@@ -421,13 +441,19 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
         .iter()
         .copied()
         .find(|&d| g.view.decl(d).named_kind() == Some(k_sema::stdlib::DeclarationKind::App));
-    let tests = g.options.entry == Entry::Tests;
+    let tests = g.options.entry.is_tests();
     for &d in &g.own {
         for target in [Target::Server, Target::Client] {
             // A test group's class runs in the browser half of a test.
             if tests
                 && target == Target::Server
-                && g.view.decl(d).named_kind() == Some(k_sema::stdlib::DeclarationKind::TestSuite)
+                && matches!(
+                    g.view.decl(d).named_kind(),
+                    Some(
+                        k_sema::stdlib::DeclarationKind::TestSuite
+                            | k_sema::stdlib::DeclarationKind::Preview
+                    )
+                )
             {
                 continue;
             }
@@ -485,7 +511,7 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
             extra.push((spec.clone(), body, uses));
             output.server_entry = Some(spec);
         }
-        Entry::Tests => {
+        Entry::Tests | Entry::Previews(_) => {
             // The server half of a test: the app driven in-process.
             let (body, uses) = server::server_entry(g);
             let spec = "k:/app/$server.js".to_owned();
@@ -844,7 +870,7 @@ fn main_entry(
 /// compacted in release builds.
 pub(crate) fn runtime_chunk(profile: Profile, entry: &Entry) -> String {
     use k_runtime::Part;
-    if *entry == Entry::Tests {
+    if entry.is_tests() {
         return suite::RUNTIME_CHUNK.to_owned();
     }
     let mut out = String::new();
@@ -902,7 +928,7 @@ pub(crate) fn feature_chunk(
     runtime_name: &str,
     entry: &Entry,
 ) -> String {
-    if *entry == Entry::Tests {
+    if entry.is_tests() {
         return format!("export * from \"{specifier}\";\n");
     }
     let source = k_runtime::module(specifier).map_or("", |m| m.source);

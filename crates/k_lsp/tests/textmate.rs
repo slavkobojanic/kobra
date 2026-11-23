@@ -455,6 +455,22 @@ fn test_names_are_one_string() {
 }
 
 #[test]
+fn preview_is_a_keyword_only_where_it_declares() {
+    let grammar = Grammar::load();
+    let f = Fixture::load(&grammar, "Stepper.k");
+    let unnamed = "preview (value: Int = 1) {";
+    assert!(f.has(unnamed, "preview", "storage.type.preview.k"));
+    let named = "preview \"at max\" (value: Int = 99) {";
+    assert!(f.has(named, "preview", "storage.type.preview.k"));
+    f.assert(named, "\"at max\"", Region::String, KEYWORDISH);
+    // A parameter or variable called `preview` is a name.
+    let param = "func previewed(preview: Int) -> Int {";
+    assert!(!f.has(param, "preview:", "storage.type.preview.k"));
+    let ret = "    return preview";
+    assert!(!f.has(ret, "preview", "storage.type.preview.k"));
+}
+
+#[test]
 fn strings_interpolations_and_comments_are_scoped() {
     let grammar = Grammar::load();
     let f = Fixture::load(&grammar, "audit.k");

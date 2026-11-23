@@ -79,6 +79,7 @@ mod locks;
 mod lookup;
 mod metadata;
 mod pattern;
+pub mod preview;
 mod program;
 mod project;
 mod refs;

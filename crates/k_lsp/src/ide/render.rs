@@ -216,6 +216,7 @@ pub fn kind_keyword(kind: DeclarationKind) -> &'static str {
         DeclarationKind::Function => "func",
         DeclarationKind::Constant => "let",
         DeclarationKind::TestSuite => "test",
+        DeclarationKind::Preview => "preview",
     }
 }
 
