@@ -155,6 +155,9 @@ WebStorm, PyCharm, GoLand, RustRover and the other JetBrains IDEs what the VS Co
   extension's, `slavkobojanic.kobra`, the vendor the owner. `release.yml` attaches
   `kobra-intellij-<version>.zip` to each release, installed with **Install Plugin from Disk**; the JetBrains
   Marketplace waits for the owner, like the VS Code marketplaces.
+- **Previews in a tool window.** The **Kobra Preview** tool window shows `k preview --editor`'s panel in
+  JCEF beside the editor, and the plugin runs `k lsp`'s **▶ Preview** CodeLens command itself
+  ([57-previews.md](57-previews.md#built-so-far), round 4).
 - **Tested in a headless IDE.** `./gradlew test` runs the platform's test framework: the file type, the
   bundle's lexer on a sample, comments, brace matching and the server's command line from the settings;
   `./gradlew verifyPlugin` runs the plugin verifier against the IDE it is built with. `ci.yml` and

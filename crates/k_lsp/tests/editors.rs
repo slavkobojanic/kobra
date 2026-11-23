@@ -344,6 +344,28 @@ fn the_intellij_plugin_bundles_the_vscode_grammar() {
     let lsp =
         fs::read_to_string(dir.join("src/main/kotlin/slavkobojanic/kobra/KobraLsp.kt")).unwrap();
     assert!(lsp.contains("\"lsp\""), "the plugin runs `k lsp`");
+    // The preview tool window runs `k preview --editor` and the CodeLens's command itself
+    // (docs/design/57-previews.md, "Built so far", round 4).
+    let command = fs::read_to_string(
+        dir.join("src/main/kotlin/slavkobojanic/kobra/preview/KobraPreviewCommand.kt"),
+    )
+    .unwrap();
+    assert!(
+        command.contains(&format!("\"{}\"", k_lsp::server::handlers::PREVIEW_COMMAND)),
+        "the plugin handles the preview CodeLens's command"
+    );
+    let service = fs::read_to_string(
+        dir.join("src/main/kotlin/slavkobojanic/kobra/preview/KobraPreviewService.kt"),
+    )
+    .unwrap();
+    assert!(
+        service.contains("\"preview\", \"--editor\""),
+        "the plugin runs `k preview --editor`"
+    );
+    assert!(
+        plugin.contains("<toolWindow id=\"Kobra Preview\""),
+        "plugin.xml lacks the tool window"
+    );
     // The Gradle wrapper is committed; its distribution is pinned by checksum.
     let wrapper = fs::read_to_string(dir.join("gradle/wrapper/gradle-wrapper.properties")).unwrap();
     assert!(wrapper.contains("distributionUrl=https\\://services.gradle.org/distributions/"));

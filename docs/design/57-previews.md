@@ -166,7 +166,7 @@ said), and `index.js`, the VS Code side (the **Kobra Preview** webview, the stat
 `kobra.preview.open`, `kobra.preview.toggleGrid` and `kobra.preview.revealError`, the setting
 `kobra.preview.autoOpen`). Tested with `node --test` in `editors/vscode`, against a fake `k preview`, a stub
 of the `vscode` module and, when a `k` is built, the real one on the `previewing` fixture; `ci.yml`'s
-`vscode` job runs them. The JetBrains panel (round 4) is next. Decided while building it:
+`vscode` job runs them. Decided while building it:
 
 - **One process per project that enables previews**, started the first time a `.k` file of it is open:
   the project is the nearest `k.toml` at or above the file (not above the workspace folder), and only one
@@ -207,6 +207,44 @@ of the `vscode` module and, when a `k` is built, the real one on the `previewing
   mount serves its frame from `127.0.0.1` on a port of its own, which only the panel's page is forwarded
   for; serving the frames through the page's port, or forwarding each mount's port, is a later item. In a
   desktop remote window they show once VS Code forwards the mount's port to the same number.
+
+**Round 4 (2026-11-24): the JetBrains panel.** `editors/intellij` has a **Kobra Preview** tool window
+(right side) over `k preview --editor --no-open <root>`, one process per project root, and runs the
+CodeLens's `kobra.preview.open` ([editors/intellij/README.md](../../editors/intellij/README.md)). Decided
+while building it:
+
+- **The CodeLens, not a gutter marker.** The platform's LSP client shows `k lsp`'s **▶ Preview** lens as a
+  code vision hint, and the plugin runs the command itself through the LSP API's customization
+  (`LspCodeLensSupport.codeLensClicked`, and `LspCommandsSupport.executeCommand` for the same command
+  reached another way) rather than sending it back to the server. A run-style gutter icon would be more
+  JetBrains-like, but the plugin's PSI is one token per file, so a `LineMarkerProvider` has no `preview`
+  element to hang it on, and a second marker beside the lens would show the same action twice.
+- **A process starts lazily, per root:** when a `.k` file opens whose text has a line starting with
+  `preview` (a cheap test, before `k` has said anything), under the nearest `k.toml`, if that `k.toml`
+  names `view-previews` (as the VS Code panel checks). A workspace's apps each get their own. It is sent every open buffer of its root on (re)start, every edit (the whole text,
+  as the protocol has it), `didClose`, and, throttled to one per 150 ms, `select` for a cursor at or after
+  a file's first `preview` keyword: `k` decides whether the cursor is inside a declaration, since the
+  `previews` message gives only the keyword's offsets.
+- **Restarts back off** 1 s, doubling to 30 s, starting over after a minute's run; after six restarts in a row that each ran under a minute
+  the tool window says so and offers **Restart k preview**. The project's close sends `shutdown`.
+- **The page reloads only for a new file, grid mode, theme or process**; moving between previews of the
+  shown file is a protocol `select`, which `k` relays to the open page, so the panel's environment bar and
+  scroll stay. The editor's paths are matched to `k`'s URIs by real path, since `k` canonicalizes its root
+  (`/tmp` is `/private/tmp` on macOS).
+- **The error is the tool window's header**, red text above the page, cleared by `built`, rather than a
+  status bar widget or a notification: it is next to the preview it explains, and the page's own badge
+  says the same. A failure to start or a give-up shows there too.
+- **The browser is JCEF behind an optional dependency** (`com.intellij.modules.jcef`, a plugin of its own
+  in 2026.2) and a small extension point, so the plugin installs where JCEF is missing; there, and where
+  `JBCefApp.isSupported()` is false, the tool window links to the page in the system browser. The page's
+  `theme` follows the IDE's (`JBColor.isBright()`) and reloads on a theme change.
+- **Auto-open** is a setting (Settings | Languages & Frameworks | Kobra, on by default); the tool window
+  shows once per selection of a file with previews, without taking focus, so closing it sticks until
+  another file is selected.
+- **Tests without the IDE's UI:** the protocol, the model (URLs, the cursor's preview, normalized paths),
+  the backoff and throttle, and the session's start, restart and shutdown run against a fake `k` over
+  pipes; in the headless IDE, the tool window's registration and the CodeLens click starting a fake `k`
+  for the file's root. The JCEF page itself isn't tested (CI has no display).
 
 ## Rejected
 

@@ -29,6 +29,8 @@ dependencies {
         intellijIdea(providers.gradleProperty("platformVersion"))
         bundledPlugin("org.jetbrains.plugins.textmate")
         bundledModule("intellij.platform.lsp")
+        // The preview tool window's browser, an optional dependency (kobra-jcef.xml).
+        bundledPlugin("com.intellij.modules.jcef")
         testFramework(TestFrameworkType.Platform)
         pluginVerifier()
     }

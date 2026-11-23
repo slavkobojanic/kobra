@@ -1,0 +1,6 @@
+<!-- The Kobra Preview tool window's embedded browser, when the IDE has JCEF (plugin.xml's optional dependency). -->
+<idea-plugin>
+  <extensions defaultExtensionNs="slavkobojanic.kobra">
+    <previewBrowser implementation="slavkobojanic.kobra.preview.jcef.KobraJcefBrowserProvider"/>
+  </extensions>
+</idea-plugin>

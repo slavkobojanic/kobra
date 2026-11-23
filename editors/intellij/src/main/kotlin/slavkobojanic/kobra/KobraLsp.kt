@@ -15,6 +15,8 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.LspClientManager
 import com.intellij.platform.lsp.api.LspIntegrationProvider
 import com.intellij.platform.lsp.api.ProjectWideLspClientDescriptor
+import com.intellij.platform.lsp.api.customization.LspCustomization
+import slavkobojanic.kobra.preview.KobraLspCustomization
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
@@ -88,6 +90,9 @@ class KobraLspClientDescriptor(project: Project) : ProjectWideLspClientDescripto
 
     /** The VS Code extension's language id. */
     override fun getLanguageId(file: VirtualFile): String = "k"
+
+    /** The default, with the **▶ Preview** CodeLens's `kobra.preview.open` run by the plugin. */
+    override val lspCustomization: LspCustomization = KobraLspCustomization()
 
     override fun createCommandLine(): GeneralCommandLine {
         val k = KobraToolchain.find(KobraSettings.getInstance().serverPath)

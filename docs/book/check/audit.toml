@@ -751,12 +751,13 @@ unpinned = [
 [pages."apps/previews.md"]
 commit = "87b436de"
 date = "2026-11-24"
-note = "new with view previews rounds 1-2 (docs/design/57-previews.md); claims checked against the k_sema previews::, k_server previews::, k_cli preview:: and check-mounts tests; fixed: the environment bar's locale only sets the document language. Round 3 (2026-11-24) added \"In VS Code\", checked against editors/vscode/preview and its node --test tests (test/client.test.js, test/panel.test.js: the panel opening beside the editor, following it, the grid, the theme, the CodeLens command, the error status item, select)"
+note = "new with view previews rounds 1-2 (docs/design/57-previews.md); claims checked against the k_sema previews::, k_server previews::, k_cli preview:: and check-mounts tests; fixed: the environment bar's locale only sets the document language. Round 3 (2026-11-24) added \"In VS Code\", checked against editors/vscode/preview and its node --test tests (test/client.test.js, test/panel.test.js: the panel opening beside the editor, following it, the grid, the theme, the CodeLens command, the error status item, select). Round 4 (2026-11-24) added \"In a JetBrains IDE\", checked against editors/intellij's tests (PreviewProtocolTest, PreviewSessionTest, KobraPreviewPluginTest) and its code"
 unpinned = [
     "reduced motion and forced colours in the environment bar change the frame's media rules",
     "Hold loading keeps every `@Load` in its `loading` state",
     "the grid shows each preview's controls in a popover",
     "the panel leaves the focus in the editor and the Open Preview button shows in a .k editor's title bar (VS Code's behaviour; the tests run on a stub of the vscode module)",
+    "the JetBrains tool window shows beside a selected file with previews, follows the cursor and the IDE's theme (UI behaviour; the plugin's tests cover the protocol, the session and the CodeLens command)",
 ]
 
 [pages."reference/design-status.md"]

@@ -137,6 +137,10 @@ from `k lsp`: errors and quick fixes (`Alt+Enter`), completion, Quick Documentat
 Usages, Rename (`Shift+F6`) and inlay hints. **Code → Reformat Code** uses `k fmt`'s formatter. To format
 on save, turn on **Reformat code** under **Settings → Tools → Actions on Save**.
 
+In a project that writes [previews](../apps/previews.md), the **Kobra Preview** tool window on the right
+shows the previews of the file you're editing, live as you type, and **▶ Preview** above each `preview`
+opens it on that one ([In a JetBrains IDE](../apps/previews.md#in-a-jetbrains-ide)).
+
 ## Neovim
 
 Add `editors/nvim` to the runtime path and call the setup function, for example with lazy.nvim:

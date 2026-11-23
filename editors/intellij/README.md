@@ -13,7 +13,9 @@ What you get:
 - **Rename** across the project (`Shift+F6`);
 - **Reformat Code** with `k fmt`'s formatter (turn on **Reformat code** in Settings | Tools | Actions on
   Save to format on save);
-- inlay hints, brace matching and Comment with Line/Block Comment.
+- inlay hints, brace matching and Comment with Line/Block Comment;
+- the **Kobra Preview** tool window: the `preview`s of the file you edit, live as you type, from
+  `k preview --editor`, opened by **▶ Preview** above each `preview` (see "Previews" below).
 
 IntelliJ IDEA open-source builds and Android Studio have no LSP support, so the plugin doesn't install
 there.
@@ -44,9 +46,27 @@ On macOS with several JDKs, run them with `JAVA_HOME=$(/usr/libexec/java_home -v
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Settings \| Languages & Frameworks \| Kobra \| Path to k | empty | The `k` executable; the server runs as `k lsp`. Empty: `k` on `PATH`, then `~/.k/bin/k`. A bare name is looked up on `PATH` |
+| Settings \| Languages & Frameworks \| Kobra \| Path to k | empty | The `k` executable; the server runs as `k lsp` (and previews as `k preview --editor`). Empty: `k` on `PATH`, then `~/.k/bin/k`. A bare name is looked up on `PATH` |
+| Settings \| Languages & Frameworks \| Kobra \| Open the Kobra Preview tool window for files with previews | on | Show the tool window when a `.k` file with previews is selected |
 
 **Tools | Restart Kobra Language Server** restarts `k lsp`, for example after installing a new `k`.
+
+## Previews
+
+The **Kobra Preview** tool window (right side) shows the panel of `k preview`
+([docs/design/57-previews.md](../../docs/design/57-previews.md), "The panel") for the selected file:
+
+- The plugin starts `k preview --editor --no-open <root>` for a project root (the directory of the
+  nearest `k.toml`, when it lists `view-previews`) the first time a `.k` file with a `preview` opens there, and speaks its editor
+  protocol ([docs/compiler/preview.md](../../docs/compiler/preview.md) §5): every open buffer, every edit
+  (unsaved text), closes, and the cursor (throttled `select`). It restarts with a backoff when `k` exits,
+  and sends `shutdown` when the project closes. `k`'s standard error goes to `idea.log`.
+- It follows the selected editor and the cursor; **▶ Preview** above a `preview` (`k lsp`'s CodeLens,
+  command `kobra.preview.open`) opens it on that preview.
+- Toolbar: **Grid** (`mode=grid`), **Open in Browser**, **Restart k preview**. An error from `k` is
+  shown above the page until the next good build.
+- The page is shown in JCEF with `embed=1` and the IDE's theme; without JCEF, a link opens it in the
+  browser.
 
 ## How it fits together
 
@@ -62,7 +82,13 @@ On macOS with several JDKs, run them with `JAVA_HOME=$(/usr/libexec/java_home -v
   `comments`.
 - `KobraLsp.kt`: starts `k lsp` over standard input and output for the project (the IntelliJ Platform's
   `LspIntegrationProvider`), the missing-`k` notification and the restart action.
-- `KobraToolchain.kt`, `KobraSettings.kt`: finding `k`, and the setting.
+- `KobraToolchain.kt`, `KobraSettings.kt`: finding `k`, and the settings.
+- `preview/`: the preview tool window. `PreviewProtocol.kt`, `PreviewClient.kt`, `PreviewModel.kt` and
+  `PreviewSession.kt` are plain Kotlin (the protocol, the client over a process's pipes, what `k` has
+  said, and one supervised process), tested over pipes; `KobraPreviewService.kt` ties them to the
+  editor's events, `KobraPreviewToolWindow.kt` is the tool window, `KobraPreviewCommand.kt` the CodeLens
+  command (the LSP API's `LspCustomization`), and `jcef/` with `META-INF/kobra-jcef.xml` the browser,
+  loaded only when the IDE has JCEF.
 - `gradle.properties`: `pluginVersion`, always the workspace version (`crates/k_cli/tests/version.rs`
   checks it, `cargo xtask release prepare` moves it), and the IDE version the plugin is built against.
 

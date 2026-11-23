@@ -17,7 +17,9 @@
       <li>diagnostics as you type, with quick fixes;</li>
       <li>completion, hover with documentation, go to definition, type definition and implementations;</li>
       <li>find usages and rename across the project;</li>
-      <li>formatting with <code>k fmt</code>'s formatter (Reformat Code).</li>
+      <li>formatting with <code>k fmt</code>'s formatter (Reformat Code);</li>
+      <li>the Kobra Preview tool window: a file's <code>preview</code>s, live as you type
+        (<code>k preview --editor</code>).</li>
     </ul>
     <p>Needs the <code>k</code> binary: on <code>PATH</code>, in <code>~/.k/bin</code>, or set in
     Settings | Languages &amp; Frameworks | Kobra. Licensed MIT OR Apache-2.0.</p>
@@ -27,6 +29,13 @@
   <!-- The platform's LSP client: every commercial JetBrains IDE, also used for free (design 13). -->
   <depends>com.intellij.modules.lsp</depends>
   <depends>org.jetbrains.plugins.textmate</depends>
+  <!-- The preview tool window's embedded browser; without JCEF it links to the system browser. -->
+  <depends optional="true" config-file="kobra-jcef.xml">com.intellij.modules.jcef</depends>
+
+  <extensionPoints>
+    <extensionPoint qualifiedName="slavkobojanic.kobra.previewBrowser"
+                    interface="slavkobojanic.kobra.preview.KobraPreviewBrowserProvider" dynamic="true"/>
+  </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
     <fileType name="Kobra" language="Kobra" extensions="k"
@@ -45,6 +54,11 @@
     <applicationConfigurable parentId="language" id="slavkobojanic.kobra.settings" displayName="Kobra"
                              instance="slavkobojanic.kobra.KobraConfigurable"/>
     <notificationGroup id="Kobra" displayType="BALLOON"/>
+
+    <!-- Previews (docs/design/57-previews.md, "The panel"): one k preview process per project root. -->
+    <postStartupActivity implementation="slavkobojanic.kobra.preview.KobraPreviewStartup"/>
+    <toolWindow id="Kobra Preview" anchor="right" secondary="false" icon="AllIcons.Actions.Preview"
+                factoryClass="slavkobojanic.kobra.preview.KobraPreviewToolWindowFactory"/>
   </extensions>
 
   <actions>

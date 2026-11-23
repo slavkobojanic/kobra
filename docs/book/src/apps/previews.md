@@ -2,8 +2,9 @@
 
 A **`preview`** renders a view in a chosen state, written in the file of the view it shows. `k check`
 mounts every preview once, so a preview that stops rendering fails the check, and `k preview` shows them in
-your browser while you edit, or in a panel beside the editor in VS Code ([below](#in-vs-code)). The
-JetBrains panel comes in a later release. The design is in `docs/design/57-previews.md`.
+your browser while you edit, or beside the editor: in a panel in VS Code ([below](#in-vs-code)) and
+in a tool window in JetBrains IDEs ([below](#in-a-jetbrains-ide)). The design is in
+`docs/design/57-previews.md`.
 
 > **Preview** (view-previews). Previews are a preview feature: they are built, but may still change in any
 > minor release. A project opts in with `preview = ["view-previews"]` in the `[package]` section of its
@@ -121,6 +122,27 @@ rebuilds as you type rather than when you save.
   separate: it changes what the preview renders, not the panel.
 - **Errors:** while the project has an error, the panel keeps the last good build under its badge, and the
   status bar shows **Preview: error at line N**. Clicking it goes to the error.
+
+## In a JetBrains IDE
+
+The Kobra plugin for JetBrains IDEs ([Editor setup](../getting-started/editor-setup.md#jetbrains-ides))
+shows the same panel in a **Kobra Preview** tool window on the right. It starts `k preview` for you, one per
+project that enables previews, the first time you open a `.k` file with a `preview`, and stops it
+when the project closes:
+
+- **It follows the editor.** Selecting a `.k` file with previews shows the tool window beside it, on the
+  preview the cursor is in; moving the cursor into another `preview` switches to it. To keep the tool
+  window closed until you open it, turn off **Settings → Languages & Frameworks → Kobra → Open the Kobra
+  Preview tool window for files with previews**.
+- **▶ Preview** above each `preview` keyword (a code vision hint, from the language server) opens the
+  tool window on that preview.
+- **It updates as you type**, before you save: the plugin sends the unsaved text, and the preview
+  remounts once the project type-checks. While it doesn't, the last good preview stays and the first
+  error is shown at the top of the tool window.
+- **The toolbar** has **Grid** (every preview of the file), **Open in Browser** (the same preview in your
+  browser, with the index of all previews) and **Restart k preview**.
+- The panel follows the IDE's light or dark theme. In an IDE without the embedded browser (JCEF), the
+  tool window has a link that opens the preview in your browser instead.
 
 ## `k check` mounts every preview
 
