@@ -12,7 +12,7 @@ On Linux (x86_64 or arm64, with glibc 2.31 or newer) and macOS, in a terminal:
 curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh
 ```
 
-On Windows, in PowerShell:
+Windows builds are not released yet (the test suite doesn't pass there). When they are, in PowerShell:
 
 ```powershell
 irm https://slavkobojanic.github.io/kobra/install.ps1 | iex

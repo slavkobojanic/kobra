@@ -717,9 +717,11 @@ fn no_job_runs_on_macos_and_ci_runs_on_linux() {
         assert!(line.contains("ubuntu-"), "ci.yml: {line}");
     }
     let release = fs::read_to_string(repo().join(".github/workflows/release.yml")).unwrap();
+    // Windows is left out until the suite passes there (design 48,
+    // "Windows: deferred").
     assert!(
-        release.contains("x86_64-pc-windows-msvc"),
-        "the release builds Windows"
+        !release.contains("windows-"),
+        "the release builds no Windows target yet"
     );
     assert!(
         release.contains("x86_64-unknown-linux-gnu"),

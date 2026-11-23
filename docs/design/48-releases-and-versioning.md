@@ -494,3 +494,7 @@ The owner made `github.com/slavkobojanic/kobra` **public** the same day, enabled
 - Whether user declarations shadow names in the implicit imports; if they do, adding a name there isn't breaking.
 - Whether `dist/app` should be able to come from a slimmer runtime binary without the compiler ([architecture.md §14](../compiler/architecture.md#14-projects-commands-and-build-outputs)), which would add a second artifact per target.
 - How long a release candidate soaks (one week is assumed) once there are users to test it.
+
+## Windows: deferred (2026-11-23)
+
+The first release run was also the first time the suite ran on Windows, and about 470 tests failed there (line endings, paths, Unix-only test helpers). Windows is taken out of the release and nightly builds until the suite passes on it; 0.1 ships for Linux (x86_64, arm64) and macOS (Apple Silicon, attached locally). `install.ps1` stays, for when a Windows archive exists.
