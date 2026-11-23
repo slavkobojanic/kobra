@@ -116,6 +116,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+      # stage3_server runs the `k` binary itself.
+      - run: cargo build -p k_cli
       - run: cargo test -p k_db -p k_server
         env:
           K_TEST_POSTGRES_URL: postgres://postgres:k@127.0.0.1:5432/k_test
@@ -189,7 +191,7 @@ jobs:
           cache: fuzz
       - run: cargo install cargo-fuzz --locked
       - run: fuzz/seed-corpus.sh
-      - run: cargo +nightly fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} -- -runs=0
+      - run: cargo +nightly fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} -- -runs=0 -detect_leaks=0
 
   # On the performance runner (K_PERF_RUNNER); without one the release
   # manager runs it by hand and records the numbers (release.md §6).
@@ -351,6 +353,7 @@ jobs:
           node-version: 22
       - run: npm ci
         working-directory: editors/vscode
+      - run: mkdir -p target/dist
       - run: npx --yes @vscode/vsce@3 package --out ../../target/dist/
         working-directory: editors/vscode
       - uses: actions/upload-artifact@v4

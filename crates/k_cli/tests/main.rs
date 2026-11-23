@@ -80,6 +80,7 @@ mod firefox;
 mod fix;
 mod fmt;
 mod install_script;
+#[cfg(unix)]
 mod kubernetes;
 mod lsp;
 mod new;
