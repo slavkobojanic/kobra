@@ -74,6 +74,7 @@ Kobra borrows ideas, not syntax. Where another language does something well, Kob
 | 54 | Offline and installable apps | [54-offline.md](54-offline.md) |
 | 55 | Workers | [55-workers.md](55-workers.md) |
 | 56 | The formatter | [56-formatter.md](56-formatter.md) |
+| 57 | Previews | [57-previews.md](57-previews.md) |
 
 ## Decisions still open
 
